@@ -5,7 +5,8 @@ go 1.20
 require (
 	cloud.google.com/go/pubsub v1.28.0
 	cloud.google.com/go/pubsublite v1.6.0
-	github.com/elastic/apm-data v0.1.1-0.20230223061150-9b6fe7641eb7
+	github.com/elastic/apm-data v0.1.1-0.20230223083125-b7f31c1a6768
+	github.com/stretchr/testify v1.8.1
 	github.com/twmb/franz-go v1.12.1
 	github.com/twmb/franz-go/plugin/kzap v1.1.1
 	go.uber.org/zap v1.24.0
@@ -29,7 +30,7 @@ require (
 	github.com/pierrec/lz4/v4 v4.1.15 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
-	github.com/stretchr/testify v1.8.1 // indirect
+	github.com/rogpeppe/go-internal v1.9.0 // indirect
 	github.com/twmb/franz-go/pkg/kmsg v1.4.0 // indirect
 	go.elastic.co/fastjson v1.1.0 // indirect
 	go.opencensus.io v0.24.0 // indirect
