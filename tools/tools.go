@@ -24,6 +24,7 @@ import (
 	_ "golang.org/x/tools/cmd/goimports"   // go.mod
 	_ "honnef.co/go/tools/cmd/staticcheck" // go.mod
 
-	_ "github.com/elastic/go-licenser"    // go.mod
 	_ "go.elastic.co/go-licence-detector" // go.mod
+
+	_ "github.com/elastic/go-licenser" // go.mod
 )
