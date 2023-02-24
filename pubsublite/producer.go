@@ -111,7 +111,6 @@ func (p *Producer) ProcessBatch(ctx context.Context, batch *model.Batch) error {
 	if !ok {
 		return errors.New("project ID missing")
 	}
-	attributes := map[string]string{"project_id": projectID}
 	var responses []*pubsub.PublishResult
 	p.mu.RLock()
 	defer p.mu.RUnlock()
@@ -126,7 +125,11 @@ func (p *Producer) ProcessBatch(ctx context.Context, batch *model.Batch) error {
 			return err
 		}
 		responses = append(responses, p.producer.Publish(ctx, &pubsub.Message{
-			Attributes: attributes, Data: encoded,
+			Attributes: map[string]string{
+				"project_id": projectID,
+				"processor":  event.Processor.Event,
+			},
+			Data: encoded,
 		}))
 	}
 	// NOTE(marclop) should the error be returned to the client? Does it care?

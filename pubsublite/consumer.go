@@ -26,10 +26,11 @@ import (
 
 	"cloud.google.com/go/pubsub"
 	"cloud.google.com/go/pubsublite/pscompat"
-	"github.com/elastic/apm-data/model"
-	"github.com/elastic/apm-queue/queuecontext"
 	"go.uber.org/zap"
 	"google.golang.org/api/option"
+
+	"github.com/elastic/apm-data/model"
+	"github.com/elastic/apm-queue/queuecontext"
 )
 
 // ConsumerConfig defines the configuration for the Kafka consumer.
