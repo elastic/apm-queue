@@ -19,7 +19,6 @@ package kafka
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
@@ -29,6 +28,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/elastic/apm-data/model"
+	"github.com/elastic/apm-queue/encoding"
 	"github.com/elastic/apm-queue/queuecontext"
 )
 
@@ -46,6 +46,8 @@ type ConsumerConfig struct {
 	// Version is the software version to use in the Kafka client. This is
 	// useful since it shows up in Kafka metrics and logs.
 	Version string
+	// Codec for a specific encoding.
+	Codec encoding.Codec
 
 	// Logger to use for any errors.
 	Logger *zap.Logger
@@ -64,6 +66,9 @@ func (cfg ConsumerConfig) Validate() error {
 	}
 	if cfg.GroupID == "" {
 		errs = append(errs, errors.New("kafka: consumer GroupID must be set"))
+	}
+	if cfg.Codec == nil {
+		errs = append(errs, errors.New("kafka: codec must be set"))
 	}
 	if cfg.Logger == nil {
 		errs = append(errs, errors.New("kafka: logger must be set"))
@@ -156,7 +161,8 @@ func (c *Consumer) fetch(ctx context.Context) error {
 			}
 		}
 		var event model.APMEvent
-		if err := json.Unmarshal(msg.Value, &event); err != nil {
+		if err := c.cfg.Codec.Decode(msg.Value, &event); err != nil {
+			// TODO(marclop) DLQ?
 			c.cfg.Logger.Error("unable to unmarshal json into model.APMEvent",
 				zap.Error(err),
 				zap.String("topic", msg.Topic),

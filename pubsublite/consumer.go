@@ -19,7 +19,6 @@ package pubsublite
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
@@ -30,18 +29,16 @@ import (
 	"google.golang.org/api/option"
 
 	"github.com/elastic/apm-data/model"
+	"github.com/elastic/apm-queue/encoding"
 	"github.com/elastic/apm-queue/queuecontext"
 )
 
-// ConsumerConfig defines the configuration for the Kafka consumer.
+// ConsumerConfig defines the configuration for the PubSub Lite consumer.
 type ConsumerConfig struct {
-	// Project where the topic is located.
-	Project string
-	// Region where the topic is located.
-	Region string
-	// SubscriptionID to join as part of the subscriber group.
-	SubscriptionID string
-
+	// PubSub Lite subscription.
+	Subscription Subscription
+	// Codec for a specific encoding.
+	Codec encoding.Codec
 	// Logger to use for any errors.
 	Logger *zap.Logger
 	// Processor that will be used to process each event individually.
@@ -49,17 +46,45 @@ type ConsumerConfig struct {
 	ClientOpts []option.ClientOption
 }
 
+// Subscription represents a PubSub Lite subscription.
+type Subscription struct {
+	// Project where the subscription is located.
+	Project string
+	// Region where the subscription is located.
+	Region string
+	// Name/ID of the subscription.
+	Name string
+}
+
+func (s Subscription) String() string {
+	return fmt.Sprintf("projects/%s/locations/%s/subscriptions/%s",
+		s.Project, s.Region, s.Name,
+	)
+}
+
+// Validate ensures the subscription is valid.
+func (s Subscription) Validate() error {
+	var errs []error
+	if s.Name == "" {
+		errs = append(errs, errors.New("pubsublite: subscription: name must be set"))
+	}
+	if s.Project == "" {
+		errs = append(errs, errors.New("pubsublite: subscription: project must be set"))
+	}
+	if s.Region == "" {
+		errs = append(errs, errors.New("pubsublite: subscription: region must be set"))
+	}
+	return errors.Join(errs...)
+}
+
 // Validate ensures the configuration is valid, otherwise, returns an error.
 func (cfg ConsumerConfig) Validate() error {
 	var errs []error
-	if cfg.SubscriptionID == "" {
-		errs = append(errs, errors.New("pubsublite: subscriptionID must be set"))
+	if err := cfg.Subscription.Validate(); err != nil {
+		errs = append(errs, err)
 	}
-	if cfg.Project == "" {
-		errs = append(errs, errors.New("pubsublite: project must be set"))
-	}
-	if cfg.Region == "" {
-		errs = append(errs, errors.New("pubsublite: region must be set"))
+	if cfg.Codec == nil {
+		errs = append(errs, errors.New("pubsublite: codec must be set"))
 	}
 	if cfg.Logger == nil {
 		errs = append(errs, errors.New("pubsublite: logger must be set"))
@@ -73,7 +98,7 @@ func (cfg ConsumerConfig) Validate() error {
 // Consumer receives PubSub Lite messages from an existing subscription. The
 // underlying library processes messages concurrently for each partition.
 type Consumer struct {
-	mu             sync.RWMutex
+	mu             sync.Mutex
 	cfg            ConsumerConfig
 	consumer       *pscompat.SubscriberClient
 	stopSubscriber context.CancelFunc
@@ -84,14 +109,32 @@ func NewConsumer(ctx context.Context, cfg ConsumerConfig) (*Consumer, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
-	topic := fmt.Sprintf("projects/%s/locations/%s/subscriptions/%s",
-		cfg.Project, cfg.Region, cfg.SubscriptionID,
+	cfg.Logger = cfg.Logger.With(zap.String("subscription", cfg.Subscription.String()))
+	settings := pscompat.ReceiveSettings{
+		// Pub/Sub Lite does not have a concept of 'nack'. If the nack handler
+		// implementation returns nil, the message is acknowledged. If an error
+		// is returned, it's considered a fatal error and the client terminates.
+		// In Pub/Sub Lite, only a single subscriber for a given subscription
+		// is connected to any partition at a time, and there is no other client
+		// that may be able to handle messages.
+		NackHandler: func(msg *pubsub.Message) error {
+			// TODO(marclop) DLQ?
+			partition, offset := partitionOffset(msg.ID)
+			projectID := msg.Attributes["project_id"]
+			cfg.Logger.Error("handling nacked message",
+				zap.Int("partition", partition),
+				zap.Int64("offset", offset),
+				zap.String("project_id", projectID),
+			)
+			return nil // nil is returned to avoid terminating the subscriber.
+		},
+	}
+	consumer, err := pscompat.NewSubscriberClientWithSettings(
+		ctx, cfg.Subscription.String(), settings, cfg.ClientOpts...,
 	)
-	consumer, err := pscompat.NewSubscriberClient(ctx, topic, cfg.ClientOpts...)
 	if err != nil {
 		return nil, err
 	}
-	cfg.Logger = cfg.Logger.With(zap.String("subscription", cfg.SubscriptionID))
 	return &Consumer{
 		cfg:      cfg,
 		consumer: consumer,
@@ -106,7 +149,8 @@ func (c *Consumer) Close() error {
 	return nil
 }
 
-// Run executes the consumer in a blocking manner.
+// Run executes the consumer in a blocking manner. It should only be called once,
+// any subsequent calls will return an error.
 func (c *Consumer) Run(ctx context.Context) error {
 	c.mu.Lock()
 	if c.stopSubscriber != nil {
@@ -119,14 +163,14 @@ func (c *Consumer) Run(ctx context.Context) error {
 		projectID := msg.Attributes["project_id"]
 		ctx = queuecontext.WithProject(ctx, projectID)
 		var event model.APMEvent
-		if err := json.Unmarshal(msg.Data, &event); err != nil {
+		if err := c.cfg.Codec.Decode(msg.Data, &event); err != nil {
 			defer msg.Nack()
-			meta, _ := pscompat.ParseMessageMetadata(msg.ID)
+			partition, offset := partitionOffset(msg.ID)
 			c.cfg.Logger.Error("unable to unmarshal json into model.APMEvent",
 				zap.Error(err),
 				zap.ByteString("message.value", msg.Data),
-				zap.Int64("offset", meta.Offset),
-				zap.Int32("partition", int32(meta.Partition)),
+				zap.Int64("offset", offset),
+				zap.Int("partition", partition),
 				zap.String("project_id", projectID),
 			)
 			return
@@ -134,11 +178,11 @@ func (c *Consumer) Run(ctx context.Context) error {
 		batch := model.Batch{event}
 		if err := c.cfg.Processor.ProcessBatch(ctx, &batch); err != nil {
 			defer msg.Nack()
-			meta, _ := pscompat.ParseMessageMetadata(msg.ID)
+			partition, offset := partitionOffset(msg.ID)
 			c.cfg.Logger.Error("unable to process event",
 				zap.Error(err),
-				zap.Int64("offset", meta.Offset),
-				zap.Int32("partition", int32(meta.Partition)),
+				zap.Int64("offset", offset),
+				zap.Int("partition", partition),
 				zap.String("project_id", projectID),
 			)
 			return
@@ -150,4 +194,13 @@ func (c *Consumer) Run(ctx context.Context) error {
 // Healthy returns an error if the consumer isn't healthy.
 func (c *Consumer) Healthy() error {
 	return nil // TODO(marclop)
+}
+
+// Parses the message partition and offset. If the metadata can't be parsed,
+// zero values are returned.
+func partitionOffset(id string) (partition int, offset int64) {
+	if meta, _ := pscompat.ParseMessageMetadata(id); meta != nil {
+		partition, offset = meta.Partition, meta.Offset
+	}
+	return
 }

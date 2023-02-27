@@ -19,7 +19,6 @@ package pubsublite
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
@@ -30,33 +29,60 @@ import (
 	"google.golang.org/api/option"
 
 	"github.com/elastic/apm-data/model"
+	"github.com/elastic/apm-queue/encoding"
 	"github.com/elastic/apm-queue/queuecontext"
 )
 
-// ProducerConfig for the Producer.
+// ProducerConfig for the PubSub Lite producer.
 type ProducerConfig struct {
-	// Topic where events are produced.
-	Topic string
-	// Project where the topic is located.
-	Project string
-	// Region where the topic is located.
-	Region string
+	// Topic is the PubSub Lite topic.
+	Topic Topic
+	// Codec for a specific encoding.
+	Codec encoding.Codec
 	// Logger for the producer.
 	Logger     *zap.Logger
 	ClientOpts []option.ClientOption
 }
 
+// Topic represents a PubSub Lite topic.
+type Topic struct {
+	// Project where the topic is located.
+	Project string
+	// Region where the topic is located.
+	Region string
+	// Name/ID of the topic.
+	Name string
+}
+
+func (s Topic) String() string {
+	return fmt.Sprintf("projects/%s/locations/%s/topics/%s",
+		s.Project, s.Region, s.Name,
+	)
+}
+
+// Validate ensures the topic is valid.
+func (s Topic) Validate() error {
+	var errs []error
+	if s.Name == "" {
+		errs = append(errs, errors.New("pubsublite: topic: name must be set"))
+	}
+	if s.Project == "" {
+		errs = append(errs, errors.New("pubsublite: topic: project must be set"))
+	}
+	if s.Region == "" {
+		errs = append(errs, errors.New("pubsublite: topic: region must be set"))
+	}
+	return errors.Join(errs...)
+}
+
 // Validate ensures the configuration is valid, otherwise, returns an error.
 func (cfg ProducerConfig) Validate() error {
 	var errs []error
-	if cfg.Topic == "" {
-		errs = append(errs, errors.New("pubsublite: topic must be set"))
+	if err := cfg.Topic.Validate(); err != nil {
+		errs = append(errs, err)
 	}
-	if cfg.Project == "" {
-		errs = append(errs, errors.New("pubsublite: project must be set"))
-	}
-	if cfg.Region == "" {
-		errs = append(errs, errors.New("pubsublite: region must be set"))
+	if cfg.Codec == nil {
+		errs = append(errs, errors.New("pubsublite: codec must be set"))
 	}
 	if cfg.Logger == nil {
 		errs = append(errs, errors.New("pubsublite: logger must be set"))
@@ -78,17 +104,18 @@ func NewProducer(ctx context.Context, cfg ProducerConfig) (*Producer, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
-	topic := fmt.Sprintf("projects/%s/locations/%s/topics/%s",
-		cfg.Project, cfg.Region, cfg.Topic,
-	)
 	// TODO(marclop) connection pools:
 	// https://pkg.go.dev/cloud.google.com/go/pubsublite#hdr-gRPC_Connection_Pools
-	// TODO(marclop) tune settings using NewPublisherClientWithSettings.
-	publisher, err := pscompat.NewPublisherClient(ctx, topic, cfg.ClientOpts...)
+	settings := pscompat.PublishSettings{
+		// TODO(marclop) tweak producing settings, (maybe) key extractor.
+	}
+	publisher, err := pscompat.NewPublisherClientWithSettings(
+		ctx, cfg.Topic.String(), settings, cfg.ClientOpts...,
+	)
 	if err != nil {
 		return nil, err
 	}
-	cfg.Logger = cfg.Logger.With(zap.String("topic", cfg.Topic))
+	cfg.Logger = cfg.Logger.With(zap.String("topic", cfg.Topic.Name))
 	return &Producer{
 		cfg:      cfg,
 		producer: publisher,
@@ -120,7 +147,7 @@ func (p *Producer) ProcessBatch(ctx context.Context, batch *model.Batch) error {
 	default:
 	}
 	for _, event := range *batch {
-		encoded, err := json.Marshal(event)
+		encoded, err := p.cfg.Codec.Encode(event)
 		if err != nil {
 			return err
 		}
