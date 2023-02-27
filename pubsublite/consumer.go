@@ -37,8 +37,8 @@ import (
 type ConsumerConfig struct {
 	// PubSub Lite subscription.
 	Subscription Subscription
-	// Codec for a specific encoding.
-	Codec encoding.Codec
+	// Decoder holds an encoding.Decoder for decoding events.
+	Decoder encoding.Decoder
 	// Logger to use for any errors.
 	Logger *zap.Logger
 	// Processor that will be used to process each event individually.

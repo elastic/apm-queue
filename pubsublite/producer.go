@@ -37,8 +37,8 @@ import (
 type ProducerConfig struct {
 	// Topic is the PubSub Lite topic.
 	Topic Topic
-	// Codec for a specific encoding.
-	Codec encoding.Codec
+	// Encoder holds an encoding.Encoder for encoding events.
+	Encoder encoding.Encoder
 	// Logger for the producer.
 	Logger     *zap.Logger
 	ClientOpts []option.ClientOption
