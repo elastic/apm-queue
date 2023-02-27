@@ -29,16 +29,21 @@ import (
 	"google.golang.org/api/option"
 
 	"github.com/elastic/apm-data/model"
-	"github.com/elastic/apm-queue/encoding"
 	"github.com/elastic/apm-queue/queuecontext"
 )
+
+// Encoder encodes a model.APMEvent to a []byte
+type Encoder interface {
+	// Encode accepts a model.APMEvent and returns the encoded representation.
+	Encode(model.APMEvent) ([]byte, error)
+}
 
 // ProducerConfig for the PubSub Lite producer.
 type ProducerConfig struct {
 	// Topic is the PubSub Lite topic.
 	Topic Topic
 	// Encoder holds an encoding.Encoder for encoding events.
-	Encoder encoding.Encoder
+	Encoder Encoder
 	// Logger for the producer.
 	Logger     *zap.Logger
 	ClientOpts []option.ClientOption
@@ -81,8 +86,8 @@ func (cfg ProducerConfig) Validate() error {
 	if err := cfg.Topic.Validate(); err != nil {
 		errs = append(errs, err)
 	}
-	if cfg.Codec == nil {
-		errs = append(errs, errors.New("pubsublite: codec must be set"))
+	if cfg.Encoder == nil {
+		errs = append(errs, errors.New("pubsublite: encoder must be set"))
 	}
 	if cfg.Logger == nil {
 		errs = append(errs, errors.New("pubsublite: logger must be set"))
@@ -147,7 +152,7 @@ func (p *Producer) ProcessBatch(ctx context.Context, batch *model.Batch) error {
 	default:
 	}
 	for _, event := range *batch {
-		encoded, err := p.cfg.Codec.Encode(event)
+		encoded, err := p.cfg.Encoder.Encode(event)
 		if err != nil {
 			return err
 		}

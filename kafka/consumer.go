@@ -28,9 +28,14 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/elastic/apm-data/model"
-	"github.com/elastic/apm-queue/encoding"
 	"github.com/elastic/apm-queue/queuecontext"
 )
+
+// Decoder decodes a []byte into a model.APMEvent
+type Decoder interface {
+	// Decode decodes an encoded model.APM Event into its struct form.
+	Decode([]byte, *model.APMEvent) error
+}
 
 // ConsumerConfig defines the configuration for the Kafka consumer.
 type ConsumerConfig struct {
@@ -47,7 +52,7 @@ type ConsumerConfig struct {
 	// useful since it shows up in Kafka metrics and logs.
 	Version string
 	// Decoder holds an encoding.Decoder for decoding events.
-	Decoder encoding.Decoder
+	Decoder Decoder
 
 	// Logger to use for any errors.
 	Logger *zap.Logger
@@ -67,8 +72,8 @@ func (cfg ConsumerConfig) Validate() error {
 	if cfg.GroupID == "" {
 		errs = append(errs, errors.New("kafka: consumer GroupID must be set"))
 	}
-	if cfg.Codec == nil {
-		errs = append(errs, errors.New("kafka: codec must be set"))
+	if cfg.Decoder == nil {
+		errs = append(errs, errors.New("kafka: decoder must be set"))
 	}
 	if cfg.Logger == nil {
 		errs = append(errs, errors.New("kafka: logger must be set"))
@@ -161,7 +166,7 @@ func (c *Consumer) fetch(ctx context.Context) error {
 			}
 		}
 		var event model.APMEvent
-		if err := c.cfg.Codec.Decode(msg.Value, &event); err != nil {
+		if err := c.cfg.Decoder.Decode(msg.Value, &event); err != nil {
 			// TODO(marclop) DLQ?
 			c.cfg.Logger.Error("unable to unmarshal json into model.APMEvent",
 				zap.Error(err),

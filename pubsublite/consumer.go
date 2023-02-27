@@ -29,16 +29,21 @@ import (
 	"google.golang.org/api/option"
 
 	"github.com/elastic/apm-data/model"
-	"github.com/elastic/apm-queue/encoding"
 	"github.com/elastic/apm-queue/queuecontext"
 )
+
+// Decoder decodes a []byte into a model.APMEvent
+type Decoder interface {
+	// Decode decodes an encoded model.APM Event into its struct form.
+	Decode([]byte, *model.APMEvent) error
+}
 
 // ConsumerConfig defines the configuration for the PubSub Lite consumer.
 type ConsumerConfig struct {
 	// PubSub Lite subscription.
 	Subscription Subscription
 	// Decoder holds an encoding.Decoder for decoding events.
-	Decoder encoding.Decoder
+	Decoder Decoder
 	// Logger to use for any errors.
 	Logger *zap.Logger
 	// Processor that will be used to process each event individually.
@@ -83,8 +88,8 @@ func (cfg ConsumerConfig) Validate() error {
 	if err := cfg.Subscription.Validate(); err != nil {
 		errs = append(errs, err)
 	}
-	if cfg.Codec == nil {
-		errs = append(errs, errors.New("pubsublite: codec must be set"))
+	if cfg.Decoder == nil {
+		errs = append(errs, errors.New("pubsublite: decoder must be set"))
 	}
 	if cfg.Logger == nil {
 		errs = append(errs, errors.New("pubsublite: logger must be set"))
@@ -163,7 +168,7 @@ func (c *Consumer) Run(ctx context.Context) error {
 		projectID := msg.Attributes["project_id"]
 		ctx = queuecontext.WithProject(ctx, projectID)
 		var event model.APMEvent
-		if err := c.cfg.Codec.Decode(msg.Data, &event); err != nil {
+		if err := c.cfg.Decoder.Decode(msg.Data, &event); err != nil {
 			defer msg.Nack()
 			partition, offset := partitionOffset(msg.ID)
 			c.cfg.Logger.Error("unable to unmarshal json into model.APMEvent",

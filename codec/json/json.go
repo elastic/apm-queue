@@ -15,25 +15,24 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// Package encoding provides codecs for different []byte encoders and decoders.
-package encoding
+// Package json provides a JSON encoder/decoder.
+package json
 
-import "github.com/elastic/apm-data/model"
+import (
+	"encoding/json"
 
-// Codec for a specific encoding.
-type Codec interface {
-	Encoder
-	Decoder
+	"github.com/elastic/apm-data/model"
+)
+
+// JSON wraps the standard json library.
+type JSON struct{}
+
+// Encode accepts a model.APMEvent and returns the encoded JSON representation.
+func (e JSON) Encode(in model.APMEvent) ([]byte, error) {
+	return json.Marshal(in)
 }
 
-// Encoder encodes a model.APMEvent to a []byte
-type Encoder interface {
-	// Encode accepts a model.APMEvent and returns the encoded representation.
-	Encode(model.APMEvent) ([]byte, error)
-}
-
-// Decoder decodes a []byte into a model.APMEvent
-type Decoder interface {
-	// Decode decodes an encoded model.APM Event into its struct form.
-	Decode([]byte, *model.APMEvent) error
+// Decode decodes an encoded model.APM Event into its struct form.
+func (e JSON) Decode(in []byte, out *model.APMEvent) error {
+	return json.Unmarshal(in, out)
 }
