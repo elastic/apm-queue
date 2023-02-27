@@ -28,3 +28,37 @@ func TestNewProducer(t *testing.T) {
 	_, err := NewProducer(context.Background(), ProducerConfig{})
 	assert.Error(t, err)
 }
+
+func TestTopicString(t *testing.T) {
+	tests := []struct {
+		Project string
+		Region  string
+		Name    string
+		want    string
+	}{
+		{
+			Name:    "topic1",
+			Region:  "us-east1",
+			Project: "aproject",
+
+			want: "projects/aproject/locations/us-east1/topics/topic1",
+		},
+		{
+			Name:    "topic2",
+			Region:  "us-west2",
+			Project: "anotherproject",
+
+			want: "projects/anotherproject/locations/us-west2/topics/topic2",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.want, func(t *testing.T) {
+			topic := Topic{
+				Project: tt.Project,
+				Region:  tt.Region,
+				Name:    tt.Name,
+			}
+			assert.Equal(t, tt.want, topic.String())
+		})
+	}
+}
