@@ -16,24 +16,24 @@
 // under the License.
 
 // Package queuecontext provides convenient wrappers for storing and
-// accessing a stored project identifier.
+// accessing a stored metadata.
 package queuecontext
 
 import "context"
 
-type projectIDKey struct{}
+type metadataKey struct{}
 
-// WithProject enriches a context with a project.
-func WithProject(ctx context.Context, project string) context.Context {
-	return context.WithValue(ctx, projectIDKey{}, project)
+// WithMetadata enriches a context with metadata.
+func WithMetadata(ctx context.Context, metadata map[string]string) context.Context {
+	return context.WithValue(ctx, metadataKey{}, metadata)
 }
 
-// ProjectFromContext returns the project ID from the passed context and a bool
+// MetadataFromContext returns the metadata from the passed context and a bool
 // indicating whether the value is present or not.
-func ProjectFromContext(ctx context.Context) (string, bool) {
-	if v := ctx.Value(projectIDKey{}); v != nil {
-		project, ok := v.(string)
-		return project, ok
+func MetadataFromContext(ctx context.Context) (map[string]string, bool) {
+	if v := ctx.Value(metadataKey{}); v != nil {
+		metadata, ok := v.(map[string]string)
+		return metadata, ok
 	}
-	return "", false
+	return nil, false
 }

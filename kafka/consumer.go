@@ -158,32 +158,30 @@ func (c *Consumer) fetch(ctx context.Context) error {
 		)
 	})
 	fetches.EachRecord(func(msg *kgo.Record) {
-		ctx := context.Background()
-		for _, h := range msg.Headers {
-			if h.Key == "project_id" {
-				ctx = queuecontext.WithProject(ctx, string(h.Value))
-				break
-			}
-		}
 		var event model.APMEvent
 		if err := c.cfg.Decoder.Decode(msg.Value, &event); err != nil {
 			// TODO(marclop) DLQ?
-			c.cfg.Logger.Error("unable to unmarshal json into model.APMEvent",
+			c.cfg.Logger.Error("unable to decode message.Value into model.APMEvent",
 				zap.Error(err),
 				zap.String("topic", msg.Topic),
 				zap.ByteString("message.value", msg.Value),
 				zap.Int64("offset", msg.Offset),
-				zap.Int32("partition", int32(msg.Partition)),
+				zap.Int32("partition", msg.Partition),
 			)
 			return
 		}
+		meta := make(map[string]string)
+		for _, h := range msg.Headers {
+			meta[h.Key] = string(h.Value)
+		}
+		ctx = queuecontext.WithMetadata(context.Background(), meta)
 		batch := model.Batch{event}
 		if err := c.cfg.Processor.ProcessBatch(ctx, &batch); err != nil {
 			c.cfg.Logger.Error("unable to process event",
 				zap.Error(err),
 				zap.String("topic", msg.Topic),
 				zap.Int64("offset", msg.Offset),
-				zap.Int32("partition", int32(msg.Partition)),
+				zap.Int32("partition", msg.Partition),
 			)
 			return
 		}
