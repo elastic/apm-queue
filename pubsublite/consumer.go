@@ -128,7 +128,7 @@ func NewConsumer(ctx context.Context, cfg ConsumerConfig) (*Consumer, error) {
 			cfg.Logger.Error("handling nacked message",
 				zap.Int("partition", partition),
 				zap.Int64("offset", offset),
-				zap.Any("project_id", msg.Attributes),
+				zap.Any("attributes", msg.Attributes),
 			)
 			return nil // nil is returned to avoid terminating the subscriber.
 		},

@@ -159,6 +159,10 @@ func (c *Consumer) fetch(ctx context.Context) error {
 	})
 	fetches.EachRecord(func(msg *kgo.Record) {
 		var event model.APMEvent
+		meta := make(map[string]string)
+		for _, h := range msg.Headers {
+			meta[h.Key] = string(h.Value)
+		}
 		if err := c.cfg.Decoder.Decode(msg.Value, &event); err != nil {
 			// TODO(marclop) DLQ?
 			c.cfg.Logger.Error("unable to decode message.Value into model.APMEvent",
@@ -167,12 +171,9 @@ func (c *Consumer) fetch(ctx context.Context) error {
 				zap.ByteString("message.value", msg.Value),
 				zap.Int64("offset", msg.Offset),
 				zap.Int32("partition", msg.Partition),
+				zap.Any("headers", meta),
 			)
 			return
-		}
-		meta := make(map[string]string)
-		for _, h := range msg.Headers {
-			meta[h.Key] = string(h.Value)
 		}
 		ctx = queuecontext.WithMetadata(context.Background(), meta)
 		batch := model.Batch{event}
@@ -182,6 +183,7 @@ func (c *Consumer) fetch(ctx context.Context) error {
 				zap.String("topic", msg.Topic),
 				zap.Int64("offset", msg.Offset),
 				zap.Int32("partition", msg.Partition),
+				zap.Any("headers", meta),
 			)
 			return
 		}
