@@ -125,11 +125,10 @@ func NewConsumer(ctx context.Context, cfg ConsumerConfig) (*Consumer, error) {
 		NackHandler: func(msg *pubsub.Message) error {
 			// TODO(marclop) DLQ?
 			partition, offset := partitionOffset(msg.ID)
-			projectID := msg.Attributes["project_id"]
 			cfg.Logger.Error("handling nacked message",
 				zap.Int("partition", partition),
 				zap.Int64("offset", offset),
-				zap.String("project_id", projectID),
+				zap.Any("attributes", msg.Attributes),
 			)
 			return nil // nil is returned to avoid terminating the subscriber.
 		},
@@ -165,22 +164,20 @@ func (c *Consumer) Run(ctx context.Context) error {
 	ctx, c.stopSubscriber = context.WithCancel(ctx)
 	c.mu.Unlock()
 	return c.consumer.Receive(ctx, func(ctx context.Context, msg *pubsub.Message) {
-		projectID := msg.Attributes["project_id"]
-		ctx = queuecontext.WithProject(ctx, projectID)
 		var event model.APMEvent
 		if err := c.cfg.Decoder.Decode(msg.Data, &event); err != nil {
 			defer msg.Nack()
 			partition, offset := partitionOffset(msg.ID)
-			c.cfg.Logger.Error("unable to unmarshal json into model.APMEvent",
+			c.cfg.Logger.Error("unable to decode message.Data into model.APMEvent",
 				zap.Error(err),
 				zap.ByteString("message.value", msg.Data),
 				zap.Int64("offset", offset),
 				zap.Int("partition", partition),
-				zap.String("project_id", projectID),
 			)
 			return
 		}
 		batch := model.Batch{event}
+		ctx = queuecontext.WithMetadata(ctx, msg.Attributes)
 		if err := c.cfg.Processor.ProcessBatch(ctx, &batch); err != nil {
 			defer msg.Nack()
 			partition, offset := partitionOffset(msg.ID)
@@ -188,7 +185,6 @@ func (c *Consumer) Run(ctx context.Context) error {
 				zap.Error(err),
 				zap.Int64("offset", offset),
 				zap.Int("partition", partition),
-				zap.String("project_id", projectID),
 			)
 			return
 		}

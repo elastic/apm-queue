@@ -139,11 +139,6 @@ func (p *Producer) Close() error {
 
 // ProcessBatch processes a model.Batch.
 func (p *Producer) ProcessBatch(ctx context.Context, batch *model.Batch) error {
-	projectID, ok := queuecontext.ProjectFromContext(ctx)
-	if !ok {
-		return errors.New("project ID missing")
-	}
-	var responses []*pubsub.PublishResult
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	select {
@@ -151,25 +146,28 @@ func (p *Producer) ProcessBatch(ctx context.Context, batch *model.Batch) error {
 		return errors.New("producer closed")
 	default:
 	}
+	var responses []*pubsub.PublishResult
 	for _, event := range *batch {
 		encoded, err := p.cfg.Encoder.Encode(event)
 		if err != nil {
 			return err
 		}
-		responses = append(responses, p.producer.Publish(ctx, &pubsub.Message{
-			Attributes: map[string]string{
-				"project_id": projectID,
-				"processor":  event.Processor.Event,
-			},
-			Data: encoded,
-		}))
+		msg := pubsub.Message{Data: encoded}
+		if meta, ok := queuecontext.MetadataFromContext(ctx); ok {
+			for k, v := range meta {
+				if msg.Attributes == nil {
+					msg.Attributes = make(map[string]string)
+				}
+				msg.Attributes[k] = v
+			}
+		}
+		responses = append(responses, p.producer.Publish(ctx, &msg))
 	}
 	// NOTE(marclop) should the error be returned to the client? Does it care?
 	for _, res := range responses {
 		if serverID, err := res.Get(ctx); err != nil {
 			p.cfg.Logger.Error("failed producing message",
 				zap.Error(err),
-				zap.String("project_id", projectID),
 				zap.String("server_id", serverID),
 			)
 		}
