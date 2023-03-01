@@ -15,25 +15,24 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// Package queuecontext provides convenient wrappers for storing and
-// accessing a stored metadata.
-package queuecontext
+// Package json provides a JSON encoder/decoder.
+package json
 
-import "context"
+import (
+	"encoding/json"
 
-type metadataKey struct{}
+	"github.com/elastic/apm-data/model"
+)
 
-// WithMetadata enriches a context with metadata.
-func WithMetadata(ctx context.Context, metadata map[string]string) context.Context {
-	return context.WithValue(ctx, metadataKey{}, metadata)
+// JSON wraps the standard json library.
+type JSON struct{}
+
+// Encode accepts a model.APMEvent and returns the encoded JSON representation.
+func (e JSON) Encode(in model.APMEvent) ([]byte, error) {
+	return json.Marshal(in)
 }
 
-// MetadataFromContext returns the metadata from the passed context and a bool
-// indicating whether the value is present or not.
-func MetadataFromContext(ctx context.Context) (map[string]string, bool) {
-	if v := ctx.Value(metadataKey{}); v != nil {
-		metadata, ok := v.(map[string]string)
-		return metadata, ok
-	}
-	return nil, false
+// Decode decodes an encoded model.APM Event into its struct form.
+func (e JSON) Decode(in []byte, out *model.APMEvent) error {
+	return json.Unmarshal(in, out)
 }

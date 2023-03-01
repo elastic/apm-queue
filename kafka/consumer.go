@@ -19,7 +19,6 @@ package kafka
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
@@ -31,6 +30,12 @@ import (
 	"github.com/elastic/apm-data/model"
 	"github.com/elastic/apm-queue/queuecontext"
 )
+
+// Decoder decodes a []byte into a model.APMEvent
+type Decoder interface {
+	// Decode decodes an encoded model.APM Event into its struct form.
+	Decode([]byte, *model.APMEvent) error
+}
 
 // ConsumerConfig defines the configuration for the Kafka consumer.
 type ConsumerConfig struct {
@@ -46,6 +51,8 @@ type ConsumerConfig struct {
 	// Version is the software version to use in the Kafka client. This is
 	// useful since it shows up in Kafka metrics and logs.
 	Version string
+	// Decoder holds an encoding.Decoder for decoding events.
+	Decoder Decoder
 
 	// Logger to use for any errors.
 	Logger *zap.Logger
@@ -64,6 +71,9 @@ func (cfg ConsumerConfig) Validate() error {
 	}
 	if cfg.GroupID == "" {
 		errs = append(errs, errors.New("kafka: consumer GroupID must be set"))
+	}
+	if cfg.Decoder == nil {
+		errs = append(errs, errors.New("kafka: decoder must be set"))
 	}
 	if cfg.Logger == nil {
 		errs = append(errs, errors.New("kafka: logger must be set"))
@@ -148,31 +158,32 @@ func (c *Consumer) fetch(ctx context.Context) error {
 		)
 	})
 	fetches.EachRecord(func(msg *kgo.Record) {
-		ctx := context.Background()
-		for _, h := range msg.Headers {
-			if h.Key == "project_id" {
-				ctx = queuecontext.WithProject(ctx, string(h.Value))
-				break
-			}
-		}
 		var event model.APMEvent
-		if err := json.Unmarshal(msg.Value, &event); err != nil {
-			c.cfg.Logger.Error("unable to unmarshal json into model.APMEvent",
+		meta := make(map[string]string)
+		for _, h := range msg.Headers {
+			meta[h.Key] = string(h.Value)
+		}
+		if err := c.cfg.Decoder.Decode(msg.Value, &event); err != nil {
+			// TODO(marclop) DLQ?
+			c.cfg.Logger.Error("unable to decode message.Value into model.APMEvent",
 				zap.Error(err),
 				zap.String("topic", msg.Topic),
 				zap.ByteString("message.value", msg.Value),
 				zap.Int64("offset", msg.Offset),
-				zap.Int32("partition", int32(msg.Partition)),
+				zap.Int32("partition", msg.Partition),
+				zap.Any("headers", meta),
 			)
 			return
 		}
+		ctx = queuecontext.WithMetadata(context.Background(), meta)
 		batch := model.Batch{event}
 		if err := c.cfg.Processor.ProcessBatch(ctx, &batch); err != nil {
 			c.cfg.Logger.Error("unable to process event",
 				zap.Error(err),
 				zap.String("topic", msg.Topic),
 				zap.Int64("offset", msg.Offset),
-				zap.Int32("partition", int32(msg.Partition)),
+				zap.Int32("partition", msg.Partition),
+				zap.Any("headers", meta),
 			)
 			return
 		}
