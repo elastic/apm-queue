@@ -65,7 +65,8 @@ type ProducerConfig struct {
 	Sync bool
 
 	// Mutators holds the list of RecordMutator applied to all the records sent
-	// by the producer.
+	// by the producer. If any errors are returned, the producer will not
+	// produce and return the error in ProcessBatch.
 	Mutators []RecordMutator
 }
 
