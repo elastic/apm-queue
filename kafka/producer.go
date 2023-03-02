@@ -29,6 +29,7 @@ import (
 	"github.com/twmb/franz-go/plugin/kzap"
 
 	"github.com/elastic/apm-data/model"
+	"github.com/elastic/apm-queue/queuecontext"
 )
 
 // ProducerConfig holds configuration for publishing events to Kafka.
@@ -146,24 +147,28 @@ type ProjectIDKey struct{}
 
 // ProcessBatch publishes the events in batch to the specified Kafka topic.
 func (p *Producer) ProcessBatch(ctx context.Context, batch *model.Batch, wg *sync.WaitGroup) error {
-	projectID, ok := ctx.Value(ProjectIDKey{}).(string)
-	if !ok {
-		return errors.New("project ID missing")
-	}
-
 	// Take a read lock to prevent Close from closing the input channel
 	// while we're attempting to send to it.
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 
+	var headers []kgo.RecordHeader
+	if m, ok := queuecontext.MetadataFromContext(ctx); ok {
+		for k, v := range m {
+			headers = append(headers, kgo.RecordHeader{
+				Key:   k,
+				Value: []byte(v),
+			})
+		}
+	}
+
 	wg.Add(len(*batch))
 
 	for _, event := range *batch {
-		record := &kgo.Record{
-			Headers: []kgo.RecordHeader{{
-				Key:   "project_id",
-				Value: []byte(projectID),
-			}},
+		record := &kgo.Record{}
+
+		if len(headers) != 0 {
+			record.Headers = headers
 		}
 
 		switch event.Processor {
