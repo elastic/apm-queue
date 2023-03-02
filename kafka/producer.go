@@ -72,13 +72,14 @@ type ProducerConfig struct {
 
 // Validate checks that cfg is valid, and returns an error otherwise.
 func (cfg ProducerConfig) Validate() error {
+	var err []error
 	if cfg.Broker == "" {
-		return errors.New("broker cannot be empty")
+		err = append(err, errors.New("broker cannot be empty"))
 	}
 	if cfg.Logger == nil {
-		return errors.New("logger cannot be nil")
+		err = append(err, errors.New("logger cannot be nil"))
 	}
-	return nil
+	return errors.Join(err...)
 }
 
 // Producer is a model.BatchProcessor that publishes events to Kafka.
