@@ -32,6 +32,19 @@ import (
 	"github.com/elastic/apm-queue/queuecontext"
 )
 
+const (
+	// AtMostOnceDeliveryType acknowleges the message as soon as it's received
+	// and decoded, without waiting for the message to be processed.
+	AtMostOnceDeliveryType DeliveryType = iota
+	// AtLeastOnceDeliveryType acknowledges the message after it has been
+	// processed. It may or may not create duplicates, depending on how batches
+	// are processed by the underlying model.BatchProcessor.
+	AtLeastOnceDeliveryType
+)
+
+// DeliveryType for the consumer. For more details See the supported DeliveryTypes.
+type DeliveryType uint8
+
 // Decoder decodes a []byte into a model.APMEvent
 type Decoder interface {
 	// Decode decodes an encoded model.APM Event into its struct form.
@@ -47,7 +60,10 @@ type ConsumerConfig struct {
 	// Logger to use for any errors.
 	Logger *zap.Logger
 	// Processor that will be used to process each event individually.
-	Processor  model.BatchProcessor
+	Processor model.BatchProcessor
+	// Delivery mechanism to use to acknowledge the messages.
+	// AtMostOnceDeliveryType and AtLeastOnceDeliveryType are supported.
+	Delivery   DeliveryType
 	ClientOpts []option.ClientOption
 }
 
@@ -96,6 +112,11 @@ func (cfg ConsumerConfig) Validate() error {
 	}
 	if cfg.Processor == nil {
 		errs = append(errs, errors.New("pubsublite: processor must be set"))
+	}
+	switch cfg.Delivery {
+	case AtLeastOnceDeliveryType, AtMostOnceDeliveryType:
+	default:
+		errs = append(errs, errors.New("pubsublite: delivery is not valid"))
 	}
 	return errors.Join(errs...)
 }
@@ -178,8 +199,20 @@ func (c *Consumer) Run(ctx context.Context) error {
 		}
 		batch := model.Batch{event}
 		ctx = queuecontext.WithMetadata(ctx, msg.Attributes)
-		if err := c.cfg.Processor.ProcessBatch(ctx, &batch); err != nil {
-			defer msg.Nack()
+		var err error
+		switch c.cfg.Delivery {
+		case AtMostOnceDeliveryType:
+			msg.Ack()
+		case AtLeastOnceDeliveryType:
+			defer func() {
+				if err != nil {
+					defer msg.Nack()
+				} else {
+					defer msg.Ack()
+				}
+			}()
+		}
+		if err = c.cfg.Processor.ProcessBatch(ctx, &batch); err != nil {
 			partition, offset := partitionOffset(msg.ID)
 			c.cfg.Logger.Error("unable to process event",
 				zap.Error(err),
@@ -188,7 +221,6 @@ func (c *Consumer) Run(ctx context.Context) error {
 			)
 			return
 		}
-		msg.Ack()
 	})
 }
 
