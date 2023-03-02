@@ -32,6 +32,12 @@ import (
 	"github.com/elastic/apm-queue/queuecontext"
 )
 
+// Encoder encodes a model.APMEvent to a []byte
+type Encoder interface {
+	// Encode accepts a model.APMEvent and returns the encoded representation.
+	Encode(model.APMEvent) ([]byte, error)
+}
+
 type RecordMutator func(model.APMEvent, *kgo.Record) error
 
 // ProducerConfig holds configuration for publishing events to Kafka.
