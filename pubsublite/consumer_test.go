@@ -25,8 +25,17 @@ import (
 )
 
 func TestNewConsumer(t *testing.T) {
-	_, err := NewConsumer(context.Background(), ConsumerConfig{})
-	assert.Error(t, err)
+	t.Run("empty config", func(t *testing.T) {
+		_, err := NewConsumer(context.Background(), ConsumerConfig{})
+		assert.Error(t, err)
+	})
+	t.Run("invalid delivery type", func(t *testing.T) {
+		_, err := NewConsumer(context.Background(), ConsumerConfig{
+			Delivery: 100,
+		})
+		assert.Error(t, err)
+		assert.ErrorContains(t, err, "pubsublite: delivery is not valid")
+	})
 }
 
 func TestSubscriptionString(t *testing.T) {

@@ -29,6 +29,7 @@ import (
 	"google.golang.org/api/option"
 
 	"github.com/elastic/apm-data/model"
+	apmqueue "github.com/elastic/apm-queue"
 	"github.com/elastic/apm-queue/queuecontext"
 )
 
@@ -47,7 +48,10 @@ type ConsumerConfig struct {
 	// Logger to use for any errors.
 	Logger *zap.Logger
 	// Processor that will be used to process each event individually.
-	Processor  model.BatchProcessor
+	Processor model.BatchProcessor
+	// Delivery mechanism to use to acknowledge the messages.
+	// AtMostOnceDeliveryType and AtLeastOnceDeliveryType are supported.
+	Delivery   apmqueue.DeliveryType
 	ClientOpts []option.ClientOption
 }
 
@@ -96,6 +100,12 @@ func (cfg ConsumerConfig) Validate() error {
 	}
 	if cfg.Processor == nil {
 		errs = append(errs, errors.New("pubsublite: processor must be set"))
+	}
+	switch cfg.Delivery {
+	case apmqueue.AtLeastOnceDeliveryType:
+	case apmqueue.AtMostOnceDeliveryType:
+	default:
+		errs = append(errs, errors.New("pubsublite: delivery is not valid"))
 	}
 	return errors.Join(errs...)
 }
@@ -178,8 +188,20 @@ func (c *Consumer) Run(ctx context.Context) error {
 		}
 		batch := model.Batch{event}
 		ctx = queuecontext.WithMetadata(ctx, msg.Attributes)
-		if err := c.cfg.Processor.ProcessBatch(ctx, &batch); err != nil {
-			defer msg.Nack()
+		var err error
+		switch c.cfg.Delivery {
+		case apmqueue.AtMostOnceDeliveryType:
+			msg.Ack()
+		case apmqueue.AtLeastOnceDeliveryType:
+			defer func() {
+				if err != nil {
+					msg.Nack()
+				} else {
+					msg.Ack()
+				}
+			}()
+		}
+		if err = c.cfg.Processor.ProcessBatch(ctx, &batch); err != nil {
 			partition, offset := partitionOffset(msg.ID)
 			c.cfg.Logger.Error("unable to process event",
 				zap.Error(err),
@@ -188,7 +210,6 @@ func (c *Consumer) Run(ctx context.Context) error {
 			)
 			return
 		}
-		msg.Ack()
 	})
 }
 

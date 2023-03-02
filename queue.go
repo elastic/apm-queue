@@ -21,35 +21,22 @@ package apmqueue
 
 import (
 	"context"
-	"errors"
-	"strings"
 
 	"github.com/elastic/apm-data/model"
-	"github.com/elastic/apm-queue/kafka"
-	"github.com/elastic/apm-queue/pubsublite"
 )
 
 const (
-	_ QueueType = iota
-	// QueueTypeKafka defines the kafka queue type
-	QueueTypeKafka QueueType = iota
-	// QueueTypePubSubLite defines the PubSub Lite queue type.
-	QueueTypePubSubLite QueueType = iota
+	// AtMostOnceDeliveryType acknowledges the message as soon as it's received
+	// and decoded, without waiting for the message to be processed.
+	AtMostOnceDeliveryType DeliveryType = iota
+	// AtLeastOnceDeliveryType acknowledges the message after it has been
+	// processed. It may or may not create duplicates, depending on how batches
+	// are processed by the underlying model.BatchProcessor.
+	AtLeastOnceDeliveryType
 )
 
-// QueueType defines the type of queue to be used.
-type QueueType uint8
-
-func (t QueueType) String() string {
-	switch t {
-	case QueueTypeKafka:
-		return "kafka"
-	case QueueTypePubSubLite:
-		return "pubsublite"
-	default:
-		return ""
-	}
-}
+// DeliveryType for the consumer. For more details See the supported DeliveryTypes.
+type DeliveryType uint8
 
 // Consumer wraps the implementation details of the consumer implementation.
 type Consumer interface {
@@ -68,56 +55,4 @@ type Producer interface {
 	Healthy() error
 	// Close closes the producer.
 	Close() error
-}
-
-// ErrUnsupportedQueueType is returned when the queue type is not in the list
-// of supported queues.
-var ErrUnsupportedQueueType = errors.New("invalid queue type")
-
-// ParseQueueType returns the queue type
-func ParseQueueType(t string) (QueueType, error) {
-	switch strings.ToLower(t) {
-	case "kafka":
-		return QueueTypeKafka, nil
-	case "pubsublite":
-		return QueueTypePubSubLite, nil
-	default:
-		return 0, ErrUnsupportedQueueType
-	}
-}
-
-// ConsumerConfig wraps the different adapter consumer configs
-type ConsumerConfig struct {
-	Type       QueueType
-	Kafka      kafka.ConsumerConfig
-	PubSubLite pubsublite.ConsumerConfig
-}
-
-// NewConsumer creates a new consumer of the specified QueueType.
-func NewConsumer(cfg ConsumerConfig) (Consumer, error) {
-	switch cfg.Type {
-	case QueueTypeKafka:
-		return kafka.NewConsumer(cfg.Kafka)
-	case QueueTypePubSubLite:
-		return pubsublite.NewConsumer(context.Background(), cfg.PubSubLite)
-	}
-	return nil, ErrUnsupportedQueueType
-}
-
-// ProducerConfig wraps the different adapter producer configs
-type ProducerConfig struct {
-	Type       QueueType
-	Kafka      any // TODO(marclop)
-	PubSubLite pubsublite.ProducerConfig
-}
-
-// NewProducer creates a new producer of the specified QueueType.
-func NewProducer(cfg ProducerConfig) (Producer, error) {
-	switch cfg.Type {
-	case QueueTypeKafka:
-		// return kafka.NewProducer(cfg.Kafka)
-	case QueueTypePubSubLite:
-		return pubsublite.NewProducer(context.Background(), cfg.PubSubLite)
-	}
-	return nil, ErrUnsupportedQueueType
 }
