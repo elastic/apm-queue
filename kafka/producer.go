@@ -149,23 +149,15 @@ func (p *Producer) ProcessBatch(ctx context.Context, batch *model.Batch) error {
 	wg.Add(len(*batch))
 
 	for _, event := range *batch {
-		record := &kgo.Record{}
-
-		if len(headers) != 0 {
-			record.Headers = headers
-		}
-
+		record := &kgo.Record{Headers: headers}
 		for _, rm := range p.cfg.Mutators {
 			rm(event, record)
 		}
-
 		encoded, err := p.cfg.Encoder.Encode(event)
 		if err != nil {
 			return err
 		}
-
 		record.Value = encoded
-
 		p.client.Produce(ctx, record, func(msg *kgo.Record, err error) {
 			defer wg.Done()
 			if err != nil {
