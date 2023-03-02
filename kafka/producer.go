@@ -118,8 +118,8 @@ func (p *Producer) Close() error {
 
 // ProcessBatch publishes the events in batch to the specified Kafka topic.
 func (p *Producer) ProcessBatch(ctx context.Context, batch *model.Batch) error {
-	// Take a read lock to prevent Close from closing the input channel
-	// while we're attempting to send to it.
+	// Take a read lock to prevent Close from closing the client
+	// while we're attempting to produce records.
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 
