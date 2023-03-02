@@ -47,11 +47,6 @@ type ProducerConfig struct {
 	// useful since it shows up in Kafka metrics and logs.
 	Version string
 
-	// TopicPrefix holds the name of the Kafka topic prefix to which events
-	// should be published. The producer will send messages to 5 different
-	// topics using the <TopicPrefix>.<EventType> format.
-	TopicPrefix string
-
 	// Logger is used for logging producer errors.
 	Logger *zap.Logger
 
@@ -65,9 +60,6 @@ type ProducerConfig struct {
 func (cfg ProducerConfig) Validate() error {
 	if cfg.Broker == "" {
 		return errors.New("broker cannot be empty")
-	}
-	if cfg.TopicPrefix == "" {
-		return errors.New("topic cannot be empty")
 	}
 	if cfg.Logger == nil {
 		return errors.New("logger cannot be nil")
