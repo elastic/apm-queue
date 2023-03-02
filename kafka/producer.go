@@ -32,6 +32,8 @@ import (
 	"github.com/elastic/apm-queue/queuecontext"
 )
 
+type RecordMutator func(model.APMEvent, *kgo.Record) error
+
 // ProducerConfig holds configuration for publishing events to Kafka.
 type ProducerConfig struct {
 	// Broker holds the (host:port) address of the Kafka broker to which
@@ -56,24 +58,7 @@ type ProducerConfig struct {
 	// Sync can be used to indicate whether production should be synchronous.
 	Sync bool
 
-	// Key, if non-nil, is used to set the key for an event message.
-	//
-	// Producer uses murmur2 partitioning: consistent hashing over the
-	// message key, if it is non-nil; random partition assignment if the
-	// message has no key.
-	//
-	// If Key is nil, the message key will be set to the event's trace ID
-	// if there is one, and nil otherwise.
-	Key func(model.APMEvent) []byte
-
-	// TODO(axw) Kafka credentials
-
-	// Kafka topics to publish to.
-	txTopic     string
-	spanTopic   string
-	metricTopic string
-	errorTopic  string
-	logTopic    string
+	Mutators []RecordMutator
 }
 
 // Validate checks that cfg is valid, and returns an error otherwise.
@@ -125,12 +110,6 @@ func NewProducer(cfg ProducerConfig) (*Producer, error) {
 	// populated.
 	client.ForceMetadataRefresh()
 
-	cfg.txTopic = fmt.Sprintf("%s.transaction", cfg.TopicPrefix)
-	cfg.spanTopic = fmt.Sprintf("%s.span", cfg.TopicPrefix)
-	cfg.metricTopic = fmt.Sprintf("%s.metric", cfg.TopicPrefix)
-	cfg.errorTopic = fmt.Sprintf("%s.error", cfg.TopicPrefix)
-	cfg.logTopic = fmt.Sprintf("%s.log", cfg.TopicPrefix)
-
 	return &Producer{
 		cfg:    cfg,
 		client: client,
@@ -175,17 +154,8 @@ func (p *Producer) ProcessBatch(ctx context.Context, batch *model.Batch) error {
 			record.Headers = headers
 		}
 
-		switch event.Processor {
-		case model.TransactionProcessor:
-			record.Topic = p.cfg.txTopic
-		case model.SpanProcessor:
-			record.Topic = p.cfg.spanTopic
-		case model.ErrorProcessor:
-			record.Topic = p.cfg.errorTopic
-		case model.MetricsetProcessor:
-			record.Topic = p.cfg.metricTopic
-		case model.LogProcessor:
-			record.Topic = p.cfg.logTopic
+		for _, rm := range p.cfg.Mutators {
+			rm(event, record)
 		}
 
 		encoded, err := event.MarshalJSON()
@@ -194,13 +164,6 @@ func (p *Producer) ProcessBatch(ctx context.Context, batch *model.Batch) error {
 		}
 
 		record.Value = encoded
-		if p.cfg.Key != nil {
-			record.Key = p.cfg.Key(event)
-		} else if event.Trace.ID != "" {
-			// Set Key to Trace.ID if there is one. If there isn't,
-			// the message will be sent to a random partition.
-			record.Key = []byte(event.Trace.ID)
-		}
 
 		p.client.Produce(ctx, record, func(msg *kgo.Record, err error) {
 			defer wg.Done()
