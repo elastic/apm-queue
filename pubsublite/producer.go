@@ -38,15 +38,21 @@ type Encoder interface {
 	Encode(model.APMEvent) ([]byte, error)
 }
 
+// RouterFunc returns the topic to use for a given APMEvent.
+type RouterFunc func(model.APMEvent) Topic
+
 // ProducerConfig for the PubSub Lite producer.
 type ProducerConfig struct {
-	// Topic is the PubSub Lite topic.
-	Topic Topic
+	// Topics are the PubSub Lite topics where the messages will be produced.
+	// The routing is determined by the EventRouter.
+	Topics []Topic
 	// Encoder holds an encoding.Encoder for encoding events.
 	Encoder Encoder
 	// Logger for the producer.
-	Logger     *zap.Logger
-	ClientOpts []option.ClientOption
+	Logger *zap.Logger
+	// EventRouter returns the topic where an event should be produced.
+	EventRouter RouterFunc
+	ClientOpts  []option.ClientOption
 }
 
 // Topic represents a PubSub Lite topic.
@@ -59,22 +65,22 @@ type Topic struct {
 	Name string
 }
 
-func (s Topic) String() string {
+func (t Topic) String() string {
 	return fmt.Sprintf("projects/%s/locations/%s/topics/%s",
-		s.Project, s.Region, s.Name,
+		t.Project, t.Region, t.Name,
 	)
 }
 
 // Validate ensures the topic is valid.
-func (s Topic) Validate() error {
+func (t Topic) Validate() error {
 	var errs []error
-	if s.Name == "" {
+	if t.Name == "" {
 		errs = append(errs, errors.New("pubsublite: topic: name must be set"))
 	}
-	if s.Project == "" {
+	if t.Project == "" {
 		errs = append(errs, errors.New("pubsublite: topic: project must be set"))
 	}
-	if s.Region == "" {
+	if t.Region == "" {
 		errs = append(errs, errors.New("pubsublite: topic: region must be set"))
 	}
 	return errors.Join(errs...)
@@ -83,8 +89,15 @@ func (s Topic) Validate() error {
 // Validate ensures the configuration is valid, otherwise, returns an error.
 func (cfg ProducerConfig) Validate() error {
 	var errs []error
-	if err := cfg.Topic.Validate(); err != nil {
-		errs = append(errs, err)
+	if len(cfg.Topics) == 0 {
+		errs = append(errs,
+			errors.New("pubsublite: at least one topic must be set"),
+		)
+	}
+	for i, topic := range cfg.Topics {
+		if err := topic.Validate(); err != nil {
+			errs = append(errs, fmt.Errorf("%d: %w", i, err))
+		}
 	}
 	if cfg.Encoder == nil {
 		errs = append(errs, errors.New("pubsublite: encoder must be set"))
@@ -92,15 +105,19 @@ func (cfg ProducerConfig) Validate() error {
 	if cfg.Logger == nil {
 		errs = append(errs, errors.New("pubsublite: logger must be set"))
 	}
+	if cfg.EventRouter == nil {
+		errs = append(errs, errors.New("pubsublite: event router must be set"))
+	}
 	return errors.Join(errs...)
 }
 
 // Producer implementes the model.BatchProcessor interface and sends each of
-// the events in a batch to a PubSub Lite topic.
+// the events in a batch to a PubSub Lite topic, which is determined by calling
+// the configured EventRouter.
 type Producer struct {
 	mu       sync.RWMutex
 	cfg      ProducerConfig
-	producer *pscompat.PublisherClient
+	producer map[Topic]*pscompat.PublisherClient
 	closed   chan struct{}
 }
 
@@ -114,16 +131,19 @@ func NewProducer(ctx context.Context, cfg ProducerConfig) (*Producer, error) {
 	settings := pscompat.PublishSettings{
 		// TODO(marclop) tweak producing settings, (maybe) key extractor.
 	}
-	publisher, err := pscompat.NewPublisherClientWithSettings(
-		ctx, cfg.Topic.String(), settings, cfg.ClientOpts...,
-	)
-	if err != nil {
-		return nil, err
+	producers := make(map[Topic]*pscompat.PublisherClient)
+	for _, topic := range cfg.Topics {
+		publisher, err := pscompat.NewPublisherClientWithSettings(
+			ctx, topic.String(), settings, cfg.ClientOpts...,
+		)
+		if err != nil {
+			return nil, err
+		}
+		producers[topic] = publisher
 	}
-	cfg.Logger = cfg.Logger.With(zap.String("topic", cfg.Topic.Name))
 	return &Producer{
 		cfg:      cfg,
-		producer: publisher,
+		producer: producers,
 		closed:   make(chan struct{}),
 	}, nil
 }
@@ -132,7 +152,9 @@ func NewProducer(ctx context.Context, cfg ProducerConfig) (*Producer, error) {
 func (p *Producer) Close() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	p.producer.Stop()
+	for _, producer := range p.producer {
+		producer.Stop()
+	}
 	close(p.closed)
 	return nil
 }
@@ -143,7 +165,7 @@ func (p *Producer) ProcessBatch(ctx context.Context, batch *model.Batch) error {
 	defer p.mu.RUnlock()
 	select {
 	case <-p.closed:
-		return errors.New("producer closed")
+		return errors.New("pubsublite: producer closed")
 	default:
 	}
 	var responses []*pubsub.PublishResult
@@ -161,7 +183,12 @@ func (p *Producer) ProcessBatch(ctx context.Context, batch *model.Batch) error {
 				msg.Attributes[k] = v
 			}
 		}
-		responses = append(responses, p.producer.Publish(ctx, &msg))
+		topic := p.cfg.EventRouter(event)
+		producer, ok := p.producer[topic]
+		if !ok {
+			return fmt.Errorf("pubsublite: unable to find producer for %s", topic)
+		}
+		responses = append(responses, producer.Publish(ctx, &msg))
 	}
 	// NOTE(marclop) should the error be returned to the client? Does it care?
 	for _, res := range responses {
