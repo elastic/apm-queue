@@ -74,13 +74,13 @@ type ProducerConfig struct {
 func (cfg ProducerConfig) Validate() error {
 	var err []error
 	if cfg.Broker == "" {
-		err = append(err, errors.New("broker cannot be empty"))
+		err = append(err, errors.New("kafka: broker cannot be empty"))
 	}
 	if cfg.Logger == nil {
-		err = append(err, errors.New("logger cannot be nil"))
+		err = append(err, errors.New("kafka: logger cannot be nil"))
 	}
 	if cfg.Encoder == nil {
-		err = append(err, errors.New("encoder cannot be nil"))
+		err = append(err, errors.New("kafka: encoder cannot be nil"))
 	}
 	return errors.Join(err...)
 }
