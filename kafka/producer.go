@@ -57,6 +57,9 @@ type ProducerConfig struct {
 	// Logger is used for logging producer errors.
 	Logger *zap.Logger
 
+	// Encoder holds an encoding.Encoder for encoding events.
+	Encoder Encoder
+
 	// Sync can be used to indicate whether production should be synchronous.
 	Sync bool
 
@@ -156,7 +159,7 @@ func (p *Producer) ProcessBatch(ctx context.Context, batch *model.Batch) error {
 			rm(event, record)
 		}
 
-		encoded, err := event.MarshalJSON()
+		encoded, err := p.cfg.Encoder.Encode(event)
 		if err != nil {
 			return err
 		}
