@@ -49,6 +49,8 @@ type ConsumerConfig struct {
 	// Logger to use for any errors.
 	Logger *zap.Logger
 	// Processor that will be used to process each event individually.
+	// Processor may be called from multiple goroutines and needs to be
+	// safe for concurrent use.
 	Processor model.BatchProcessor
 	// Delivery mechanism to use to acknowledge the messages.
 	// AtMostOnceDeliveryType and AtLeastOnceDeliveryType are supported.
