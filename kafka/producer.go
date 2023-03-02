@@ -38,6 +38,7 @@ type Encoder interface {
 	Encode(model.APMEvent) ([]byte, error)
 }
 
+// RecordMutator mutates the record associated with the model.APMEvent
 type RecordMutator func(model.APMEvent, *kgo.Record) error
 
 // ProducerConfig holds configuration for publishing events to Kafka.
@@ -59,6 +60,8 @@ type ProducerConfig struct {
 	// Sync can be used to indicate whether production should be synchronous.
 	Sync bool
 
+	// Mutators holds the list of RecordMutator applied to all the records sent
+	// by the producer.
 	Mutators []RecordMutator
 }
 
