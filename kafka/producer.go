@@ -116,9 +116,6 @@ func (p *Producer) Close() error {
 	return nil
 }
 
-// ProjectIDKey represents the key for the project ID set in the context.
-type ProjectIDKey struct{}
-
 // ProcessBatch publishes the events in batch to the specified Kafka topic.
 func (p *Producer) ProcessBatch(ctx context.Context, batch *model.Batch) error {
 	// Take a read lock to prevent Close from closing the input channel
