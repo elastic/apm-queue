@@ -195,9 +195,9 @@ func (c *Consumer) Run(ctx context.Context) error {
 		case apmqueue.AtLeastOnceDeliveryType:
 			defer func() {
 				if err != nil {
-					defer msg.Nack()
+					msg.Nack()
 				} else {
-					defer msg.Ack()
+					msg.Ack()
 				}
 			}()
 		}
