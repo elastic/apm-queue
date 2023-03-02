@@ -53,6 +53,9 @@ type ProducerConfig struct {
 	// Logger is used for logging producer errors.
 	Logger *zap.Logger
 
+	// Sync can be used to indicate whether production should be synchronous.
+	Sync bool
+
 	// Key, if non-nil, is used to set the key for an event message.
 	//
 	// Producer uses murmur2 partitioning: consistent hashing over the
@@ -146,7 +149,7 @@ func (p *Producer) Close() error {
 type ProjectIDKey struct{}
 
 // ProcessBatch publishes the events in batch to the specified Kafka topic.
-func (p *Producer) ProcessBatch(ctx context.Context, batch *model.Batch, wg *sync.WaitGroup) error {
+func (p *Producer) ProcessBatch(ctx context.Context, batch *model.Batch) error {
 	// Take a read lock to prevent Close from closing the input channel
 	// while we're attempting to send to it.
 	p.mu.RLock()
@@ -162,6 +165,7 @@ func (p *Producer) ProcessBatch(ctx context.Context, batch *model.Batch, wg *syn
 		}
 	}
 
+	var wg sync.WaitGroup
 	wg.Add(len(*batch))
 
 	for _, event := range *batch {
@@ -208,6 +212,11 @@ func (p *Producer) ProcessBatch(ctx context.Context, batch *model.Batch, wg *syn
 			}
 		})
 	}
+
+	if p.cfg.Sync {
+		wg.Wait()
+	}
+
 	return nil
 }
 
