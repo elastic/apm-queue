@@ -38,7 +38,8 @@ type Encoder interface {
 	Encode(model.APMEvent) ([]byte, error)
 }
 
-// RecordMutator mutates the record associated with the model.APMEvent
+// RecordMutator mutates the record associated with the model.APMEvent.
+// If the RecordMutator returns an error, it is considered fatal.
 type RecordMutator func(model.APMEvent, *kgo.Record) error
 
 // ProducerConfig holds configuration for publishing events to Kafka.
