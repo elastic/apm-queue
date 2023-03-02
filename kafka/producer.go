@@ -157,7 +157,7 @@ func (p *Producer) ProcessBatch(ctx context.Context, batch *model.Batch) error {
 		}
 		encoded, err := p.cfg.Encoder.Encode(event)
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to encode event: %w", err)
 		}
 		record.Value = encoded
 		p.client.Produce(ctx, record, func(msg *kgo.Record, err error) {
