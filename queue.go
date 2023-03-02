@@ -26,7 +26,7 @@ import (
 )
 
 const (
-	// AtMostOnceDeliveryType acknowleges the message as soon as it's received
+	// AtMostOnceDeliveryType acknowledges the message as soon as it's received
 	// and decoded, without waiting for the message to be processed.
 	AtMostOnceDeliveryType DeliveryType = iota
 	// AtLeastOnceDeliveryType acknowledges the message after it has been
