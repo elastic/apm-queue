@@ -151,7 +151,9 @@ func (p *Producer) ProcessBatch(ctx context.Context, batch *model.Batch) error {
 	for _, event := range *batch {
 		record := &kgo.Record{Headers: headers}
 		for _, rm := range p.cfg.Mutators {
-			rm(event, record)
+			if err := rm(event, record); err != nil {
+				return fmt.Errorf("failed to apply record mutator: %w", err)
+			}
 		}
 		encoded, err := p.cfg.Encoder.Encode(event)
 		if err != nil {
