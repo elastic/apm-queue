@@ -29,21 +29,9 @@ import (
 	"google.golang.org/api/option"
 
 	"github.com/elastic/apm-data/model"
+	apmqueue "github.com/elastic/apm-queue"
 	"github.com/elastic/apm-queue/queuecontext"
 )
-
-const (
-	// AtMostOnceDeliveryType acknowleges the message as soon as it's received
-	// and decoded, without waiting for the message to be processed.
-	AtMostOnceDeliveryType DeliveryType = iota
-	// AtLeastOnceDeliveryType acknowledges the message after it has been
-	// processed. It may or may not create duplicates, depending on how batches
-	// are processed by the underlying model.BatchProcessor.
-	AtLeastOnceDeliveryType
-)
-
-// DeliveryType for the consumer. For more details See the supported DeliveryTypes.
-type DeliveryType uint8
 
 // Decoder decodes a []byte into a model.APMEvent
 type Decoder interface {
@@ -63,7 +51,7 @@ type ConsumerConfig struct {
 	Processor model.BatchProcessor
 	// Delivery mechanism to use to acknowledge the messages.
 	// AtMostOnceDeliveryType and AtLeastOnceDeliveryType are supported.
-	Delivery   DeliveryType
+	Delivery   apmqueue.DeliveryType
 	ClientOpts []option.ClientOption
 }
 
@@ -114,7 +102,8 @@ func (cfg ConsumerConfig) Validate() error {
 		errs = append(errs, errors.New("pubsublite: processor must be set"))
 	}
 	switch cfg.Delivery {
-	case AtLeastOnceDeliveryType, AtMostOnceDeliveryType:
+	case apmqueue.AtLeastOnceDeliveryType:
+	case apmqueue.AtMostOnceDeliveryType:
 	default:
 		errs = append(errs, errors.New("pubsublite: delivery is not valid"))
 	}
@@ -201,9 +190,9 @@ func (c *Consumer) Run(ctx context.Context) error {
 		ctx = queuecontext.WithMetadata(ctx, msg.Attributes)
 		var err error
 		switch c.cfg.Delivery {
-		case AtMostOnceDeliveryType:
+		case apmqueue.AtMostOnceDeliveryType:
 			msg.Ack()
-		case AtLeastOnceDeliveryType:
+		case apmqueue.AtLeastOnceDeliveryType:
 			defer func() {
 				if err != nil {
 					defer msg.Nack()
