@@ -79,6 +79,9 @@ func (cfg ProducerConfig) Validate() error {
 	if cfg.Logger == nil {
 		err = append(err, errors.New("logger cannot be nil"))
 	}
+	if cfg.Encoder == nil {
+		err = append(err, errors.New("encoder cannot be nil"))
+	}
 	return errors.Join(err...)
 }
 
