@@ -5,11 +5,12 @@ go 1.20
 require (
 	cloud.google.com/go/pubsub v1.28.0
 	cloud.google.com/go/pubsublite v1.6.0
-	github.com/elastic/apm-data v0.1.1-0.20230223083125-b7f31c1a6768
+	github.com/elastic/apm-data v0.1.1-0.20230306102740-534660e4a151
 	github.com/stretchr/testify v1.8.2
 	github.com/twmb/franz-go v1.12.1
 	github.com/twmb/franz-go/plugin/kzap v1.1.1
 	go.uber.org/zap v1.24.0
+	golang.org/x/sync v0.1.0
 	google.golang.org/api v0.111.0
 )
 
@@ -38,7 +39,6 @@ require (
 	go.uber.org/multierr v1.8.0 // indirect
 	golang.org/x/net v0.7.0 // indirect
 	golang.org/x/oauth2 v0.5.0 // indirect
-	golang.org/x/sync v0.1.0 // indirect
 	golang.org/x/sys v0.5.0 // indirect
 	golang.org/x/text v0.7.0 // indirect
 	google.golang.org/appengine v1.6.7 // indirect
