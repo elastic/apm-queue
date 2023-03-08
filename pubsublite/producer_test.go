@@ -22,6 +22,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
+	apmqueue "github.com/elastic/apm-queue"
 )
 
 func TestNewProducer(t *testing.T) {
@@ -33,18 +35,18 @@ func TestTopicString(t *testing.T) {
 	tests := []struct {
 		Project string
 		Region  string
-		Name    string
+		Topic   apmqueue.Topic
 		want    string
 	}{
 		{
-			Name:    "topic1",
+			Topic:   "topic1",
 			Region:  "us-east1",
 			Project: "aproject",
 
 			want: "projects/aproject/locations/us-east1/topics/topic1",
 		},
 		{
-			Name:    "topic2",
+			Topic:   "topic2",
 			Region:  "us-west2",
 			Project: "anotherproject",
 
@@ -53,12 +55,7 @@ func TestTopicString(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.want, func(t *testing.T) {
-			topic := Topic{
-				Project: tt.Project,
-				Region:  tt.Region,
-				Name:    tt.Name,
-			}
-			assert.Equal(t, tt.want, topic.String())
+			assert.Equal(t, tt.want, formatTopic(tt.Project, tt.Region, tt.Topic))
 		})
 	}
 }

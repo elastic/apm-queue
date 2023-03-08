@@ -56,3 +56,9 @@ type Producer interface {
 	// Close closes the producer.
 	Close() error
 }
+
+// Topic represents a destination topic where to produce a message/record.
+type Topic string
+
+// TopicRouter is used to determine the destination topic for an model.APMEvent.
+type TopicRouter func(event model.APMEvent) Topic

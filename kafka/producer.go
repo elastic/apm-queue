@@ -29,6 +29,7 @@ import (
 	"github.com/twmb/franz-go/plugin/kzap"
 
 	"github.com/elastic/apm-data/model"
+	apmqueue "github.com/elastic/apm-queue"
 	"github.com/elastic/apm-queue/queuecontext"
 )
 
@@ -64,6 +65,9 @@ type ProducerConfig struct {
 	// Sync can be used to indicate whether production should be synchronous.
 	Sync bool
 
+	// TopicRouter returns the topic where an event should be produced.
+	TopicRouter apmqueue.TopicRouter
+
 	// Mutators holds the list of RecordMutator applied to all the records sent
 	// by the producer. If any errors are returned, the producer will not
 	// produce and return the error in ProcessBatch.
@@ -81,6 +85,9 @@ func (cfg ProducerConfig) Validate() error {
 	}
 	if cfg.Encoder == nil {
 		err = append(err, errors.New("kafka: encoder cannot be nil"))
+	}
+	if cfg.TopicRouter == nil {
+		err = append(err, errors.New("kafka: topic router must be set"))
 	}
 	return errors.Join(err...)
 }
@@ -153,9 +160,11 @@ func (p *Producer) ProcessBatch(ctx context.Context, batch *model.Batch) error {
 
 	var wg sync.WaitGroup
 	wg.Add(len(*batch))
-
 	for _, event := range *batch {
-		record := &kgo.Record{Headers: headers}
+		record := &kgo.Record{
+			Headers: headers,
+			Topic:   string(p.cfg.TopicRouter(event)),
+		}
 		for _, rm := range p.cfg.Mutators {
 			if err := rm(event, record); err != nil {
 				return fmt.Errorf("failed to apply record mutator: %w", err)
@@ -176,11 +185,9 @@ func (p *Producer) ProcessBatch(ctx context.Context, batch *model.Batch) error {
 			}
 		})
 	}
-
 	if p.cfg.Sync {
 		wg.Wait()
 	}
-
 	return nil
 }
 

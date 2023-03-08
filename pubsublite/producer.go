@@ -29,6 +29,7 @@ import (
 	"google.golang.org/api/option"
 
 	"github.com/elastic/apm-data/model"
+	apmqueue "github.com/elastic/apm-queue"
 	"github.com/elastic/apm-queue/queuecontext"
 )
 
@@ -38,52 +39,22 @@ type Encoder interface {
 	Encode(model.APMEvent) ([]byte, error)
 }
 
-// RouterFunc returns the topic to use for a given APMEvent.
-type RouterFunc func(model.APMEvent) Topic
-
 // ProducerConfig for the PubSub Lite producer.
 type ProducerConfig struct {
+	// Region is the GCP region for the producer.
+	Region string
+	// Project is the GCP project for the producer.
+	Project string
 	// Topics are the PubSub Lite topics where the messages will be produced.
-	// The routing is determined by the EventRouter.
-	Topics []Topic
+	// The routing is determined by the TopicRouter.
+	Topics []apmqueue.Topic
 	// Encoder holds an encoding.Encoder for encoding events.
 	Encoder Encoder
 	// Logger for the producer.
 	Logger *zap.Logger
-	// EventRouter returns the topic where an event should be produced.
-	EventRouter RouterFunc
+	// TopicRouter returns the topic where an event should be produced.
+	TopicRouter apmqueue.TopicRouter
 	ClientOpts  []option.ClientOption
-}
-
-// Topic represents a PubSub Lite topic.
-type Topic struct {
-	// Project where the topic is located.
-	Project string
-	// Region where the topic is located.
-	Region string
-	// Name/ID of the topic.
-	Name string
-}
-
-func (t Topic) String() string {
-	return fmt.Sprintf("projects/%s/locations/%s/topics/%s",
-		t.Project, t.Region, t.Name,
-	)
-}
-
-// Validate ensures the topic is valid.
-func (t Topic) Validate() error {
-	var errs []error
-	if t.Name == "" {
-		errs = append(errs, errors.New("pubsublite: topic: name must be set"))
-	}
-	if t.Project == "" {
-		errs = append(errs, errors.New("pubsublite: topic: project must be set"))
-	}
-	if t.Region == "" {
-		errs = append(errs, errors.New("pubsublite: topic: region must be set"))
-	}
-	return errors.Join(errs...)
 }
 
 // Validate ensures the configuration is valid, otherwise, returns an error.
@@ -94,10 +65,11 @@ func (cfg ProducerConfig) Validate() error {
 			errors.New("pubsublite: at least one topic must be set"),
 		)
 	}
-	for i, topic := range cfg.Topics {
-		if err := topic.Validate(); err != nil {
-			errs = append(errs, fmt.Errorf("%d: %w", i, err))
-		}
+	if cfg.Project == "" {
+		errs = append(errs, errors.New("pubsublite: project must be set"))
+	}
+	if cfg.Region == "" {
+		errs = append(errs, errors.New("pubsublite: region must be set"))
 	}
 	if cfg.Encoder == nil {
 		errs = append(errs, errors.New("pubsublite: encoder must be set"))
@@ -105,19 +77,19 @@ func (cfg ProducerConfig) Validate() error {
 	if cfg.Logger == nil {
 		errs = append(errs, errors.New("pubsublite: logger must be set"))
 	}
-	if cfg.EventRouter == nil {
-		errs = append(errs, errors.New("pubsublite: event router must be set"))
+	if cfg.TopicRouter == nil {
+		errs = append(errs, errors.New("pubsublite: topic router must be set"))
 	}
 	return errors.Join(errs...)
 }
 
 // Producer implementes the model.BatchProcessor interface and sends each of
 // the events in a batch to a PubSub Lite topic, which is determined by calling
-// the configured EventRouter.
+// the configured TopicRouter.
 type Producer struct {
 	mu       sync.RWMutex
 	cfg      ProducerConfig
-	producer map[Topic]*pscompat.PublisherClient
+	producer map[apmqueue.Topic]*pscompat.PublisherClient
 	closed   chan struct{}
 }
 
@@ -131,10 +103,11 @@ func NewProducer(ctx context.Context, cfg ProducerConfig) (*Producer, error) {
 	settings := pscompat.PublishSettings{
 		// TODO(marclop) tweak producing settings, (maybe) key extractor.
 	}
-	producers := make(map[Topic]*pscompat.PublisherClient)
+	producers := make(map[apmqueue.Topic]*pscompat.PublisherClient)
 	for _, topic := range cfg.Topics {
-		publisher, err := pscompat.NewPublisherClientWithSettings(
-			ctx, topic.String(), settings, cfg.ClientOpts...,
+		publisher, err := pscompat.NewPublisherClientWithSettings(ctx,
+			formatTopic(cfg.Project, cfg.Region, topic),
+			settings, cfg.ClientOpts...,
 		)
 		if err != nil {
 			return nil, err
@@ -183,7 +156,7 @@ func (p *Producer) ProcessBatch(ctx context.Context, batch *model.Batch) error {
 				msg.Attributes[k] = v
 			}
 		}
-		topic := p.cfg.EventRouter(event)
+		topic := p.cfg.TopicRouter(event)
 		producer, ok := p.producer[topic]
 		if !ok {
 			return fmt.Errorf("pubsublite: unable to find producer for %s", topic)
@@ -204,4 +177,10 @@ func (p *Producer) ProcessBatch(ctx context.Context, batch *model.Batch) error {
 
 func (p *Producer) Healthy() error {
 	return nil // TODO(marclop)
+}
+
+func formatTopic(project, region string, topic apmqueue.Topic) string {
+	return fmt.Sprintf("projects/%s/locations/%s/topics/%s",
+		project, region, topic,
+	)
 }
