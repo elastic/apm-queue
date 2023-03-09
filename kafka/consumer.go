@@ -28,6 +28,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/elastic/apm-data/model"
+	apmqueue "github.com/elastic/apm-queue"
 	"github.com/elastic/apm-queue/queuecontext"
 )
 
@@ -53,7 +54,13 @@ type ConsumerConfig struct {
 	Version string
 	// Decoder holds an encoding.Decoder for decoding events.
 	Decoder Decoder
-
+	// MaxPollRecords defines an upper bound to the number of records that can
+	// be polled on a single fetch. If MaxPollRecords <= 0, defaults to 100.
+	MaxPollRecords int
+	// Delivery mechanism to use to acknowledge the messages.
+	// AtMostOnceDeliveryType and AtLeastOnceDeliveryType are supported.
+	// If not set, it defaults to apmqueue.AtMostOnceDeliveryType.
+	Delivery apmqueue.DeliveryType
 	// Logger to use for any errors.
 	Logger *zap.Logger
 	// Processor that will be used to process each event individually.
@@ -102,6 +109,15 @@ func NewConsumer(cfg ConsumerConfig) (*Consumer, error) {
 		kgo.ConsumeTopics(cfg.Topics...),
 		kgo.WithLogger(kzap.New(cfg.Logger)),
 	}
+	switch cfg.Delivery {
+	case apmqueue.AtLeastOnceDeliveryType:
+		// franz-go defaults to at least once processing, using auto committing.
+	case apmqueue.AtMostOnceDeliveryType:
+		// GreedyAutoCommit opts in to committing everything that has been polled
+		// when autocommitting (the dirty offsets), rather than committing what
+		// has previously been polled.
+		opts = append(opts, kgo.GreedyAutoCommit())
+	}
 	if cfg.ClientID != "" {
 		opts = append(opts, kgo.ClientID(cfg.ClientID))
 		if cfg.Version != "" {
@@ -109,6 +125,9 @@ func NewConsumer(cfg ConsumerConfig) (*Consumer, error) {
 				cfg.ClientID, cfg.Version,
 			))
 		}
+	}
+	if cfg.MaxPollRecords <= 0 {
+		cfg.MaxPollRecords = 100
 	}
 	// TODO(marclop) block on re-balances, auto-commit high watermarks.
 	client, err := kgo.NewClient(opts...)
@@ -148,7 +167,7 @@ func (c *Consumer) fetch(ctx context.Context) error {
 	// state management and blocking when rebalances happen.
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	fetches := c.client.PollFetches(ctx)
+	fetches := c.client.PollRecords(ctx, c.cfg.MaxPollRecords)
 	if fetches.IsClientClosed() || errors.Is(fetches.Err0(), context.Canceled) {
 		return context.Canceled // Client closed or context cancelled.
 	}
