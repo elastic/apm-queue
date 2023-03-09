@@ -45,9 +45,9 @@ type RecordMutator func(model.APMEvent, *kgo.Record) error
 
 // ProducerConfig holds configuration for publishing events to Kafka.
 type ProducerConfig struct {
-	// Broker holds the (host:port) address of the Kafka broker to which
-	// events should be published.
-	Broker string
+	// Brokers holds a slice of (host:port) addresses of the Kafka brokers
+	// to which events should be published.
+	Brokers []string
 
 	// ClientID to use when connecting to Kafka. This is used for logging
 	// and client identification purposes.
@@ -77,8 +77,8 @@ type ProducerConfig struct {
 // Validate checks that cfg is valid, and returns an error otherwise.
 func (cfg ProducerConfig) Validate() error {
 	var err []error
-	if cfg.Broker == "" {
-		err = append(err, errors.New("kafka: broker cannot be empty"))
+	if len(cfg.Brokers) == 0 {
+		err = append(err, errors.New("kafka: brokers cannot be empty"))
 	}
 	if cfg.Logger == nil {
 		err = append(err, errors.New("kafka: logger cannot be nil"))
@@ -107,7 +107,7 @@ func NewProducer(cfg ProducerConfig) (*Producer, error) {
 	}
 
 	opts := []kgo.Opt{
-		kgo.SeedBrokers(cfg.Broker),
+		kgo.SeedBrokers(cfg.Brokers...),
 		kgo.WithLogger(kzap.New(cfg.Logger)),
 	}
 	if cfg.ClientID != "" {
