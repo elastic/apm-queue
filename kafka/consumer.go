@@ -120,15 +120,9 @@ func NewConsumer(cfg ConsumerConfig) (*Consumer, error) {
 		// records may belong to a partition which has been reassigned to a
 		// different consumer int he group. To avoid this scenario, Polls will
 		// block rebalances of partitions which would be lost, and the consumer
-		// MUST manually call `AllowRebalance.
+		// MUST manually call `AllowRebalance`.
 		kgo.BlockRebalanceOnPoll(),
-	}
-	switch cfg.Delivery {
-	case apmqueue.AtLeastOnceDeliveryType:
-		// franz-go defaults to at least once processing, using auto committing.
-	case apmqueue.AtMostOnceDeliveryType:
-		// DisableAutoCommit.
-		opts = append(opts, kgo.DisableAutoCommit())
+		kgo.DisableAutoCommit(),
 	}
 	if cfg.ClientID != "" {
 		opts = append(opts, kgo.ClientID(cfg.ClientID))
