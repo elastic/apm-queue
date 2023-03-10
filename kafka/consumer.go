@@ -195,6 +195,9 @@ func (c *Consumer) fetch(ctx context.Context) error {
 			// processed twice.
 			return nil
 		}
+		// Allow rebalancing now that we have committed offsets, preventing
+		// another consumer from reprocessing the records.
+		c.client.AllowRebalance()
 	}
 	fetches.EachError(func(t string, p int32, err error) {
 		c.cfg.Logger.Error("consumer fetches returned error",
