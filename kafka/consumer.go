@@ -238,10 +238,11 @@ func (c *Consumer) fetch(ctx context.Context) error {
 	return nil
 }
 
-// Healthy returns an error if the Kafka active broker length dips below 1.
+// Healthy returns an error if the Kafka client fails to reach a discovered
+// broker.
 func (c *Consumer) Healthy() error {
-	if brokers := c.client.DiscoveredBrokers(); len(brokers) < 1 {
-		return fmt.Errorf("number of brokers below 1")
+	if err := c.client.Ping(context.Background()); err != nil {
+		return fmt.Errorf("health probe: %w", err)
 	}
 	return nil
 }
