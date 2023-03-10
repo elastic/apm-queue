@@ -28,6 +28,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/elastic/apm-data/model"
+	apmqueue "github.com/elastic/apm-queue"
 	"github.com/elastic/apm-queue/queuecontext"
 )
 
@@ -53,10 +54,24 @@ type ConsumerConfig struct {
 	Version string
 	// Decoder holds an encoding.Decoder for decoding events.
 	Decoder Decoder
-
+	// MaxPollRecords defines an upper bound to the number of records that can
+	// be polled on a single fetch. If MaxPollRecords <= 0, defaults to 100.
+	//
+	// It is best to keep the number of polled records small or the consumer
+	// risks being forced out of the group if it exceeds rebalance.timeout.ms.
+	MaxPollRecords int
+	// Delivery mechanism to use to acknowledge the messages.
+	// AtMostOnceDeliveryType and AtLeastOnceDeliveryType are supported.
+	// If not set, it defaults to apmqueue.AtMostOnceDeliveryType.
+	Delivery apmqueue.DeliveryType
 	// Logger to use for any errors.
 	Logger *zap.Logger
 	// Processor that will be used to process each event individually.
+	// It is recommended to keep the synchronous processing fast and below the
+	// rebalance.timeout.ms setting in Kafka.
+	//
+	// The processing time of each processing cycle can be calculated as:
+	// record.process.time * MaxPollRecords.
 	Processor model.BatchProcessor
 }
 
@@ -101,6 +116,13 @@ func NewConsumer(cfg ConsumerConfig) (*Consumer, error) {
 		kgo.ConsumerGroup(cfg.GroupID),
 		kgo.ConsumeTopics(cfg.Topics...),
 		kgo.WithLogger(kzap.New(cfg.Logger)),
+		// If a rebalance happens while the client is polling, the consumed
+		// records may belong to a partition which has been reassigned to a
+		// different consumer int he group. To avoid this scenario, Polls will
+		// block rebalances of partitions which would be lost, and the consumer
+		// MUST manually call `AllowRebalance`.
+		kgo.BlockRebalanceOnPoll(),
+		kgo.DisableAutoCommit(),
 	}
 	if cfg.ClientID != "" {
 		opts = append(opts, kgo.ClientID(cfg.ClientID))
@@ -110,7 +132,9 @@ func NewConsumer(cfg ConsumerConfig) (*Consumer, error) {
 			))
 		}
 	}
-	// TODO(marclop) block on re-balances, auto-commit high watermarks.
+	if cfg.MaxPollRecords <= 0 {
+		cfg.MaxPollRecords = 100
+	}
 	client, err := kgo.NewClient(opts...)
 	if err != nil {
 		return nil, err
@@ -129,6 +153,8 @@ func NewConsumer(cfg ConsumerConfig) (*Consumer, error) {
 func (c *Consumer) Close() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	// Since we take the full lock when closing, there's no need to explicitly
+	// allow rebalances since polls aren't concurrent with Close().
 	c.client.Close()
 	return nil
 }
@@ -142,15 +168,36 @@ func (c *Consumer) Run(ctx context.Context) error {
 	}
 }
 
+// fetch polls the Kafka broker for new records up to cfg.MaxPollRecords.
+// Any errors returned by fetch should be considered fatal and
 func (c *Consumer) fetch(ctx context.Context) error {
 	// NOTE(marclop) this is pretty naive consuming, to maximize throughput,
 	// it's best to use one goroutine per partition, but that requires more
 	// state management and blocking when rebalances happen.
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	fetches := c.client.PollFetches(ctx)
+
+	fetches := c.client.PollRecords(ctx, c.cfg.MaxPollRecords)
+	defer c.client.AllowRebalance()
+
 	if fetches.IsClientClosed() || errors.Is(fetches.Err0(), context.Canceled) {
 		return context.Canceled // Client closed or context cancelled.
+	}
+	switch c.cfg.Delivery {
+	case apmqueue.AtLeastOnceDeliveryType:
+		// Commit the fetched record offsets after we've processed them.
+		defer c.client.CommitUncommittedOffsets(ctx)
+	case apmqueue.AtMostOnceDeliveryType:
+		// Commit the fetched record offsets as soon as we've polled them.
+		if err := c.client.CommitUncommittedOffsets(ctx); err != nil {
+			// If the commit fails, then return immediately and any uncommitted
+			// records will be re-delivered in time. Otherwise, records may be
+			// processed twice.
+			return nil
+		}
+		// Allow rebalancing now that we have committed offsets, preventing
+		// another consumer from reprocessing the records.
+		c.client.AllowRebalance()
 	}
 	fetches.EachError(func(t string, p int32, err error) {
 		c.cfg.Logger.Error("consumer fetches returned error",
