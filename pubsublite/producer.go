@@ -96,7 +96,7 @@ type Producer struct {
 // NewProducer creates a new PubSub Lite producer for a single project.
 func NewProducer(ctx context.Context, cfg ProducerConfig) (*Producer, error) {
 	if err := cfg.Validate(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("invalid producer config: %w", err)
 	}
 	// TODO(marclop) connection pools:
 	// https://pkg.go.dev/cloud.google.com/go/pubsublite#hdr-gRPC_Connection_Pools
@@ -110,7 +110,7 @@ func NewProducer(ctx context.Context, cfg ProducerConfig) (*Producer, error) {
 			settings, cfg.ClientOpts...,
 		)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("pubsublite: failed creating producer: %w", err)
 		}
 		producers[topic] = publisher
 	}
@@ -141,7 +141,7 @@ func (p *Producer) ProcessBatch(ctx context.Context, batch *model.Batch) error {
 		return errors.New("pubsublite: producer closed")
 	default:
 	}
-	var responses []*pubsub.PublishResult
+	var wg sync.WaitGroup
 	for _, event := range *batch {
 		encoded, err := p.cfg.Encoder.Encode(event)
 		if err != nil {
@@ -161,17 +161,23 @@ func (p *Producer) ProcessBatch(ctx context.Context, batch *model.Batch) error {
 		if !ok {
 			return fmt.Errorf("pubsublite: unable to find producer for %s", topic)
 		}
-		responses = append(responses, producer.Publish(ctx, &msg))
+		result := producer.Publish(ctx, &msg)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			// NOTE(marclop) should the error be returned to the client? Does it care?
+			if serverID, err := result.Get(ctx); err != nil {
+				p.cfg.Logger.Error("failed producing message",
+					zap.Error(err),
+					zap.String("topic", string(topic)),
+					zap.ByteString("message.value", msg.Data),
+					zap.String("server_id", serverID),
+					zap.Any("headers", msg.Attributes),
+				)
+			}
+		}()
 	}
-	// NOTE(marclop) should the error be returned to the client? Does it care?
-	for _, res := range responses {
-		if serverID, err := res.Get(ctx); err != nil {
-			p.cfg.Logger.Error("failed producing message",
-				zap.Error(err),
-				zap.String("server_id", serverID),
-			)
-		}
-	}
+	wg.Wait()
 	return nil
 }
 

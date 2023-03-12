@@ -109,7 +109,7 @@ type Consumer struct {
 // NewConsumer creates a new instance of a Consumer.
 func NewConsumer(cfg ConsumerConfig) (*Consumer, error) {
 	if err := cfg.Validate(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("invalid consumer config: %w", err)
 	}
 	opts := []kgo.Opt{
 		kgo.SeedBrokers(cfg.Brokers...),
@@ -137,7 +137,7 @@ func NewConsumer(cfg ConsumerConfig) (*Consumer, error) {
 	}
 	client, err := kgo.NewClient(opts...)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("kafka: failed creating kafka consumer: %w", err)
 	}
 	// Issue a metadata refresh request on construction, so the broker list is
 	// populated.
@@ -228,6 +228,7 @@ func (c *Consumer) fetch(ctx context.Context) error {
 			c.cfg.Logger.Error("unable to process event",
 				zap.Error(err),
 				zap.String("topic", msg.Topic),
+				zap.ByteString("message.value", msg.Value),
 				zap.Int64("offset", msg.Offset),
 				zap.Int32("partition", msg.Partition),
 				zap.Any("headers", meta),
