@@ -145,7 +145,7 @@ func (p *Producer) ProcessBatch(ctx context.Context, batch *model.Batch) error {
 	for _, event := range *batch {
 		encoded, err := p.cfg.Encoder.Encode(event)
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to encode event: %w", err)
 		}
 		msg := pubsub.Message{Data: encoded}
 		if meta, ok := queuecontext.MetadataFromContext(ctx); ok {
