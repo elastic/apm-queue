@@ -7,7 +7,7 @@ require (
 	cloud.google.com/go/pubsublite v1.6.0
 	github.com/elastic/apm-data v0.1.1-0.20230309014206-3ad1a5caedc9
 	github.com/stretchr/testify v1.8.2
-	github.com/twmb/franz-go v1.12.1
+	github.com/twmb/franz-go v1.13.0
 	github.com/twmb/franz-go/plugin/kzap v1.1.1
 	go.uber.org/zap v1.24.0
 	golang.org/x/sync v0.1.0
@@ -27,8 +27,8 @@ require (
 	github.com/google/uuid v1.3.0 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.2.3 // indirect
 	github.com/googleapis/gax-go/v2 v2.7.0 // indirect
-	github.com/klauspost/compress v1.15.9 // indirect
-	github.com/pierrec/lz4/v4 v4.1.15 // indirect
+	github.com/klauspost/compress v1.16.3 // indirect
+	github.com/pierrec/lz4/v4 v4.1.17 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/rogpeppe/go-internal v1.9.0 // indirect
