@@ -96,7 +96,7 @@ type Producer struct {
 // NewProducer creates a new PubSub Lite producer for a single project.
 func NewProducer(ctx context.Context, cfg ProducerConfig) (*Producer, error) {
 	if err := cfg.Validate(); err != nil {
-		return nil, fmt.Errorf("invalid producer config: %w", err)
+		return nil, fmt.Errorf("pubsublite: invalid producer config: %w", err)
 	}
 	// TODO(marclop) connection pools:
 	// https://pkg.go.dev/cloud.google.com/go/pubsublite#hdr-gRPC_Connection_Pools

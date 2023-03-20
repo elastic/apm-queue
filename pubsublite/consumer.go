@@ -133,7 +133,7 @@ type Consumer struct {
 // NewConsumer creates a new consumer instance for a single subscription.
 func NewConsumer(ctx context.Context, cfg ConsumerConfig) (*Consumer, error) {
 	if err := cfg.Validate(); err != nil {
-		return nil, fmt.Errorf("invalid consumer config: %w", err)
+		return nil, fmt.Errorf("pubsublite: invalid consumer config: %w", err)
 	}
 	settings := pscompat.ReceiveSettings{
 		// Pub/Sub Lite does not have a concept of 'nack'. If the nack handler

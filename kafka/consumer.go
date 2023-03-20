@@ -109,7 +109,7 @@ type Consumer struct {
 // NewConsumer creates a new instance of a Consumer.
 func NewConsumer(cfg ConsumerConfig) (*Consumer, error) {
 	if err := cfg.Validate(); err != nil {
-		return nil, fmt.Errorf("invalid consumer config: %w", err)
+		return nil, fmt.Errorf("kafka: invalid consumer config: %w", err)
 	}
 	opts := []kgo.Opt{
 		kgo.SeedBrokers(cfg.Brokers...),

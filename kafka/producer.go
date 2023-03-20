@@ -103,7 +103,7 @@ type Producer struct {
 // NewProducer returns a new Producer with the given config.
 func NewProducer(cfg ProducerConfig) (*Producer, error) {
 	if err := cfg.Validate(); err != nil {
-		return nil, fmt.Errorf("invalid producer config: %w", err)
+		return nil, fmt.Errorf("kafka: invalid producer config: %w", err)
 	}
 
 	opts := []kgo.Opt{
