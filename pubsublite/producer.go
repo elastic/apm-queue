@@ -170,7 +170,6 @@ func (p *Producer) ProcessBatch(ctx context.Context, batch *model.Batch) error {
 				p.cfg.Logger.Error("failed producing message",
 					zap.Error(err),
 					zap.String("topic", string(topic)),
-					zap.ByteString("message.value", msg.Data),
 					zap.String("server_id", serverID),
 					zap.Any("headers", msg.Attributes),
 				)

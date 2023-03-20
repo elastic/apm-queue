@@ -254,7 +254,6 @@ func (c consumer) processMessage(ctx context.Context, msg *pubsub.Message) {
 		partition, offset := partitionOffset(msg.ID)
 		c.logger.Error("unable to process event",
 			zap.Error(err),
-			zap.ByteString("message.value", msg.Data),
 			zap.Int64("offset", offset),
 			zap.Int("partition", partition),
 			zap.Any("headers", msg.Attributes),

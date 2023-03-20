@@ -231,7 +231,6 @@ func (c *Consumer) fetch(ctx context.Context) error {
 			c.cfg.Logger.Error("unable to process event",
 				zap.Error(err),
 				zap.String("topic", msg.Topic),
-				zap.ByteString("message.value", msg.Value),
 				zap.Int64("offset", msg.Offset),
 				zap.Int32("partition", msg.Partition),
 				zap.Any("headers", meta),
