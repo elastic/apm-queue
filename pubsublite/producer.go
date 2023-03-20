@@ -141,7 +141,8 @@ func (p *Producer) ProcessBatch(ctx context.Context, batch *model.Batch) error {
 		return errors.New("pubsublite: producer closed")
 	default:
 	}
-	var wg sync.WaitGroup
+	responses := make([]*pubsub.PublishResult, 0, len(*batch))
+	topics := make([]apmqueue.Topic, 0, len(*batch))
 	for _, event := range *batch {
 		encoded, err := p.cfg.Encoder.Encode(event)
 		if err != nil {
@@ -161,22 +162,19 @@ func (p *Producer) ProcessBatch(ctx context.Context, batch *model.Batch) error {
 		if !ok {
 			return fmt.Errorf("pubsublite: unable to find producer for %s", topic)
 		}
-		result := producer.Publish(ctx, &msg)
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			// NOTE(marclop) should the error be returned to the client? Does it care?
-			if serverID, err := result.Get(ctx); err != nil {
-				p.cfg.Logger.Error("failed producing message",
-					zap.Error(err),
-					zap.String("topic", string(topic)),
-					zap.String("server_id", serverID),
-					zap.Any("headers", msg.Attributes),
-				)
-			}
-		}()
+		responses = append(responses, producer.Publish(ctx, &msg))
+		topics = append(topics, topic)
 	}
-	wg.Wait()
+	// NOTE(marclop) should the error be returned to the client? Does it care?
+	for i, res := range responses {
+		if serverID, err := res.Get(ctx); err != nil {
+			p.cfg.Logger.Error("failed producing message",
+				zap.Error(err),
+				zap.String("server_id", serverID),
+				zap.String("topic", string(topics[i])),
+			)
+		}
+	}
 	return nil
 }
 
