@@ -96,7 +96,7 @@ type Producer struct {
 // NewProducer creates a new PubSub Lite producer for a single project.
 func NewProducer(ctx context.Context, cfg ProducerConfig) (*Producer, error) {
 	if err := cfg.Validate(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("pubsublite: invalid producer config: %w", err)
 	}
 	// TODO(marclop) connection pools:
 	// https://pkg.go.dev/cloud.google.com/go/pubsublite#hdr-gRPC_Connection_Pools
@@ -110,7 +110,7 @@ func NewProducer(ctx context.Context, cfg ProducerConfig) (*Producer, error) {
 			settings, cfg.ClientOpts...,
 		)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("pubsublite: failed creating producer: %w", err)
 		}
 		producers[topic] = publisher
 	}
@@ -141,11 +141,12 @@ func (p *Producer) ProcessBatch(ctx context.Context, batch *model.Batch) error {
 		return errors.New("pubsublite: producer closed")
 	default:
 	}
-	var responses []*pubsub.PublishResult
+	responses := make([]*pubsub.PublishResult, 0, len(*batch))
+	topics := make([]apmqueue.Topic, 0, len(*batch))
 	for _, event := range *batch {
 		encoded, err := p.cfg.Encoder.Encode(event)
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to encode event: %w", err)
 		}
 		msg := pubsub.Message{Data: encoded}
 		if meta, ok := queuecontext.MetadataFromContext(ctx); ok {
@@ -162,13 +163,15 @@ func (p *Producer) ProcessBatch(ctx context.Context, batch *model.Batch) error {
 			return fmt.Errorf("pubsublite: unable to find producer for %s", topic)
 		}
 		responses = append(responses, producer.Publish(ctx, &msg))
+		topics = append(topics, topic)
 	}
 	// NOTE(marclop) should the error be returned to the client? Does it care?
-	for _, res := range responses {
+	for i, res := range responses {
 		if serverID, err := res.Get(ctx); err != nil {
 			p.cfg.Logger.Error("failed producing message",
 				zap.Error(err),
 				zap.String("server_id", serverID),
+				zap.String("topic", string(topics[i])),
 			)
 		}
 	}

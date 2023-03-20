@@ -133,7 +133,7 @@ type Consumer struct {
 // NewConsumer creates a new consumer instance for a single subscription.
 func NewConsumer(ctx context.Context, cfg ConsumerConfig) (*Consumer, error) {
 	if err := cfg.Validate(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("pubsublite: invalid consumer config: %w", err)
 	}
 	settings := pscompat.ReceiveSettings{
 		// Pub/Sub Lite does not have a concept of 'nack'. If the nack handler
@@ -159,7 +159,7 @@ func NewConsumer(ctx context.Context, cfg ConsumerConfig) (*Consumer, error) {
 			ctx, subscription.String(), settings, cfg.ClientOpts...,
 		)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("pubsublite: failed creating consumer: %w", err)
 		}
 		consumers = append(consumers, consumer{
 			SubscriberClient: client,
@@ -231,6 +231,7 @@ func (c consumer) processMessage(ctx context.Context, msg *pubsub.Message) {
 			zap.ByteString("message.value", msg.Data),
 			zap.Int64("offset", offset),
 			zap.Int("partition", partition),
+			zap.Any("headers", msg.Attributes),
 		)
 		return
 	}
@@ -255,6 +256,7 @@ func (c consumer) processMessage(ctx context.Context, msg *pubsub.Message) {
 			zap.Error(err),
 			zap.Int64("offset", offset),
 			zap.Int("partition", partition),
+			zap.Any("headers", msg.Attributes),
 		)
 		return
 	}

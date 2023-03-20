@@ -103,7 +103,7 @@ type Producer struct {
 // NewProducer returns a new Producer with the given config.
 func NewProducer(cfg ProducerConfig) (*Producer, error) {
 	if err := cfg.Validate(); err != nil {
-		return nil, fmt.Errorf("invalid producer config: %w", err)
+		return nil, fmt.Errorf("kafka: invalid producer config: %w", err)
 	}
 
 	opts := []kgo.Opt{
@@ -121,7 +121,7 @@ func NewProducer(cfg ProducerConfig) (*Producer, error) {
 	// TODO(marclop) block on re-balances, auto-commit high watermarks.
 	client, err := kgo.NewClient(opts...)
 	if err != nil {
-		return nil, fmt.Errorf("failed creating producer: %w", err)
+		return nil, fmt.Errorf("kafka: failed creating producer: %w", err)
 	}
 	// Issue a metadata refresh request on construction, so the broker list is
 	// populated.
@@ -181,6 +181,9 @@ func (p *Producer) ProcessBatch(ctx context.Context, batch *model.Batch) error {
 				p.cfg.Logger.Error("failed producing message",
 					zap.Error(err),
 					zap.String("topic", msg.Topic),
+					zap.Int64("offset", msg.Offset),
+					zap.Int32("partition", msg.Partition),
+					zap.Any("headers", headers),
 				)
 			}
 		})

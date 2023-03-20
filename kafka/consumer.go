@@ -109,7 +109,7 @@ type Consumer struct {
 // NewConsumer creates a new instance of a Consumer.
 func NewConsumer(cfg ConsumerConfig) (*Consumer, error) {
 	if err := cfg.Validate(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("kafka: invalid consumer config: %w", err)
 	}
 	opts := []kgo.Opt{
 		kgo.SeedBrokers(cfg.Brokers...),
@@ -137,7 +137,7 @@ func NewConsumer(cfg ConsumerConfig) (*Consumer, error) {
 	}
 	client, err := kgo.NewClient(opts...)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("kafka: failed creating kafka consumer: %w", err)
 	}
 	// Issue a metadata refresh request on construction, so the broker list is
 	// populated.
@@ -180,8 +180,11 @@ func (c *Consumer) fetch(ctx context.Context) error {
 	fetches := c.client.PollRecords(ctx, c.cfg.MaxPollRecords)
 	defer c.client.AllowRebalance()
 
-	if fetches.IsClientClosed() || errors.Is(fetches.Err0(), context.Canceled) {
-		return context.Canceled // Client closed or context cancelled.
+	if fetches.IsClientClosed() {
+		return fmt.Errorf("client is closed: %w", context.Canceled)
+	}
+	if errors.Is(fetches.Err0(), context.Canceled) {
+		return fmt.Errorf("context canceled: %w", fetches.Err0())
 	}
 	switch c.cfg.Delivery {
 	case apmqueue.AtLeastOnceDeliveryType:
