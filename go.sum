@@ -12,8 +12,8 @@ cloud.google.com/go/longrunning v0.4.1 h1:v+yFJOfKC3yZdY6ZUI933pIYdhyhV8S3NpWrXW
 cloud.google.com/go/longrunning v0.4.1/go.mod h1:4iWDqhBZ70CvZ6BfETbvam3T8FMvLK+eFj0E6AaRQTo=
 cloud.google.com/go/pubsub v1.29.0 h1:qut3pZVWRw32lW9St9+Xk9hYxZRh8DskMDzVkXJOBEo=
 cloud.google.com/go/pubsub v1.29.0/go.mod h1:QqxtZtlMMScyK1Fxy5dEpv/ZiXXJhFmXZydjBIUKPW0=
-cloud.google.com/go/pubsublite v1.6.0 h1:qh04RCSOnQDVHYmzT74ANu8WR9czAXG3Jl3TV4iR5no=
-cloud.google.com/go/pubsublite v1.6.0/go.mod h1:1eFCS0U11xlOuMFV/0iBqw3zP12kddMeCbj/F3FSj9k=
+cloud.google.com/go/pubsublite v1.7.0 h1:cb9fsrtpINtETHiJ3ECeaVzrfIVhcGjhhJEjybHXHao=
+cloud.google.com/go/pubsublite v1.7.0/go.mod h1:8hVMwRXfDfvGm3fahVbtDbiLePT3gpoiJYJY+vxWxVM=
 github.com/BurntSushi/toml v0.3.1/go.mod h1:xHWCNGjB5oqiDr8zfno3MHue2Ht5sIBksp03qcyfWMU=
 github.com/benbjohnson/clock v1.1.0 h1:Q92kusRqC1XV2MjkWETPvjJVqKetz1OzxZB7mHJLju8=
 github.com/census-instrumentation/opencensus-proto v0.2.1/go.mod h1:f6KPmirojxKA12rnyqOA5BBL4O983OfeGPqjHWSTneU=
