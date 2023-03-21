@@ -8,6 +8,8 @@ require (
 	github.com/elastic/apm-data v0.1.1-0.20230309014206-3ad1a5caedc9
 	github.com/stretchr/testify v1.8.2
 	github.com/twmb/franz-go v1.13.1
+	github.com/twmb/franz-go/pkg/kadm v1.8.0
+	github.com/twmb/franz-go/pkg/kfake v0.0.0-20230321024151-1a59c2d62d0d
 	github.com/twmb/franz-go/plugin/kzap v1.1.2
 	go.uber.org/zap v1.24.0
 	golang.org/x/sync v0.1.0
@@ -36,6 +38,8 @@ require (
 	go.opencensus.io v0.24.0 // indirect
 	go.uber.org/atomic v1.10.0 // indirect
 	go.uber.org/multierr v1.10.0 // indirect
+	golang.org/x/crypto v0.7.0 // indirect
+	golang.org/x/exp v0.0.0-20230310171629-522b1b587ee0 // indirect
 	golang.org/x/net v0.8.0 // indirect
 	golang.org/x/oauth2 v0.6.0 // indirect
 	golang.org/x/sys v0.6.0 // indirect
