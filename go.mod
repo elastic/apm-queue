@@ -4,7 +4,7 @@ go 1.20
 
 require (
 	cloud.google.com/go/pubsub v1.29.0
-	cloud.google.com/go/pubsublite v1.6.0
+	cloud.google.com/go/pubsublite v1.7.0
 	github.com/elastic/apm-data v0.1.1-0.20230309014206-3ad1a5caedc9
 	github.com/stretchr/testify v1.8.2
 	github.com/twmb/franz-go v1.13.1
