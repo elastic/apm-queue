@@ -100,22 +100,32 @@ func (cfg ConsumerConfig) Validate() error {
 }
 
 // Consumer wraps a Kafka consumer and the consumption implementation details.
+// Consumes each partition in a dedicated goroutine.
 type Consumer struct {
-	mu     sync.RWMutex
-	client *kgo.Client
-	cfg    ConsumerConfig
+	mu       sync.RWMutex
+	client   *kgo.Client
+	cfg      ConsumerConfig
+	consumer *consumer
 }
 
-// NewConsumer creates a new instance of a Consumer.
+// NewConsumer creates a new instance of a Consumer. The consumer will read from
+// each partition concurrently by using a dedicated goroutine per partition.
 func NewConsumer(cfg ConsumerConfig) (*Consumer, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("kafka: invalid consumer config: %w", err)
+	}
+	consumer := &consumer{
+		consumers: make(map[topicPartition]partitionConsumer),
+		processor: cfg.Processor,
+		logger:    cfg.Logger.Named("partition"),
+		decoder:   cfg.Decoder,
+		delivery:  cfg.Delivery,
 	}
 	opts := []kgo.Opt{
 		kgo.SeedBrokers(cfg.Brokers...),
 		kgo.ConsumerGroup(cfg.GroupID),
 		kgo.ConsumeTopics(cfg.Topics...),
-		kgo.WithLogger(kzap.New(cfg.Logger)),
+		kgo.WithLogger(kzap.New(cfg.Logger.Named("kafka"))),
 		// If a rebalance happens while the client is polling, the consumed
 		// records may belong to a partition which has been reassigned to a
 		// different consumer int he group. To avoid this scenario, Polls will
@@ -123,6 +133,12 @@ func NewConsumer(cfg ConsumerConfig) (*Consumer, error) {
 		// MUST manually call `AllowRebalance`.
 		kgo.BlockRebalanceOnPoll(),
 		kgo.DisableAutoCommit(),
+		// Assign concurrent consumer callbacks to ensure consuming starts
+		// for newly assigned partitions, and consuming ceases from lost or
+		// revoked partitions.
+		kgo.OnPartitionsAssigned(consumer.assigned),
+		kgo.OnPartitionsLost(consumer.lost),
+		kgo.OnPartitionsRevoked(consumer.lost),
 	}
 	if cfg.ClientID != "" {
 		opts = append(opts, kgo.ClientID(cfg.ClientID))
@@ -142,11 +158,11 @@ func NewConsumer(cfg ConsumerConfig) (*Consumer, error) {
 	// Issue a metadata refresh request on construction, so the broker list is
 	// populated.
 	client.ForceMetadataRefresh()
-	consumer := Consumer{
-		cfg:    cfg,
-		client: client,
-	}
-	return &consumer, nil
+	return &Consumer{
+		cfg:      cfg,
+		client:   client,
+		consumer: consumer,
+	}, nil
 }
 
 // Close closes the consumer.
@@ -156,6 +172,7 @@ func (c *Consumer) Close() error {
 	// Since we take the full lock when closing, there's no need to explicitly
 	// allow rebalances since polls aren't concurrent with Close().
 	c.client.Close()
+	c.consumer.wg.Wait() // Wait for all the goroutines to exit.
 	return nil
 }
 
@@ -169,11 +186,8 @@ func (c *Consumer) Run(ctx context.Context) error {
 }
 
 // fetch polls the Kafka broker for new records up to cfg.MaxPollRecords.
-// Any errors returned by fetch should be considered fatal and
+// Any errors returned by fetch should be considered fatal.
 func (c *Consumer) fetch(ctx context.Context) error {
-	// NOTE(marclop) this is pretty naive consuming, to maximize throughput,
-	// it's best to use one goroutine per partition, but that requires more
-	// state management and blocking when rebalances happen.
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -188,8 +202,7 @@ func (c *Consumer) fetch(ctx context.Context) error {
 	}
 	switch c.cfg.Delivery {
 	case apmqueue.AtLeastOnceDeliveryType:
-		// Commit the fetched record offsets after we've processed them.
-		defer c.client.CommitUncommittedOffsets(ctx)
+		// Committing the processed records happens on each partition consumer.
 	case apmqueue.AtMostOnceDeliveryType:
 		// Commit the fetched record offsets as soon as we've polled them.
 		if err := c.client.CommitUncommittedOffsets(ctx); err != nil {
@@ -207,35 +220,28 @@ func (c *Consumer) fetch(ctx context.Context) error {
 			zap.Error(err), zap.String("topic", t), zap.Int32("partition", p),
 		)
 	})
-	fetches.EachRecord(func(msg *kgo.Record) {
-		var event model.APMEvent
-		meta := make(map[string]string)
-		for _, h := range msg.Headers {
-			meta[h.Key] = string(h.Value)
-		}
-		if err := c.cfg.Decoder.Decode(msg.Value, &event); err != nil {
-			// TODO(marclop) DLQ?
-			c.cfg.Logger.Error("unable to decode message.Value into model.APMEvent",
-				zap.Error(err),
-				zap.String("topic", msg.Topic),
-				zap.ByteString("message.value", msg.Value),
-				zap.Int64("offset", msg.Offset),
-				zap.Int32("partition", msg.Partition),
-				zap.Any("headers", meta),
-			)
+	// Send partition records to be processed by its dedicated goroutine.
+	fetches.EachPartition(func(ftp kgo.FetchTopicPartition) {
+		if len(ftp.Records) == 0 {
 			return
 		}
-		ctx = queuecontext.WithMetadata(context.Background(), meta)
-		batch := model.Batch{event}
-		if err := c.cfg.Processor.ProcessBatch(ctx, &batch); err != nil {
-			c.cfg.Logger.Error("unable to process event",
-				zap.Error(err),
-				zap.String("topic", msg.Topic),
-				zap.Int64("offset", msg.Offset),
-				zap.Int32("partition", msg.Partition),
-				zap.Any("headers", meta),
-			)
-			return
+		tp := topicPartition{topic: ftp.Topic, partition: ftp.Partition}
+		select {
+		case c.consumer.consumers[tp].records <- ftp.Records:
+		// When using AtMostOnceDelivery, if the context is cancelled between
+		// PollRecords and this line, the events will be lost.
+		// NOTE(marclop) Add a shutdown timer so that there's a grace period
+		// to allow the events to be processed before they're lost.
+		case <-ctx.Done():
+			if c.cfg.Delivery == apmqueue.AtMostOnceDeliveryType {
+				c.cfg.Logger.Warn(
+					"data loss: context cancelled after records were committed",
+					zap.String("topic", ftp.Topic),
+					zap.Int32("partition", ftp.Partition),
+					zap.Int64("offset", ftp.HighWatermark),
+					zap.Int("records", len(ftp.Records)),
+				)
+			}
 		}
 	})
 	return nil
@@ -248,4 +254,144 @@ func (c *Consumer) Healthy() error {
 		return fmt.Errorf("health probe: %w", err)
 	}
 	return nil
+}
+
+// consumer wraps partitionConsumers and exposes the necessary callbacks
+// to use when partitions are reassigned.
+type consumer struct {
+	mu        sync.Mutex
+	wg        sync.WaitGroup
+	consumers map[topicPartition]partitionConsumer
+	processor model.BatchProcessor
+	logger    *zap.Logger
+	decoder   Decoder
+	delivery  apmqueue.DeliveryType
+}
+
+type topicPartition struct {
+	topic     string
+	partition int32
+}
+
+// assigned must be set as a kgo.OnPartitionsAssigned callback. Ensuring all
+// assigned partitions to this consumer process received records.
+func (c *consumer) assigned(_ context.Context, client *kgo.Client, assigned map[string][]int32) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for topic, partitions := range assigned {
+		for _, partition := range partitions {
+			c.wg.Add(1)
+			pc := partitionConsumer{
+				records:   make(chan []*kgo.Record),
+				processor: c.processor,
+				logger:    c.logger,
+				decoder:   c.decoder,
+				client:    client,
+				delivery:  c.delivery,
+			}
+			go func(topic string, partition int32) {
+				defer c.wg.Done()
+				pc.consume(topic, partition)
+			}(topic, partition)
+			tp := topicPartition{partition: partition, topic: topic}
+			c.consumers[tp] = pc
+		}
+	}
+}
+
+// lost must be set as a kgo.OnPartitionsLost and kgo.OnPartitionsReassigned
+// callbacks. Ensures that partitions that are lost (see kgo.OnPartitionsLost
+// for more details) or reassigned (see kgo.OnPartitionsReassigned for more
+// details) have their partition consumer stopped.
+// This callback must finish within the re-balance timeout.
+func (c *consumer) lost(_ context.Context, _ *kgo.Client, lost map[string][]int32) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for topic, partitions := range lost {
+		for _, partition := range partitions {
+			tp := topicPartition{topic: topic, partition: partition}
+			pc := c.consumers[tp]
+			delete(c.consumers, tp)
+			close(pc.records)
+		}
+	}
+}
+
+type partitionConsumer struct {
+	client    *kgo.Client
+	records   chan []*kgo.Record
+	processor model.BatchProcessor
+	logger    *zap.Logger
+	decoder   Decoder
+	delivery  apmqueue.DeliveryType
+}
+
+// consume processed the records from a topic and partition. Calling consume
+// more than once will cause a panic.
+func (pc partitionConsumer) consume(topic string, partition int32) {
+	logger := pc.logger.With(
+		zap.String("topic", topic),
+		zap.Int32("partition", partition),
+	)
+	for records := range pc.records {
+		// Store the last processed record. Default to -1 for cases where
+		// only the first record is received.
+		last := -1
+	recordLoop:
+		for i, msg := range records {
+			meta := make(map[string]string)
+			for _, h := range msg.Headers {
+				meta[h.Key] = string(h.Value)
+			}
+			var event model.APMEvent
+			if err := pc.decoder.Decode(msg.Value, &event); err != nil {
+				logger.Error("unable to decode message.Value into model.APMEvent",
+					zap.Error(err),
+					zap.ByteString("message.value", msg.Value),
+					zap.Int64("offset", msg.Offset),
+					zap.Any("headers", meta),
+				)
+				// TODO(marclop) DLQ? The decoding has failed, re-delivery
+				// may cause the same error. Discard the event for now.
+				continue
+			}
+			ctx := queuecontext.WithMetadata(context.Background(), meta)
+			batch := model.Batch{event}
+			if err := pc.processor.ProcessBatch(ctx, &batch); err != nil {
+				logger.Error("unable to process event",
+					zap.Error(err),
+					zap.Int64("offset", msg.Offset),
+					zap.Any("headers", meta),
+				)
+				switch pc.delivery {
+				case apmqueue.AtLeastOnceDeliveryType:
+					// Exit the loop and commit the last processed offset
+					// (if any). This ensures events which haven't been
+					// processed are re-delivered, but those that have, are
+					// committed.
+					break recordLoop
+				case apmqueue.AtMostOnceDeliveryType:
+					// Events which can't be processed, are lost.
+					continue
+				}
+			}
+			last = i
+		}
+		// Only commit the records when at least a record has been processed
+		// with AtLeastOnceDeliveryType.
+		if pc.delivery == apmqueue.AtLeastOnceDeliveryType && last >= 0 {
+			lastRecord := records[last]
+			err := pc.client.CommitRecords(context.Background(), lastRecord)
+			if err != nil {
+				logger.Error("unable to commit records",
+					zap.Error(err),
+					zap.Int64("offset", lastRecord.Offset),
+				)
+			} else if len(records) > 0 {
+				logger.Info("committed",
+					zap.Int64("offset", lastRecord.Offset),
+				)
+			}
+		}
+	}
 }
