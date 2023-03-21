@@ -302,16 +302,6 @@ func (c *consumer) lost(_ context.Context, _ *kgo.Client, lost map[string][]int3
 	}
 }
 
-func (c *consumer) close() {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	for tp, pc := range c.consumers {
-		delete(c.consumers, tp)
-		close(pc.records)
-	}
-	c.wg.Wait()
-}
-
 type partitionConsumer struct {
 	client    *kgo.Client
 	wg        *sync.WaitGroup
