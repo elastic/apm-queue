@@ -125,7 +125,7 @@ func NewConsumer(cfg ConsumerConfig) (*Consumer, error) {
 		kgo.SeedBrokers(cfg.Brokers...),
 		kgo.ConsumerGroup(cfg.GroupID),
 		kgo.ConsumeTopics(cfg.Topics...),
-		kgo.WithLogger(kzap.New(cfg.Logger.Named("franz"))),
+		kgo.WithLogger(kzap.New(cfg.Logger.Named("kafka"))),
 		// If a rebalance happens while the client is polling, the consumed
 		// records may belong to a partition which has been reassigned to a
 		// different consumer int he group. To avoid this scenario, Polls will
@@ -172,7 +172,7 @@ func (c *Consumer) Close() error {
 	// Since we take the full lock when closing, there's no need to explicitly
 	// allow rebalances since polls aren't concurrent with Close().
 	c.client.Close()
-	c.consumer.close() // Close each partition consumer.
+	c.consumer.wg.Wait() // Wait for all the goroutines to exit.
 	return nil
 }
 
@@ -226,7 +226,10 @@ func (c *Consumer) fetch(ctx context.Context) error {
 			return
 		}
 		tp := topicPartition{topic: ftp.Topic, partition: ftp.Partition}
-		c.consumer.consumers[tp].records <- ftp.Records
+		select {
+		case c.consumer.consumers[tp].records <- ftp.Records:
+		case <-ctx.Done():
+		}
 	})
 	return nil
 }
@@ -244,6 +247,7 @@ func (c *Consumer) Healthy() error {
 // to use when partitions are reassigned.
 type consumer struct {
 	mu        sync.Mutex
+	wg        sync.WaitGroup
 	consumers map[topicPartition]partitionConsumer
 	processor model.BatchProcessor
 	logger    *zap.Logger
@@ -263,9 +267,9 @@ func (c *consumer) assigned(_ context.Context, client *kgo.Client, assigned map[
 	defer c.mu.Unlock()
 	for topic, partitions := range assigned {
 		for _, partition := range partitions {
+			c.wg.Add(1)
 			pc := partitionConsumer{
-				stop:      make(chan struct{}),
-				done:      make(chan struct{}),
+				wg:        &c.wg,
 				records:   make(chan []*kgo.Record),
 				processor: c.processor,
 				logger:    c.logger,
@@ -288,37 +292,29 @@ func (c *consumer) assigned(_ context.Context, client *kgo.Client, assigned map[
 func (c *consumer) lost(_ context.Context, _ *kgo.Client, lost map[string][]int32) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	var wg sync.WaitGroup
 	for topic, partitions := range lost {
 		for _, partition := range partitions {
 			tp := topicPartition{topic: topic, partition: partition}
 			pc := c.consumers[tp]
 			delete(c.consumers, tp)
-			close(pc.stop)
-			wg.Add(1)
-			go func() { <-pc.done; wg.Done() }()
+			close(pc.records)
 		}
 	}
-	wg.Wait()
 }
 
 func (c *consumer) close() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	var wg sync.WaitGroup
-	for _, pc := range c.consumers {
-		close(pc.stop)
-		wg.Add(1)
-		pc := pc // copy for closure.
-		go func() { <-pc.done; wg.Done() }()
+	for tp, pc := range c.consumers {
+		delete(c.consumers, tp)
+		close(pc.records)
 	}
-	wg.Wait()
+	c.wg.Wait()
 }
 
 type partitionConsumer struct {
 	client    *kgo.Client
-	stop      chan struct{}
-	done      chan struct{}
+	wg        *sync.WaitGroup
 	records   chan []*kgo.Record
 	processor model.BatchProcessor
 	logger    *zap.Logger
@@ -329,21 +325,20 @@ type partitionConsumer struct {
 // consume processed the records from a topic and partition. Calling consume
 // more than once will cause a panic.
 func (pc partitionConsumer) consume(topic string, partition int32) {
-	defer func() {
-		close(pc.done)
-		close(pc.records)
-	}()
+	defer pc.wg.Done()
 	logger := pc.logger.With(
 		zap.String("topic", topic),
 		zap.Int32("partition", partition),
 	)
 	for {
 		select {
-		case <-pc.stop:
-			return
-		case records := <-pc.records:
-			// Store the last processed record.
-			var last int
+		case records, ok := <-pc.records:
+			if !ok {
+				return // Channel closed, return immediately.
+			}
+			// Store the last processed record. Default to -1 for cases where
+			// only the first record is received.
+			last := -1
 		recordLoop:
 			for i, msg := range records {
 				meta := make(map[string]string)
@@ -384,7 +379,9 @@ func (pc partitionConsumer) consume(topic string, partition int32) {
 				}
 				last = i
 			}
-			if pc.delivery == apmqueue.AtLeastOnceDeliveryType {
+			// Only commit the records when at least a record has been processed
+			// with AtLeastOnceDeliveryType.
+			if pc.delivery == apmqueue.AtLeastOnceDeliveryType && last >= 0 {
 				lastRecord := records[last]
 				err := pc.client.CommitRecords(context.Background(), lastRecord)
 				if err != nil {
