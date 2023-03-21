@@ -102,6 +102,7 @@ func TestNewProducerBasic(t *testing.T) {
 
 	// Assert no more records have been produced. A nil context is used to
 	// cause PollRecords to return immediately.
+	//lint:ignore SA1012 passing a nil context is a valid use for this call.
 	fetches := client.PollRecords(nil, 1)
 	assert.Len(t, fetches.Records(), 0)
 }
