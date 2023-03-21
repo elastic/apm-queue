@@ -330,70 +330,64 @@ func (pc partitionConsumer) consume(topic string, partition int32) {
 		zap.String("topic", topic),
 		zap.Int32("partition", partition),
 	)
-	for {
-		select {
-		case records, ok := <-pc.records:
-			if !ok {
-				return // Channel closed, return immediately.
+	for records := range pc.records {
+		// Store the last processed record. Default to -1 for cases where
+		// only the first record is received.
+		last := -1
+	recordLoop:
+		for i, msg := range records {
+			meta := make(map[string]string)
+			for _, h := range msg.Headers {
+				meta[h.Key] = string(h.Value)
 			}
-			// Store the last processed record. Default to -1 for cases where
-			// only the first record is received.
-			last := -1
-		recordLoop:
-			for i, msg := range records {
-				meta := make(map[string]string)
-				for _, h := range msg.Headers {
-					meta[h.Key] = string(h.Value)
-				}
-				var event model.APMEvent
-				if err := pc.decoder.Decode(msg.Value, &event); err != nil {
-					logger.Error("unable to decode message.Value into model.APMEvent",
-						zap.Error(err),
-						zap.ByteString("message.value", msg.Value),
-						zap.Int64("offset", msg.Offset),
-						zap.Any("headers", meta),
-					)
-					// TODO(marclop) DLQ? The decoding has failed, re-delivery
-					// may cause the same error. Discard the event for now.
+			var event model.APMEvent
+			if err := pc.decoder.Decode(msg.Value, &event); err != nil {
+				logger.Error("unable to decode message.Value into model.APMEvent",
+					zap.Error(err),
+					zap.ByteString("message.value", msg.Value),
+					zap.Int64("offset", msg.Offset),
+					zap.Any("headers", meta),
+				)
+				// TODO(marclop) DLQ? The decoding has failed, re-delivery
+				// may cause the same error. Discard the event for now.
+				continue
+			}
+			ctx := queuecontext.WithMetadata(context.Background(), meta)
+			batch := model.Batch{event}
+			if err := pc.processor.ProcessBatch(ctx, &batch); err != nil {
+				logger.Error("unable to process event",
+					zap.Error(err),
+					zap.Int64("offset", msg.Offset),
+					zap.Any("headers", meta),
+				)
+				switch pc.delivery {
+				case apmqueue.AtLeastOnceDeliveryType:
+					// Exit the loop and commit the last processed offset
+					// (if any). This ensures events which haven't been
+					// processed are re-delivered, but those that have, are
+					// committed.
+					break recordLoop
+				case apmqueue.AtMostOnceDeliveryType:
+					// Events which can't be processed, are lost.
 					continue
 				}
-				ctx := queuecontext.WithMetadata(context.Background(), meta)
-				batch := model.Batch{event}
-				if err := pc.processor.ProcessBatch(ctx, &batch); err != nil {
-					logger.Error("unable to process event",
-						zap.Error(err),
-						zap.Int64("offset", msg.Offset),
-						zap.Any("headers", meta),
-					)
-					switch pc.delivery {
-					case apmqueue.AtLeastOnceDeliveryType:
-						// Exit the loop and commit the last processed offset
-						// (if any). This ensures events which haven't been
-						// processed are re-delivered, but those that have, are
-						// committed.
-						break recordLoop
-					case apmqueue.AtMostOnceDeliveryType:
-						// Events which can't be processed, are lost.
-						continue
-					}
-				}
-				last = i
 			}
-			// Only commit the records when at least a record has been processed
-			// with AtLeastOnceDeliveryType.
-			if pc.delivery == apmqueue.AtLeastOnceDeliveryType && last >= 0 {
-				lastRecord := records[last]
-				err := pc.client.CommitRecords(context.Background(), lastRecord)
-				if err != nil {
-					logger.Error("unable to commit records",
-						zap.Error(err),
-						zap.Int64("offset", lastRecord.Offset),
-					)
-				} else if len(records) > 0 {
-					logger.Info("committed",
-						zap.Int64("offset", lastRecord.Offset),
-					)
-				}
+			last = i
+		}
+		// Only commit the records when at least a record has been processed
+		// with AtLeastOnceDeliveryType.
+		if pc.delivery == apmqueue.AtLeastOnceDeliveryType && last >= 0 {
+			lastRecord := records[last]
+			err := pc.client.CommitRecords(context.Background(), lastRecord)
+			if err != nil {
+				logger.Error("unable to commit records",
+					zap.Error(err),
+					zap.Int64("offset", lastRecord.Offset),
+				)
+			} else if len(records) > 0 {
+				logger.Info("committed",
+					zap.Int64("offset", lastRecord.Offset),
+				)
 			}
 		}
 	}
