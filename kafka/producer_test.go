@@ -24,16 +24,17 @@ import (
 	"testing"
 	"time"
 
-	"github.com/elastic/apm-data/model"
-	apmqueue "github.com/elastic/apm-queue"
-	"github.com/elastic/apm-queue/codec/json"
-	"github.com/elastic/apm-queue/queuecontext"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/twmb/franz-go/pkg/kadm"
 	"github.com/twmb/franz-go/pkg/kfake"
 	"github.com/twmb/franz-go/pkg/kgo"
 	"go.uber.org/zap"
+
+	"github.com/elastic/apm-data/model"
+	apmqueue "github.com/elastic/apm-queue"
+	"github.com/elastic/apm-queue/codec/json"
+	"github.com/elastic/apm-queue/queuecontext"
 )
 
 func TestNewProducer(t *testing.T) {
