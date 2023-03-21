@@ -228,7 +228,20 @@ func (c *Consumer) fetch(ctx context.Context) error {
 		tp := topicPartition{topic: ftp.Topic, partition: ftp.Partition}
 		select {
 		case c.consumer.consumers[tp].records <- ftp.Records:
+		// When using AtMostOnceDelivery, if the context is cancelled between
+		// PollRecords and this line, the events will be lost.
+		// NOTE(marclop) Add a shutdown timer so that there's a grace period
+		// to allow the events to be processed before they're lost.
 		case <-ctx.Done():
+			if c.cfg.Delivery == apmqueue.AtMostOnceDeliveryType {
+				c.cfg.Logger.Warn(
+					"data loss: context cancelled after records were committed",
+					zap.String("topic", ftp.Topic),
+					zap.Int32("partition", ftp.Partition),
+					zap.Int64("offset", ftp.HighWatermark),
+					zap.Int("records", len(ftp.Records)),
+				)
+			}
 		}
 	})
 	return nil
@@ -269,7 +282,6 @@ func (c *consumer) assigned(_ context.Context, client *kgo.Client, assigned map[
 		for _, partition := range partitions {
 			c.wg.Add(1)
 			pc := partitionConsumer{
-				wg:        &c.wg,
 				records:   make(chan []*kgo.Record),
 				processor: c.processor,
 				logger:    c.logger,
@@ -277,7 +289,10 @@ func (c *consumer) assigned(_ context.Context, client *kgo.Client, assigned map[
 				client:    client,
 				delivery:  c.delivery,
 			}
-			go pc.consume(topic, partition)
+			go func(topic string, partition int32) {
+				defer c.wg.Done()
+				pc.consume(topic, partition)
+			}(topic, partition)
 			tp := topicPartition{partition: partition, topic: topic}
 			c.consumers[tp] = pc
 		}
@@ -304,7 +319,6 @@ func (c *consumer) lost(_ context.Context, _ *kgo.Client, lost map[string][]int3
 
 type partitionConsumer struct {
 	client    *kgo.Client
-	wg        *sync.WaitGroup
 	records   chan []*kgo.Record
 	processor model.BatchProcessor
 	logger    *zap.Logger
@@ -315,7 +329,6 @@ type partitionConsumer struct {
 // consume processed the records from a topic and partition. Calling consume
 // more than once will cause a panic.
 func (pc partitionConsumer) consume(topic string, partition int32) {
-	defer pc.wg.Done()
 	logger := pc.logger.With(
 		zap.String("topic", topic),
 		zap.Int32("partition", partition),
