@@ -7,7 +7,7 @@ require (
 	cloud.google.com/go/pubsublite v1.6.0
 	github.com/elastic/apm-data v0.1.1-0.20230309014206-3ad1a5caedc9
 	github.com/stretchr/testify v1.8.2
-	github.com/twmb/franz-go v1.13.0
+	github.com/twmb/franz-go v1.13.1
 	github.com/twmb/franz-go/plugin/kzap v1.1.2
 	go.uber.org/zap v1.24.0
 	golang.org/x/sync v0.1.0
