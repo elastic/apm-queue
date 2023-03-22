@@ -19,11 +19,13 @@ package kafka
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"sync"
 
 	"github.com/twmb/franz-go/pkg/kgo"
+	"github.com/twmb/franz-go/pkg/sasl"
 	"github.com/twmb/franz-go/plugin/kzap"
 	"go.uber.org/zap"
 
@@ -73,6 +75,10 @@ type ConsumerConfig struct {
 	// The processing time of each processing cycle can be calculated as:
 	// record.process.time * MaxPollRecords.
 	Processor model.BatchProcessor
+	// SASL configures the kgo.Client to use SASL authorization.
+	SASL sasl.Mechanism
+	// TLS configures the kgo.Client to use TLS for authentication.
+	TLS *tls.Config
 }
 
 // Validate ensures the configuration is valid, otherwise, returns an error.
@@ -147,6 +153,12 @@ func NewConsumer(cfg ConsumerConfig) (*Consumer, error) {
 				cfg.ClientID, cfg.Version,
 			))
 		}
+	}
+	if cfg.TLS != nil {
+		opts = append(opts, kgo.DialTLSConfig(cfg.TLS.Clone()))
+	}
+	if cfg.SASL != nil {
+		opts = append(opts, kgo.SASL(cfg.SASL))
 	}
 	if cfg.MaxPollRecords <= 0 {
 		cfg.MaxPollRecords = 100

@@ -19,6 +19,7 @@ package kafka
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"sync"
@@ -26,6 +27,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/twmb/franz-go/pkg/kgo"
+	"github.com/twmb/franz-go/pkg/sasl"
 	"github.com/twmb/franz-go/plugin/kzap"
 
 	"github.com/elastic/apm-data/model"
@@ -72,6 +74,13 @@ type ProducerConfig struct {
 	// by the producer. If any errors are returned, the producer will not
 	// produce and return the error in ProcessBatch.
 	Mutators []RecordMutator
+	// SASL configures the kgo.Client to use SASL authorization.
+	SASL sasl.Mechanism
+	// TLS configures the kgo.Client to use TLS for authentication.
+	TLS *tls.Config
+	// CompressionCodec specifies a list of compression codecs.
+	// See kgo.ProducerBatchCompression for more details.
+	CompressionCodec []kgo.CompressionCodec
 }
 
 // Validate checks that cfg is valid, and returns an error otherwise.
@@ -108,7 +117,7 @@ func NewProducer(cfg ProducerConfig) (*Producer, error) {
 
 	opts := []kgo.Opt{
 		kgo.SeedBrokers(cfg.Brokers...),
-		kgo.WithLogger(kzap.New(cfg.Logger)),
+		kgo.WithLogger(kzap.New(cfg.Logger.Named("kafka"))),
 	}
 	if cfg.ClientID != "" {
 		opts = append(opts, kgo.ClientID(cfg.ClientID))
@@ -118,7 +127,15 @@ func NewProducer(cfg ProducerConfig) (*Producer, error) {
 			))
 		}
 	}
-	// TODO(marclop) block on re-balances, auto-commit high watermarks.
+	if cfg.TLS != nil {
+		opts = append(opts, kgo.DialTLSConfig(cfg.TLS.Clone()))
+	}
+	if cfg.SASL != nil {
+		opts = append(opts, kgo.SASL(cfg.SASL))
+	}
+	if len(cfg.CompressionCodec) > 0 {
+		opts = append(opts, kgo.ProducerBatchCompression(cfg.CompressionCodec...))
+	}
 	client, err := kgo.NewClient(opts...)
 	if err != nil {
 		return nil, fmt.Errorf("kafka: failed creating producer: %w", err)
