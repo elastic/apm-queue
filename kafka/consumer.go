@@ -34,6 +34,9 @@ import (
 	"github.com/elastic/apm-queue/queuecontext"
 )
 
+// SASLMechanism type alias to sasl.Mechanism
+type SASLMechanism = sasl.Mechanism
+
 // Decoder decodes a []byte into a model.APMEvent
 type Decoder interface {
 	// Decode decodes an encoded model.APM Event into its struct form.
@@ -76,7 +79,7 @@ type ConsumerConfig struct {
 	// record.process.time * MaxPollRecords.
 	Processor model.BatchProcessor
 	// SASL configures the kgo.Client to use SASL authorization.
-	SASL sasl.Mechanism
+	SASL SASLMechanism
 	// TLS configures the kgo.Client to use TLS for authentication.
 	TLS *tls.Config
 }
