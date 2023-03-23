@@ -1,4 +1,4 @@
-module github.com/elastic/apm-queue/kafka/sasl/aws
+module github.com/elastic/apm-queue/kafka/sasl/azure
 
 go 1.20
 
