@@ -1,0 +1,5 @@
+apiVersion: v2
+name: kafka
+description: Creates a Kafka cluster with optional topics using the strimzi Operator
+type: application
+version: 0.1.0
