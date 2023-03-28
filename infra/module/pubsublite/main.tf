@@ -63,7 +63,7 @@ variable "reservation" {
 # OPTIONAL variables
 
 variable "suffix" {
-  description = "Optionalthe topic suffix"
+  description = "Optional topic suffix"
   default     = ""
   type        = string
 }
