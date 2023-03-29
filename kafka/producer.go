@@ -45,6 +45,26 @@ type Encoder interface {
 // If the RecordMutator returns an error, it is considered fatal.
 type RecordMutator func(model.APMEvent, *kgo.Record) error
 
+// CompressionCodec configures how records are compressed before being sent.
+// Type alias to kgo.CompressionCodec.
+type CompressionCodec = kgo.CompressionCodec
+
+// NoCompression is a compression option that avoids compression. This can
+// always be used as a fallback compression.
+func NoCompression() CompressionCodec { return kgo.NoCompression() }
+
+// GzipCompression enables gzip compression with the default compression level.
+func GzipCompression() CompressionCodec { return kgo.GzipCompression() }
+
+// SnappyCompression enables snappy compression.
+func SnappyCompression() CompressionCodec { return kgo.SnappyCompression() }
+
+// Lz4Compression enables lz4 compression with the fastest compression level.
+func Lz4Compression() CompressionCodec { return kgo.Lz4Compression() }
+
+// ZstdCompression enables zstd compression with the default compression level.
+func ZstdCompression() CompressionCodec { return kgo.ZstdCompression() }
+
 // ProducerConfig holds configuration for publishing events to Kafka.
 type ProducerConfig struct {
 	// Brokers holds a slice of (host:port) addresses of the Kafka brokers
@@ -80,7 +100,7 @@ type ProducerConfig struct {
 	TLS *tls.Config
 	// CompressionCodec specifies a list of compression codecs.
 	// See kgo.ProducerBatchCompression for more details.
-	CompressionCodec []kgo.CompressionCodec
+	CompressionCodec []CompressionCodec
 }
 
 // Validate checks that cfg is valid, and returns an error otherwise.
