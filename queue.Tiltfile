@@ -34,4 +34,5 @@ def provision_pubsublite(path, topics=[], create_subscription=False):
     os.putenv("TF_VAR_create_subscription", "{}".format(create_subscription))
     if config.tilt_subcommand == "up":
         print("provisioning pubsublite resources...")
+        print(local('cd {} && terraform init'.format(path)))
         print(local("make -C {} apply".format(path)))
