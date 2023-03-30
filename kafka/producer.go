@@ -171,6 +171,10 @@ func NewProducer(cfg ProducerConfig) (*Producer, error) {
 }
 
 // Close stops the producer
+//
+// This call is blocking and will cause all the underlying clients to stop
+// producing. If producing is asynchronous, it'll block until all messages
+// have been produced. After Close() is called, Producer cannot be reused.
 func (p *Producer) Close() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -178,7 +182,10 @@ func (p *Producer) Close() error {
 	return nil
 }
 
-// ProcessBatch publishes the events in batch to the specified Kafka topic.
+// ProcessBatch publishes the batch to the kafka topic inferred from the
+// configured TopicRouter. If the Producer is synchronous, it waits until all
+// messages have been produced to Kafka, otherwise, returns as soon as
+// the messages have been stored in the producer's buffer.
 func (p *Producer) ProcessBatch(ctx context.Context, batch *model.Batch) error {
 	// Take a read lock to prevent Close from closing the client
 	// while we're attempting to produce records.
@@ -212,6 +219,10 @@ func (p *Producer) ProcessBatch(ctx context.Context, batch *model.Batch) error {
 			return fmt.Errorf("failed to encode event: %w", err)
 		}
 		record.Value = encoded
+		if !p.cfg.Sync {
+			// Detach the context from its deadline or cancellation.
+			ctx = queuecontext.DetachedContext(ctx)
+		}
 		p.client.Produce(ctx, record, func(msg *kgo.Record, err error) {
 			defer wg.Done()
 			if err != nil {
