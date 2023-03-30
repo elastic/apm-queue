@@ -26,6 +26,7 @@ import (
 	"cloud.google.com/go/pubsub"
 	"cloud.google.com/go/pubsublite/pscompat"
 	"go.uber.org/zap"
+	"golang.org/x/sync/errgroup"
 	"google.golang.org/api/option"
 
 	"github.com/elastic/apm-data/model"
@@ -54,7 +55,12 @@ type ProducerConfig struct {
 	Logger *zap.Logger
 	// TopicRouter returns the topic where an event should be produced.
 	TopicRouter apmqueue.TopicRouter
-	ClientOpts  []option.ClientOption
+	// Sync can be used to indicate whether production should be synchronous.
+	// Due to the mechanics of pubsub lite publishing, producing synchronously
+	// will yield poor performance unless the model.Batch are large enough to
+	// trigger immediate flush after processing a single batch.
+	Sync       bool
+	ClientOpts []option.ClientOption
 }
 
 // Validate ensures the configuration is valid, otherwise, returns an error.
@@ -83,14 +89,22 @@ func (cfg ProducerConfig) Validate() error {
 	return errors.Join(errs...)
 }
 
+// resTopic enriches a pubsub.PublishResult with its topic.
+type resTopic struct {
+	response *pubsub.PublishResult
+	topic    apmqueue.Topic
+}
+
 // Producer implementes the model.BatchProcessor interface and sends each of
 // the events in a batch to a PubSub Lite topic, which is determined by calling
 // the configured TopicRouter.
 type Producer struct {
-	mu       sync.RWMutex
-	cfg      ProducerConfig
-	producer map[apmqueue.Topic]*pscompat.PublisherClient
-	closed   chan struct{}
+	mu        sync.RWMutex
+	cfg       ProducerConfig
+	producer  map[apmqueue.Topic]*pscompat.PublisherClient
+	errg      *errgroup.Group
+	responses chan []resTopic
+	closed    chan struct{}
 }
 
 // NewProducer creates a new PubSub Lite producer for a single project.
@@ -101,7 +115,11 @@ func NewProducer(ctx context.Context, cfg ProducerConfig) (*Producer, error) {
 	// TODO(marclop) connection pools:
 	// https://pkg.go.dev/cloud.google.com/go/pubsublite#hdr-gRPC_Connection_Pools
 	settings := pscompat.PublishSettings{
-		// TODO(marclop) tweak producing settings, (maybe) key extractor.
+		// TODO(marclop) tweak producing settings, to cap memory use, trying
+		// to size for good performance. It may be desireable to provide a
+		// maximum memory usage for this component and size accordingly.
+		// The number of topics should be taken into account since it creates
+		// a publisher client per topic.
 	}
 	producers := make(map[apmqueue.Topic]*pscompat.PublisherClient)
 	for _, topic := range cfg.Topics {
@@ -114,14 +132,35 @@ func NewProducer(ctx context.Context, cfg ProducerConfig) (*Producer, error) {
 		}
 		producers[topic] = publisher
 	}
+	errg, _ := errgroup.WithContext(ctx)
+	// NOTE(marclop) should the channel size be dynamic? 100 is an arbitrary
+	// number, but it must be greater than 0, so async produces don't block.
+	c := make(chan []resTopic, 100*len(cfg.Topics))
+	if !cfg.Sync {
+		// If producing is async, start a goroutine that blocks until the
+		// all messages have been produced. This happens in the ProcessBatch
+		// function when producing is set to sync.
+		errg.Go(func() error {
+			for responses := range c {
+				blockUntilProduced(ctx, responses, cfg.Logger)
+			}
+			return nil
+		})
+	}
 	return &Producer{
-		cfg:      cfg,
-		producer: producers,
-		closed:   make(chan struct{}),
+		cfg:       cfg,
+		producer:  producers,
+		closed:    make(chan struct{}),
+		errg:      errg,
+		responses: c,
 	}, nil
 }
 
-// Close stops the producer
+// Close stops the producer.
+//
+// This call is blocking and will cause all the underlying clients to stop
+// producing. If producing is asynchronous, it'll block until all messages
+// have been produced. After Close() is called, Producer cannot be reused.
 func (p *Producer) Close() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -129,10 +168,14 @@ func (p *Producer) Close() error {
 		producer.Stop()
 	}
 	close(p.closed)
-	return nil
+	close(p.responses)
+	return p.errg.Wait()
 }
 
-// ProcessBatch processes a model.Batch.
+// ProcessBatch publishes the batch to the PubSub Lite topic inferred from the
+// configured TopicRouter. If the Producer is synchronous, it waits until all
+// messages have been produced to PubSub Lite, otherwise, returns as soon as
+// the messages have been stored in the producer's buffer.
 func (p *Producer) ProcessBatch(ctx context.Context, batch *model.Batch) error {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
@@ -141,8 +184,7 @@ func (p *Producer) ProcessBatch(ctx context.Context, batch *model.Batch) error {
 		return errors.New("pubsublite: producer closed")
 	default:
 	}
-	responses := make([]*pubsub.PublishResult, 0, len(*batch))
-	topics := make([]apmqueue.Topic, 0, len(*batch))
+	responses := make([]resTopic, 0, len(*batch))
 	for _, event := range *batch {
 		encoded, err := p.cfg.Encoder.Encode(event)
 		if err != nil {
@@ -162,20 +204,46 @@ func (p *Producer) ProcessBatch(ctx context.Context, batch *model.Batch) error {
 		if !ok {
 			return fmt.Errorf("pubsublite: unable to find producer for %s", topic)
 		}
-		responses = append(responses, producer.Publish(ctx, &msg))
-		topics = append(topics, topic)
+		responses = append(responses, resTopic{
+			// NOTE(marclop) producer.Publish() is completely asynchronous and
+			// doesn't use the context. If/when the pubsublite library supports
+			// instrumentation, the context will be useful to propagate traces.
+			// This is accurates as of pubsublite@v1.7.0
+			response: producer.Publish(ctx, &msg),
+			topic:    topic,
+		})
 	}
-	// NOTE(marclop) should the error be returned to the client? Does it care?
-	for i, res := range responses {
-		if serverID, err := res.Get(ctx); err != nil {
-			p.cfg.Logger.Error("failed producing message",
+	if p.cfg.Sync {
+		blockUntilProduced(ctx, responses, p.cfg.Logger)
+		return nil
+	}
+	select {
+	case p.responses <- responses:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	return nil
+}
+
+func blockUntilProduced(ctx context.Context, res []resTopic, logger *zap.Logger) {
+	// TODO(marclop) Retryable errors are automatically handled. If a result
+	// returns an error, this indicates that the publisher client encountered
+	// a fatal error and can no longer be used. Fatal errors should be manually
+	// inspected and the cause resolved. A new publisher client instance must
+	// be created to republish failed messages.
+	// Any time an error is logged, we should attempt to re-create the producer
+	// instance that attempted to produce the message. Currently, the producer
+	// will be useless and all the messages that are attempted to be producer
+	// will fail with an error.
+	for _, res := range res {
+		if serverID, err := res.response.Get(ctx); err != nil {
+			logger.Error("failed producing message",
 				zap.Error(err),
 				zap.String("server_id", serverID),
-				zap.String("topic", string(topics[i])),
+				zap.String("topic", string(res.topic)),
 			)
 		}
 	}
-	return nil
 }
 
 func (p *Producer) Healthy() error {
