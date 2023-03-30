@@ -184,7 +184,7 @@ func (p *Producer) Close() error {
 
 // ProcessBatch publishes the batch to the kafka topic inferred from the
 // configured TopicRouter. If the Producer is synchronous, it waits until all
-// messages have been produced to PubSub Lite, otherwise, returns as soon as
+// messages have been produced to Kafka, otherwise, returns as soon as
 // the messages have been stored in the producer's buffer.
 func (p *Producer) ProcessBatch(ctx context.Context, batch *model.Batch) error {
 	// Take a read lock to prevent Close from closing the client
