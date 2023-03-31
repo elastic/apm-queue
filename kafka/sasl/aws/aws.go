@@ -21,22 +21,22 @@ package saslaws
 import (
 	"context"
 
-	"github.com/aws/aws-sdk-go/aws/session"
+	awssdk "github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/twmb/franz-go/pkg/sasl"
 	"github.com/twmb/franz-go/pkg/sasl/aws"
 )
 
-// New returns a new sasl.Mechanism from the AWS session credentials.
-func New(session *session.Session, userAgent string) sasl.Mechanism {
+// New returns a new sasl.Mechanism from an aws.CredentialsProvider.
+func New(provider awssdk.CredentialsProvider, userAgent string) sasl.Mechanism {
 	return aws.ManagedStreamingIAM(func(ctx context.Context) (aws.Auth, error) {
-		val, err := session.Config.Credentials.GetWithContext(ctx)
+		creds, err := provider.Retrieve(ctx)
 		if err != nil {
 			return aws.Auth{}, err
 		}
 		return aws.Auth{
-			AccessKey:    val.AccessKeyID,
-			SecretKey:    val.SecretAccessKey,
-			SessionToken: val.SessionToken,
+			AccessKey:    creds.AccessKeyID,
+			SecretKey:    creds.SecretAccessKey,
+			SessionToken: creds.SessionToken,
 			UserAgent:    userAgent,
 		}, nil
 	})

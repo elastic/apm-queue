@@ -3,8 +3,8 @@ module github.com/elastic/apm-queue/kafka/sasl/aws
 go 1.20
 
 require (
-	github.com/aws/aws-sdk-go v1.44.233
+	github.com/aws/aws-sdk-go-v2 v1.17.7
 	github.com/twmb/franz-go v1.13.1
 )
 
-require github.com/jmespath/go-jmespath v0.4.0 // indirect
+require github.com/aws/smithy-go v1.13.5 // indirect
