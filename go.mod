@@ -9,7 +9,7 @@ require (
 	github.com/stretchr/testify v1.8.2
 	github.com/twmb/franz-go v1.13.1
 	github.com/twmb/franz-go/pkg/kadm v1.8.0
-	github.com/twmb/franz-go/pkg/kfake v0.0.0-20230328135809-c92d13d95b20
+	github.com/twmb/franz-go/pkg/kfake v0.0.0-20230401013058-74cd40b2d3fd
 	github.com/twmb/franz-go/plugin/kzap v1.1.2
 	go.uber.org/zap v1.24.0
 	golang.org/x/sync v0.1.0
