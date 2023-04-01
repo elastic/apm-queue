@@ -4,7 +4,7 @@ go 1.20
 
 require (
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.4.0
-	github.com/twmb/franz-go v1.13.1
+	github.com/twmb/franz-go v1.13.2
 )
 
 require (
