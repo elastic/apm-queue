@@ -1,0 +1,8 @@
+.*
+bin
+deploy
+docs
+helm
+tools
+proto
+**/*_test.go
