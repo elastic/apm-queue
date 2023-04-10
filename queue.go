@@ -21,6 +21,7 @@ package apmqueue
 
 import (
 	"context"
+	"strings"
 
 	"github.com/elastic/apm-data/model"
 )
@@ -62,3 +63,36 @@ type Topic string
 
 // TopicRouter is used to determine the destination topic for an model.APMEvent.
 type TopicRouter func(event model.APMEvent) Topic
+
+// NewEventTypeTopicRouter returns a topic router which routes events based on
+// an optional prefix, and the event.Processor.Event field for an event.
+func NewEventTypeTopicRouter(prefix string) TopicRouter {
+	txTopic := joinPrefix(prefix, model.TransactionProcessor.Event)
+	spanTopic := joinPrefix(prefix, model.SpanProcessor.Event)
+	errorTopic := joinPrefix(prefix, model.ErrorProcessor.Event)
+	metricTopic := joinPrefix(prefix, model.MetricsetProcessor.Event)
+	logTopic := joinPrefix(prefix, model.LogProcessor.Event)
+	return func(event model.APMEvent) Topic {
+		switch event.Processor {
+		case model.TransactionProcessor:
+			return Topic(txTopic)
+		case model.SpanProcessor:
+			return Topic(spanTopic)
+		case model.ErrorProcessor:
+			return Topic(errorTopic)
+		case model.MetricsetProcessor:
+			return Topic(metricTopic)
+		case model.LogProcessor:
+			return Topic(logTopic)
+		default:
+			return "unknown"
+		}
+	}
+}
+
+func joinPrefix(prefix, name string) string {
+	if prefix == "" {
+		return name
+	}
+	return strings.Join([]string{prefix, name}, ".")
+}

@@ -1,0 +1,5 @@
+apiVersion: v2
+name: loadgen
+description: Creates a loadgen deployment with the desired number of replicas, producers, etc.
+type: application
+version: 0.1.0

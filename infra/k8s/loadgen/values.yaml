@@ -1,0 +1,15 @@
+replicas: 1
+
+replay_count: "1000"
+producer_count: "2"
+producer_key: "producer_id"
+producer_value_format: "producer-%d"
+output_type: "kafka"
+topic_prefix: "prefix"
+
+kafka:
+  brokers: ""
+
+gcp:
+  project_id: ""
+  region: ""
