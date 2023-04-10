@@ -4,7 +4,7 @@ go 1.20
 
 require (
 	github.com/elastic/apm-data v0.1.1-0.20230309014206-3ad1a5caedc9
-	github.com/elastic/apm-queue v0.0.0-20230410113643-e6db00a5c222
+	github.com/elastic/apm-queue v0.0.0-20230410192128-da5450536b3d
 	github.com/google/uuid v1.3.0
 	go.elastic.co/apm/module/apmzap/v2 v2.3.0
 	go.elastic.co/ecszap v1.0.1
