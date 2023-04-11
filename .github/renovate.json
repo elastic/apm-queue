@@ -3,7 +3,70 @@
   "extends": [
     "config:base"
   ],
-  "automerge": true,
+  "labels": [
+    "renovate"
+  ],
+  "ignoreDeps": [
+    "github.com/elastic/apm-queue"
+  ],
+  "packageRules": [
+    {
+      "matchPackagePrefixes": [
+        "github.com/elastic/"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch",
+        "pin",
+        "digest"
+      ],
+      "enabled": true,
+      "automerge": true
+    },
+    {
+      "matchPackagePrefixes": [
+        "github.com/elastic/"
+      ],
+      "matchUpdateTypes": [
+        "major"
+      ],
+      "enabled": true,
+      "automerge": false
+    },
+    {
+      "excludePackagePrefixes": [
+        "github.com/elastic/"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch",
+        "pin"
+      ],
+      "enabled": true,
+      "automerge": true
+    },
+    {
+      "excludePackagePrefixes": [
+        "github.com/elastic/"
+      ],
+      "matchUpdateTypes": [
+        "major"
+      ],
+      "enabled": true,
+      "automerge": false
+    },
+    {
+      "excludePackagePrefixes": [
+        "github.com/elastic/"
+      ],
+      "matchUpdateTypes": [
+        "digest"
+      ],
+      "enabled": false
+    }
+  ],
   "automergeStrategy": "squash",
+  "automergeType": "branch",
+  "separateMajorMinor": true,
   "gomodTidy": true
 }
