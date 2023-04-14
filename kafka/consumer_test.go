@@ -69,16 +69,16 @@ func TestNewConsumer(t *testing.T) {
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			p, err := NewConsumer(tc.cfg)
+			consumer, err := NewConsumer(tc.cfg)
 			if err == nil {
-				defer assert.NoError(t, p.Close())
+				defer assert.NoError(t, consumer.Close())
 			}
 			if tc.expectErr {
 				assert.Error(t, err)
-				assert.Nil(t, p)
+				assert.Nil(t, consumer)
 			} else {
 				assert.NoError(t, err)
-				assert.NotNil(t, p)
+				assert.NotNil(t, consumer)
 			}
 		})
 	}
@@ -104,7 +104,7 @@ func TestConsumerHealth(t *testing.T) {
 			require.NoError(t, err)
 
 			addrs := cluster.ListenAddrs()
-			c := newConsumer(t, ConsumerConfig{
+			consumer := newConsumer(t, ConsumerConfig{
 				Brokers:   addrs,
 				Topics:    []string{"topic"},
 				GroupID:   "groupid",
@@ -120,9 +120,9 @@ func TestConsumerHealth(t *testing.T) {
 			}
 
 			if tc.expectErr {
-				assert.Error(t, c.Healthy())
+				assert.Error(t, consumer.Healthy())
 			} else {
-				assert.NoError(t, c.Healthy())
+				assert.NoError(t, consumer.Healthy())
 			}
 		})
 	}
