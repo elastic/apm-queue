@@ -23,11 +23,13 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/twmb/franz-go/pkg/kfake"
 	"go.uber.org/zap"
 
 	"github.com/elastic/apm-data/model"
 	"github.com/elastic/apm-queue/codec/json"
-	"github.com/elastic/apm-queue/kafka/sasl/plain"
+	saslplain "github.com/elastic/apm-queue/kafka/sasl/plain"
 )
 
 func TestNewConsumer(t *testing.T) {
@@ -80,4 +82,57 @@ func TestNewConsumer(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestConsumerHealth(t *testing.T) {
+	testCases := map[string]struct {
+		expectErr  bool
+		closeEarly bool
+	}{
+		"success": {
+			expectErr:  false,
+			closeEarly: false,
+		},
+		"failure": {
+			expectErr:  true,
+			closeEarly: true,
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			cluster, err := kfake.NewCluster()
+			require.NoError(t, err)
+
+			addrs := cluster.ListenAddrs()
+			c := newConsumer(t, ConsumerConfig{
+				Brokers:   addrs,
+				Topics:    []string{"topic"},
+				GroupID:   "groupid",
+				Decoder:   json.JSON{},
+				Logger:    zap.NewNop(),
+				Processor: model.ProcessBatchFunc(func(context.Context, *model.Batch) error { return nil }),
+			})
+
+			if tc.closeEarly {
+				cluster.Close()
+			} else {
+				defer cluster.Close()
+			}
+
+			if tc.expectErr {
+				assert.Error(t, c.Healthy())
+			} else {
+				assert.NoError(t, c.Healthy())
+			}
+		})
+	}
+}
+
+func newConsumer(t *testing.T, cfg ConsumerConfig) *Consumer {
+	consumer, err := NewConsumer(cfg)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		assert.NoError(t, consumer.Close())
+	})
+	return consumer
 }
