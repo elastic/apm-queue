@@ -18,12 +18,66 @@
 package kafka
 
 import (
+	"context"
+	"crypto/tls"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"go.uber.org/zap"
+
+	"github.com/elastic/apm-data/model"
+	"github.com/elastic/apm-queue/codec/json"
+	"github.com/elastic/apm-queue/kafka/sasl/plain"
 )
 
 func TestNewConsumer(t *testing.T) {
-	_, err := NewConsumer(ConsumerConfig{})
-	assert.Error(t, err)
+	testCases := map[string]struct {
+		expectErr bool
+		cfg       ConsumerConfig
+	}{
+		"empty": {
+			expectErr: true,
+		},
+		"invalid client producer options": {
+			cfg: ConsumerConfig{
+				Brokers:   []string{"localhost:invalidport"},
+				Topics:    []string{"topic"},
+				GroupID:   "groupid",
+				Decoder:   json.JSON{},
+				Logger:    zap.NewNop(),
+				Processor: model.ProcessBatchFunc(func(context.Context, *model.Batch) error { return nil }),
+			},
+			expectErr: true,
+		},
+		"valid": {
+			cfg: ConsumerConfig{
+				Brokers:   []string{"localhost:9092"},
+				Topics:    []string{"topic"},
+				GroupID:   "groupid",
+				ClientID:  "clientid",
+				Version:   "1.0",
+				Decoder:   json.JSON{},
+				Logger:    zap.NewNop(),
+				Processor: model.ProcessBatchFunc(func(context.Context, *model.Batch) error { return nil }),
+				SASL:      saslplain.New(saslplain.Plain{}),
+				TLS:       &tls.Config{},
+			},
+			expectErr: false,
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			p, err := NewConsumer(tc.cfg)
+			if err == nil {
+				defer assert.NoError(t, p.Close())
+			}
+			if tc.expectErr {
+				assert.Error(t, err)
+				assert.Nil(t, p)
+			} else {
+				assert.NoError(t, err)
+				assert.NotNil(t, p)
+			}
+		})
+	}
 }
