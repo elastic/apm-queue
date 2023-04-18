@@ -25,6 +25,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/twmb/franz-go/pkg/kfake"
+	"github.com/twmb/franz-go/pkg/kgo"
 	"go.uber.org/zap"
 
 	"github.com/elastic/apm-data/model"
@@ -126,6 +127,74 @@ func TestConsumerHealth(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestConsumer(t *testing.T) {
+	event := model.APMEvent{Transaction: &model.Transaction{ID: "1"}}
+	topics := []string{"topic"}
+
+	testCases := map[string]struct {
+		expectErr bool
+		cfg       ConsumerConfig
+	}{
+		"valid": {
+			cfg: ConsumerConfig{
+				Topics:  topics,
+				GroupID: "groupid",
+				Decoder: json.JSON{},
+				Logger:  zap.NewNop(),
+				Processor: model.ProcessBatchFunc(func(ctx context.Context, b *model.Batch) error {
+					assert.Len(t, *b, 1)
+					assert.Equal(t, event, (*b)[0])
+					return nil
+				}),
+			},
+			expectErr: false,
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			c, addrs := newClusterWithTopics(t, topics...)
+			tc.cfg.Brokers = addrs
+
+			b, err := json.JSON{}.Encode(event)
+			require.NoError(t, err)
+
+			record := &kgo.Record{
+				Topic: topics[0],
+				Value: b,
+			}
+
+			results := c.ProduceSync(context.Background(), record)
+			assert.NoError(t, results.FirstErr())
+
+			r, err := results.First()
+			assert.NoError(t, err)
+			assert.NotNil(t, r)
+
+			consumer := newConsumer(t, tc.cfg)
+			assert.NoError(t, consumer.fetch(context.Background()))
+		})
+	}
+}
+
+func TestConsumerRunError(t *testing.T) {
+	consumer := newConsumer(t, ConsumerConfig{
+		Brokers:   []string{"localhost:9092"},
+		Topics:    []string{"topic"},
+		GroupID:   "groupid",
+		Decoder:   json.JSON{},
+		Logger:    zap.NewNop(),
+		Processor: model.ProcessBatchFunc(func(context.Context, *model.Batch) error { return nil }),
+	})
+
+	// ctx canceled
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	require.Error(t, consumer.Run(ctx))
+
+	consumer.client.Close()
+	require.Error(t, consumer.Run(context.Background()))
 }
 
 func newConsumer(t *testing.T, cfg ConsumerConfig) *Consumer {
