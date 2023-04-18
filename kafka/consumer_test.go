@@ -241,7 +241,7 @@ func TestConsumerRunError(t *testing.T) {
 	cancel()
 	require.Error(t, consumer.Run(ctx))
 
-	consumer.client.Close()
+	consumer.Close()
 	require.Error(t, consumer.Run(context.Background()))
 }
 
