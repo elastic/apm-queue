@@ -15,8 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// Package telemetry allows setting up telemetry for pubsublite consumers and
-// producers
 package telemetry
 
 import (
@@ -24,37 +22,45 @@ import (
 
 	"cloud.google.com/go/pubsub"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/propagation"
 	semconv "go.opentelemetry.io/otel/semconv/v1.4.0"
 	"go.opentelemetry.io/otel/trace"
 )
 
-type consumerHandler = func(context.Context, *pubsub.Message)
+type producerHandler = func(context.Context, *pubsub.Message) *pubsub.PublishResult
 
-// Consumer adds telemetry data to messages received
-func Consumer(tracer trace.Tracer, h consumerHandler) consumerHandler {
-	return func(ctx context.Context, msg *pubsub.Message) {
-		if msg == nil {
-			return
-		}
+// Publisher adds telemetry data to messages published
+func Publisher(ctx context.Context, tracer trace.Tracer, msg *pubsub.Message, h producerHandler) *pubsub.PublishResult {
+	ctx, span := tracer.Start(ctx, "pubsublite.Publish",
+		trace.WithSpanKind(trace.SpanKindProducer),
+		trace.WithAttributes(
+			semconv.MessagingSystemKey.String("pubsub"),
+			semconv.MessagingDestinationKindTopic,
+		),
+	)
 
-		if msg.Attributes != nil {
-			propagator := otel.GetTextMapPropagator()
-			ctx = propagator.Extract(ctx, propagation.MapCarrier(msg.Attributes))
-		}
-
-		ctx, span := tracer.Start(ctx, "pubsublite.Receive",
-			trace.WithSpanKind(trace.SpanKindConsumer),
-			trace.WithAttributes(
-				semconv.FaaSTriggerPubsub,
-				semconv.MessagingSystemKey.String("pubsub"),
-				semconv.MessagingDestinationKindTopic,
-				semconv.MessagingOperationProcess,
-				semconv.MessagingMessageIDKey.String(msg.ID),
-			),
-		)
-		defer span.End()
-
-		h(ctx, msg)
+	if msg == nil {
+		msg = &pubsub.Message{}
 	}
+
+	if msg.Attributes == nil {
+		msg.Attributes = make(map[string]string)
+	}
+	otel.GetTextMapPropagator().Inject(ctx, propagation.MapCarrier(msg.Attributes))
+
+	res := h(ctx, msg)
+
+	go func() {
+		mid, err := res.Get(ctx)
+		span.SetAttributes(semconv.MessagingMessageIDKey.String(mid))
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
+		}
+
+		span.End()
+	}()
+
+	return res
 }

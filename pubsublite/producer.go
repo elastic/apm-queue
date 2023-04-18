@@ -25,12 +25,14 @@ import (
 
 	"cloud.google.com/go/pubsub"
 	"cloud.google.com/go/pubsublite/pscompat"
+	"go.opentelemetry.io/otel"
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/api/option"
 
 	"github.com/elastic/apm-data/model"
 	apmqueue "github.com/elastic/apm-queue"
+	"github.com/elastic/apm-queue/pubsublite/internal/telemetry"
 	"github.com/elastic/apm-queue/queuecontext"
 )
 
@@ -185,6 +187,7 @@ func (p *Producer) ProcessBatch(ctx context.Context, batch *model.Batch) error {
 	default:
 	}
 	responses := make([]resTopic, 0, len(*batch))
+	tracer := otel.GetTracerProvider().Tracer("pubsub")
 	for _, event := range *batch {
 		encoded, err := p.cfg.Encoder.Encode(event)
 		if err != nil {
@@ -209,7 +212,7 @@ func (p *Producer) ProcessBatch(ctx context.Context, batch *model.Batch) error {
 			// doesn't use the context. If/when the pubsublite library supports
 			// instrumentation, the context will be useful to propagate traces.
 			// This is accurates as of pubsublite@v1.7.0
-			response: producer.Publish(ctx, &msg),
+			response: telemetry.Publisher(ctx, tracer, &msg, producer.Publish),
 			topic:    topic,
 		})
 	}
