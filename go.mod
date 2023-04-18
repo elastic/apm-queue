@@ -11,6 +11,9 @@ require (
 	github.com/twmb/franz-go/pkg/kadm v1.8.0
 	github.com/twmb/franz-go/pkg/kfake v0.0.0-20230405224959-0d137e78cd4a
 	github.com/twmb/franz-go/plugin/kzap v1.1.2
+	go.opentelemetry.io/otel v1.14.0
+	go.opentelemetry.io/otel/sdk v1.14.0
+	go.opentelemetry.io/otel/trace v1.14.0
 	go.uber.org/zap v1.24.0
 	golang.org/x/sync v0.1.0
 	google.golang.org/api v0.118.0
@@ -23,6 +26,8 @@ require (
 	cloud.google.com/go/iam v0.13.0 // indirect
 	cloud.google.com/go/longrunning v0.4.1 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
+	github.com/go-logr/logr v1.2.3 // indirect
+	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/golang/groupcache v0.0.0-20200121045136-8c9f03a8e57e // indirect
 	github.com/golang/protobuf v1.5.3 // indirect
 	github.com/google/go-cmp v0.5.9 // indirect

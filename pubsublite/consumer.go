@@ -25,12 +25,14 @@ import (
 
 	"cloud.google.com/go/pubsub"
 	"cloud.google.com/go/pubsublite/pscompat"
+	"go.opentelemetry.io/otel"
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/api/option"
 
 	"github.com/elastic/apm-data/model"
 	apmqueue "github.com/elastic/apm-queue"
+	"github.com/elastic/apm-queue/pubsublite/internal/telemetry"
 	"github.com/elastic/apm-queue/queuecontext"
 )
 
@@ -197,11 +199,13 @@ func (c *Consumer) Run(ctx context.Context) error {
 	}
 	ctx, c.stopSubscriber = context.WithCancel(ctx)
 	c.mu.Unlock()
+
+	tracer := otel.GetTracerProvider().Tracer("pubsub")
 	g, ctx := errgroup.WithContext(ctx)
 	for _, consumer := range c.consumers {
 		consumer := consumer
 		g.Go(func() error {
-			return consumer.Receive(ctx, consumer.processMessage)
+			return consumer.Receive(ctx, telemetry.Consumer(tracer, consumer.processMessage))
 		})
 	}
 	return g.Wait()
