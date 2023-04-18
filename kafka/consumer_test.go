@@ -20,7 +20,9 @@ package kafka
 import (
 	"context"
 	"crypto/tls"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -164,6 +166,64 @@ func TestConsumerFetch(t *testing.T) {
 
 	consumer := newConsumer(t, cfg)
 	assert.NoError(t, consumer.fetch(context.Background()))
+}
+
+func TestMultipleConsumers(t *testing.T) {
+	event := model.APMEvent{Transaction: &model.Transaction{ID: "1"}}
+	topics := []string{"topic"}
+	client, addrs := newClusterWithTopics(t, topics...)
+
+	var count atomic.Int32
+	cfg := ConsumerConfig{
+		Brokers: addrs,
+		Topics:  topics,
+		GroupID: "groupid",
+		Decoder: json.JSON{},
+		Logger:  zap.NewNop(),
+		Processor: model.ProcessBatchFunc(func(ctx context.Context, b *model.Batch) error {
+			count.Add(1)
+			assert.Len(t, *b, 1)
+			//assert.Equal(t, event, (*b)[0])
+			return nil
+		}),
+	}
+
+	b, err := json.JSON{}.Encode(event)
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	consumer1 := newConsumer(t, cfg)
+	go func() {
+		assert.ErrorIs(t, consumer1.Run(ctx), context.Canceled)
+	}()
+
+	waitCh := make(chan struct{})
+	go func() {
+		defer close(waitCh)
+		for i := 0; i < 1000; i++ {
+			results := client.ProduceSync(context.Background(), &kgo.Record{
+				Topic: topics[0],
+				Value: b,
+			})
+			assert.NoError(t, results.FirstErr())
+			record, err := results.First()
+			assert.NoError(t, err)
+			assert.NotNil(t, record)
+		}
+	}()
+
+	consumer2 := newConsumer(t, cfg)
+	go func() {
+		assert.ErrorIs(t, consumer2.Run(ctx), context.Canceled)
+	}()
+
+	<-waitCh
+
+	assert.Eventually(t, func() bool {
+		return count.Load() == 1000
+	}, 1*time.Second, 50*time.Millisecond)
 }
 
 func TestConsumerRunError(t *testing.T) {
