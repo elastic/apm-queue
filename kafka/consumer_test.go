@@ -129,53 +129,41 @@ func TestConsumerHealth(t *testing.T) {
 	}
 }
 
-func TestConsumer(t *testing.T) {
+func TestConsumerFetch(t *testing.T) {
 	event := model.APMEvent{Transaction: &model.Transaction{ID: "1"}}
 	topics := []string{"topic"}
+	client, addrs := newClusterWithTopics(t, topics...)
 
-	testCases := map[string]struct {
-		expectErr bool
-		cfg       ConsumerConfig
-	}{
-		"valid": {
-			cfg: ConsumerConfig{
-				Topics:  topics,
-				GroupID: "groupid",
-				Decoder: json.JSON{},
-				Logger:  zap.NewNop(),
-				Processor: model.ProcessBatchFunc(func(ctx context.Context, b *model.Batch) error {
-					assert.Len(t, *b, 1)
-					assert.Equal(t, event, (*b)[0])
-					return nil
-				}),
-			},
-			expectErr: false,
-		},
+	cfg := ConsumerConfig{
+		Brokers: addrs,
+		Topics:  topics,
+		GroupID: "groupid",
+		Decoder: json.JSON{},
+		Logger:  zap.NewNop(),
+		Processor: model.ProcessBatchFunc(func(ctx context.Context, b *model.Batch) error {
+			assert.Len(t, *b, 1)
+			assert.Equal(t, event, (*b)[0])
+			return nil
+		}),
 	}
-	for name, tc := range testCases {
-		t.Run(name, func(t *testing.T) {
-			client, addrs := newClusterWithTopics(t, topics...)
-			tc.cfg.Brokers = addrs
 
-			b, err := json.JSON{}.Encode(event)
-			require.NoError(t, err)
+	b, err := json.JSON{}.Encode(event)
+	require.NoError(t, err)
 
-			record := &kgo.Record{
-				Topic: topics[0],
-				Value: b,
-			}
-
-			results := client.ProduceSync(context.Background(), record)
-			assert.NoError(t, results.FirstErr())
-
-			r, err := results.First()
-			assert.NoError(t, err)
-			assert.NotNil(t, r)
-
-			consumer := newConsumer(t, tc.cfg)
-			assert.NoError(t, consumer.fetch(context.Background()))
-		})
+	record := &kgo.Record{
+		Topic: topics[0],
+		Value: b,
 	}
+
+	results := client.ProduceSync(context.Background(), record)
+	assert.NoError(t, results.FirstErr())
+
+	r, err := results.First()
+	assert.NoError(t, err)
+	assert.NotNil(t, r)
+
+	consumer := newConsumer(t, cfg)
+	assert.NoError(t, consumer.fetch(context.Background()))
 }
 
 func TestConsumerRunError(t *testing.T) {
