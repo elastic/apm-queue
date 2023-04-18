@@ -28,6 +28,7 @@ import (
 
 	"github.com/twmb/franz-go/pkg/kgo"
 	"github.com/twmb/franz-go/pkg/sasl"
+	"github.com/twmb/franz-go/plugin/kotel"
 	"github.com/twmb/franz-go/plugin/kzap"
 
 	"github.com/elastic/apm-data/model"
@@ -101,6 +102,9 @@ type ProducerConfig struct {
 	// CompressionCodec specifies a list of compression codecs.
 	// See kgo.ProducerBatchCompression for more details.
 	CompressionCodec []CompressionCodec
+
+	// DisableTelemetry disables the OpenTelemetry hook
+	DisableTelemetry bool
 }
 
 // Validate checks that cfg is valid, and returns an error otherwise.
@@ -156,6 +160,12 @@ func NewProducer(cfg ProducerConfig) (*Producer, error) {
 	if len(cfg.CompressionCodec) > 0 {
 		opts = append(opts, kgo.ProducerBatchCompression(cfg.CompressionCodec...))
 	}
+
+	if !cfg.DisableTelemetry {
+		kotelService := kotel.NewKotel()
+		opts = append(opts, kgo.WithHooks(kotelService.Hooks()...))
+	}
+
 	client, err := kgo.NewClient(opts...)
 	if err != nil {
 		return nil, fmt.Errorf("kafka: failed creating producer: %w", err)
