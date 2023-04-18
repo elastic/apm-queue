@@ -41,7 +41,7 @@ func TestNewConsumer(t *testing.T) {
 		"empty": {
 			expectErr: true,
 		},
-		"invalid client producer options": {
+		"invalid client consumer options": {
 			cfg: ConsumerConfig{
 				Brokers:   []string{"localhost:invalidport"},
 				Topics:    []string{"topic"},
