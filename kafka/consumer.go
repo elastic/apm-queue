@@ -22,6 +22,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"net"
 	"sync"
 
 	"github.com/twmb/franz-go/pkg/kgo"
@@ -81,7 +82,17 @@ type ConsumerConfig struct {
 	// SASL configures the kgo.Client to use SASL authorization.
 	SASL SASLMechanism
 	// TLS configures the kgo.Client to use TLS for authentication.
+	// This option conflicts with Dialer. Only one can be used.
 	TLS *tls.Config
+	// Dialer uses fn to dial addresses, overriding the default dialer that uses a
+	// 10s dial timeout and no TLS (unless TLS option is set).
+	//
+	// The context passed to the dial function is the context used in the request
+	// that caused the dial. If the request is a client-internal request, the
+	// context is the context on the client itself (which is canceled when the
+	// client is closed).
+	// This
+	Dialer func(ctx context.Context, network, address string) (net.Conn, error)
 }
 
 // Validate ensures the configuration is valid, otherwise, returns an error.
@@ -104,6 +115,9 @@ func (cfg ConsumerConfig) Validate() error {
 	}
 	if cfg.Processor == nil {
 		errs = append(errs, errors.New("kafka: processor must be set"))
+	}
+	if cfg.TLS != nil && cfg.Dialer != nil {
+		errs = append(errs, errors.New("kafka: only one of TLS or Dialer can be set"))
 	}
 	return errors.Join(errs...)
 }
@@ -157,7 +171,9 @@ func NewConsumer(cfg ConsumerConfig) (*Consumer, error) {
 			))
 		}
 	}
-	if cfg.TLS != nil {
+	if cfg.Dialer != nil {
+		opts = append(opts, kgo.Dialer(cfg.Dialer))
+	} else if cfg.TLS != nil {
 		opts = append(opts, kgo.DialTLSConfig(cfg.TLS.Clone()))
 	}
 	if cfg.SASL != nil {

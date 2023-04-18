@@ -22,6 +22,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"net"
 	"sync"
 
 	"go.uber.org/zap"
@@ -97,10 +98,19 @@ type ProducerConfig struct {
 	// SASL configures the kgo.Client to use SASL authorization.
 	SASL sasl.Mechanism
 	// TLS configures the kgo.Client to use TLS for authentication.
+	// This option conflicts with Dialer. Only one can be used.
 	TLS *tls.Config
 	// CompressionCodec specifies a list of compression codecs.
 	// See kgo.ProducerBatchCompression for more details.
 	CompressionCodec []CompressionCodec
+	// Dialer uses fn to dial addresses, overriding the default dialer that uses a
+	// 10s dial timeout and no TLS (unless TLS option is set).
+	//
+	// The context passed to the dial function is the context used in the request
+	// that caused the dial. If the request is a client-internal request, the
+	// context is the context on the client itself (which is canceled when the
+	// client is closed).
+	Dialer func(ctx context.Context, network, address string) (net.Conn, error)
 }
 
 // Validate checks that cfg is valid, and returns an error otherwise.
@@ -117,6 +127,9 @@ func (cfg ProducerConfig) Validate() error {
 	}
 	if cfg.TopicRouter == nil {
 		err = append(err, errors.New("kafka: topic router must be set"))
+	}
+	if cfg.TLS != nil && cfg.Dialer != nil {
+		err = append(err, errors.New("kafka: only one of TLS or Dialer can be set"))
 	}
 	return errors.Join(err...)
 }
@@ -147,7 +160,9 @@ func NewProducer(cfg ProducerConfig) (*Producer, error) {
 			))
 		}
 	}
-	if cfg.TLS != nil {
+	if cfg.Dialer != nil {
+		opts = append(opts, kgo.Dialer(cfg.Dialer))
+	} else if cfg.TLS != nil {
 		opts = append(opts, kgo.DialTLSConfig(cfg.TLS.Clone()))
 	}
 	if cfg.SASL != nil {
