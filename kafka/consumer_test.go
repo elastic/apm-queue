@@ -154,7 +154,7 @@ func TestConsumer(t *testing.T) {
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			c, addrs := newClusterWithTopics(t, topics...)
+			client, addrs := newClusterWithTopics(t, topics...)
 			tc.cfg.Brokers = addrs
 
 			b, err := json.JSON{}.Encode(event)
@@ -165,7 +165,7 @@ func TestConsumer(t *testing.T) {
 				Value: b,
 			}
 
-			results := c.ProduceSync(context.Background(), record)
+			results := client.ProduceSync(context.Background(), record)
 			assert.NoError(t, results.FirstErr())
 
 			r, err := results.First()
