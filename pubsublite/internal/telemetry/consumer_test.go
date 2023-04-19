@@ -153,7 +153,7 @@ func TestConsumer(t *testing.T) {
 				spans[i].EndTime = time.Time{}
 			}
 
-			assert.Equal(t, spans, tt.expectedSpans)
+			assert.Equal(t, tt.expectedSpans, spans)
 
 			// Reset for next tests
 			exp.Reset()
