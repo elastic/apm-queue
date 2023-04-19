@@ -44,8 +44,9 @@ func TestConsumer(t *testing.T) {
 	defer tp.Shutdown(context.Background())
 
 	for _, tt := range []struct {
-		name string
-		msg  *pubsub.Message
+		name       string
+		msg        *pubsub.Message
+		attributes []attribute.KeyValue
 
 		traceID      [16]byte
 		spanID       [8]byte
@@ -83,11 +84,15 @@ func TestConsumer(t *testing.T) {
 					"hello": "world",
 				},
 			},
+			attributes: []attribute.KeyValue{
+				attribute.String("project", "project_name"),
+			},
 			expectedSpans: tracetest.SpanStubs{
 				tracetest.SpanStub{
 					Name:     "pubsublite.Receive",
 					SpanKind: trace.SpanKindConsumer,
 					Attributes: []attribute.KeyValue{
+						attribute.String("project", "project_name"),
 						semconv.MessagingSystemKey.String("pubsublite"),
 						semconv.MessagingSourceKindTopic,
 						semconv.MessagingOperationProcess,
@@ -134,7 +139,7 @@ func TestConsumer(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			h := Consumer(tp.Tracer("test"), func(ctx context.Context, msg *pubsub.Message) {
 				// No need to do anything here
-			})
+			}, tt.attributes)
 
 			h(context.Background(), tt.msg)
 

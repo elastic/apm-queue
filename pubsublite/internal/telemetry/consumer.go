@@ -24,6 +24,7 @@ import (
 
 	"cloud.google.com/go/pubsub"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/propagation"
 	semconv "go.opentelemetry.io/otel/semconv/v1.18.0"
 	"go.opentelemetry.io/otel/trace"
@@ -32,7 +33,7 @@ import (
 type consumerHandler = func(context.Context, *pubsub.Message)
 
 // Consumer adds telemetry data to messages received
-func Consumer(tracer trace.Tracer, h consumerHandler) consumerHandler {
+func Consumer(tracer trace.Tracer, h consumerHandler, attrs []attribute.KeyValue) consumerHandler {
 	return func(ctx context.Context, msg *pubsub.Message) {
 		if msg == nil {
 			return
@@ -43,14 +44,16 @@ func Consumer(tracer trace.Tracer, h consumerHandler) consumerHandler {
 			ctx = propagator.Extract(ctx, propagation.MapCarrier(msg.Attributes))
 		}
 
+		attrs = append(attrs,
+			semconv.MessagingSystemKey.String("pubsublite"),
+			semconv.MessagingSourceKindTopic,
+			semconv.MessagingOperationProcess,
+			semconv.MessagingMessageIDKey.String(msg.ID),
+		)
+
 		ctx, span := tracer.Start(ctx, "pubsublite.Receive",
 			trace.WithSpanKind(trace.SpanKindConsumer),
-			trace.WithAttributes(
-				semconv.MessagingSystemKey.String("pubsublite"),
-				semconv.MessagingSourceKindTopic,
-				semconv.MessagingOperationProcess,
-				semconv.MessagingMessageIDKey.String(msg.ID),
-			),
+			trace.WithAttributes(attrs...),
 		)
 		defer span.End()
 

@@ -26,6 +26,8 @@ import (
 	"cloud.google.com/go/pubsub"
 	"cloud.google.com/go/pubsublite/pscompat"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	semconv "go.opentelemetry.io/otel/semconv/v1.18.0"
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/api/option"
@@ -173,6 +175,11 @@ func NewConsumer(ctx context.Context, cfg ConsumerConfig) (*Consumer, error) {
 				zap.String("region", subscription.Region),
 				zap.String("project", subscription.Project),
 			),
+			telemetryAttributes: []attribute.KeyValue{
+				semconv.MessagingSourceNameKey.String(subscription.Name),
+				attribute.String("region", subscription.Region),
+				attribute.String("project", subscription.Project),
+			},
 		})
 	}
 	return &Consumer{
@@ -205,7 +212,9 @@ func (c *Consumer) Run(ctx context.Context) error {
 	for _, consumer := range c.consumers {
 		consumer := consumer
 		g.Go(func() error {
-			return consumer.Receive(ctx, telemetry.Consumer(tracer, consumer.processMessage))
+			return consumer.Receive(ctx,
+				telemetry.Consumer(tracer, consumer.processMessage, consumer.telemetryAttributes),
+			)
 		})
 	}
 	return g.Wait()
@@ -219,10 +228,11 @@ func (c *Consumer) Healthy() error {
 // consumer wraps a PubSub Lite SubscriberClient.
 type consumer struct {
 	*pscompat.SubscriberClient
-	logger    *zap.Logger
-	delivery  apmqueue.DeliveryType
-	processor model.BatchProcessor
-	decoder   Decoder
+	logger              *zap.Logger
+	delivery            apmqueue.DeliveryType
+	processor           model.BatchProcessor
+	decoder             Decoder
+	telemetryAttributes []attribute.KeyValue
 }
 
 func (c consumer) processMessage(ctx context.Context, msg *pubsub.Message) {
