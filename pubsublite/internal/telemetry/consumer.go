@@ -47,7 +47,7 @@ func Consumer(tracer trace.Tracer, h consumerHandler) consumerHandler {
 			trace.WithSpanKind(trace.SpanKindConsumer),
 			trace.WithAttributes(
 				semconv.FaaSTriggerPubsub,
-				semconv.MessagingSystemKey.String("pubsub"),
+				semconv.MessagingSystemKey.String("pubsublite"),
 				semconv.MessagingDestinationKindTopic,
 				semconv.MessagingOperationProcess,
 				semconv.MessagingMessageIDKey.String(msg.ID),
