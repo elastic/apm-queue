@@ -24,6 +24,9 @@ import (
 	"fmt"
 	"sync"
 
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 
 	"github.com/twmb/franz-go/pkg/kgo"
@@ -129,6 +132,7 @@ func (cfg ProducerConfig) Validate() error {
 type Producer struct {
 	cfg    ProducerConfig
 	client *kgo.Client
+	tracer trace.Tracer
 
 	mu sync.RWMutex
 }
@@ -165,6 +169,7 @@ func NewProducer(cfg ProducerConfig) (*Producer, error) {
 		kotelService := kotel.NewKotel()
 		opts = append(opts, kgo.WithHooks(kotelService.Hooks()...))
 	}
+	tracer := otel.Tracer("kafka")
 
 	client, err := kgo.NewClient(opts...)
 	if err != nil {
@@ -177,6 +182,7 @@ func NewProducer(cfg ProducerConfig) (*Producer, error) {
 	return &Producer{
 		cfg:    cfg,
 		client: client,
+		tracer: tracer,
 	}, nil
 }
 
@@ -197,6 +203,11 @@ func (p *Producer) Close() error {
 // messages have been produced to Kafka, otherwise, returns as soon as
 // the messages have been stored in the producer's buffer.
 func (p *Producer) ProcessBatch(ctx context.Context, batch *model.Batch) error {
+	ctx, span := p.tracer.Start(ctx, "ProcessBatch", trace.WithAttributes(
+		attribute.Int("batch.size", len(*batch)),
+	))
+	defer span.End()
+
 	// Take a read lock to prevent Close from closing the client
 	// while we're attempting to produce records.
 	p.mu.RLock()
