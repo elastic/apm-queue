@@ -151,7 +151,7 @@ func TestPublisher(t *testing.T) {
 				}
 			}
 
-			assert.Equal(t, spans, tt.expectedSpans)
+			assert.Equal(t, tt.expectedSpans, spans)
 
 			// Reset for next tests
 			exp.Reset()
