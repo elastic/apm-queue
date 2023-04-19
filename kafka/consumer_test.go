@@ -134,6 +134,7 @@ func TestConsumerHealth(t *testing.T) {
 
 func TestConsumerFetch(t *testing.T) {
 	event := model.APMEvent{Transaction: &model.Transaction{ID: "1"}}
+	codec := json.JSON{}
 	topics := []string{"topic"}
 	client, addrs := newClusterWithTopics(t, topics...)
 
@@ -141,7 +142,7 @@ func TestConsumerFetch(t *testing.T) {
 		Brokers: addrs,
 		Topics:  topics,
 		GroupID: "groupid",
-		Decoder: json.JSON{},
+		Decoder: codec,
 		Logger:  zap.NewNop(),
 		Processor: model.ProcessBatchFunc(func(ctx context.Context, b *model.Batch) error {
 			assert.Len(t, *b, 1)
@@ -150,7 +151,7 @@ func TestConsumerFetch(t *testing.T) {
 		}),
 	}
 
-	b, err := json.JSON{}.Encode(event)
+	b, err := codec.Encode(event)
 	require.NoError(t, err)
 
 	record := &kgo.Record{
@@ -171,6 +172,7 @@ func TestConsumerFetch(t *testing.T) {
 
 func TestMultipleConsumers(t *testing.T) {
 	event := model.APMEvent{Transaction: &model.Transaction{ID: "1"}}
+	codec := json.JSON{}
 	topics := []string{"topic"}
 	client, addrs := newClusterWithTopics(t, topics...)
 
@@ -179,7 +181,7 @@ func TestMultipleConsumers(t *testing.T) {
 		Brokers: addrs,
 		Topics:  topics,
 		GroupID: "groupid",
-		Decoder: json.JSON{},
+		Decoder: codec,
 		Logger:  zap.NewNop(),
 		Processor: model.ProcessBatchFunc(func(ctx context.Context, b *model.Batch) error {
 			count.Add(1)
@@ -189,7 +191,7 @@ func TestMultipleConsumers(t *testing.T) {
 		}),
 	}
 
-	b, err := json.JSON{}.Encode(event)
+	b, err := codec.Encode(event)
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -229,8 +231,8 @@ func TestMultipleConsumers(t *testing.T) {
 
 func TestMultipleConsumerGroups(t *testing.T) {
 	event := model.APMEvent{Transaction: &model.Transaction{ID: "1"}}
-	topics := []string{"topic"}
 	codec := json.JSON{}
+	topics := []string{"topic"}
 	client, addrs := newClusterWithTopics(t, topics...)
 
 	cfg := ConsumerConfig{
