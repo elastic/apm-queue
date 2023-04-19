@@ -46,7 +46,6 @@ func Consumer(tracer trace.Tracer, h consumerHandler) consumerHandler {
 		ctx, span := tracer.Start(ctx, "pubsublite.Receive",
 			trace.WithSpanKind(trace.SpanKindConsumer),
 			trace.WithAttributes(
-				semconv.FaaSTriggerPubsub,
 				semconv.MessagingSystemKey.String("pubsublite"),
 				semconv.MessagingDestinationKindTopic,
 				semconv.MessagingOperationProcess,
