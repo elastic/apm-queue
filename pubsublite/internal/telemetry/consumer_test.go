@@ -31,7 +31,7 @@ import (
 	"go.opentelemetry.io/otel/sdk/instrumentation"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
-	semconv "go.opentelemetry.io/otel/semconv/v1.4.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.18.0"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -64,9 +64,8 @@ func TestConsumer(t *testing.T) {
 					Name:     "pubsublite.Receive",
 					SpanKind: trace.SpanKindConsumer,
 					Attributes: []attribute.KeyValue{
-						semconv.FaaSTriggerPubsub,
-						semconv.MessagingSystemKey.String("pubsub"),
-						semconv.MessagingDestinationKindTopic,
+						semconv.MessagingSystemKey.String("pubsublite"),
+						semconv.MessagingSourceKindTopic,
 						semconv.MessagingOperationProcess,
 						semconv.MessagingMessageIDKey.String(""),
 					},
@@ -88,9 +87,8 @@ func TestConsumer(t *testing.T) {
 					Name:     "pubsublite.Receive",
 					SpanKind: trace.SpanKindConsumer,
 					Attributes: []attribute.KeyValue{
-						semconv.FaaSTriggerPubsub,
-						semconv.MessagingSystemKey.String("pubsub"),
-						semconv.MessagingDestinationKindTopic,
+						semconv.MessagingSystemKey.String("pubsublite"),
+						semconv.MessagingSourceKindTopic,
 						semconv.MessagingOperationProcess,
 						semconv.MessagingMessageIDKey.String(""),
 					},
@@ -120,9 +118,8 @@ func TestConsumer(t *testing.T) {
 						Remote:  true,
 					}),
 					Attributes: []attribute.KeyValue{
-						semconv.FaaSTriggerPubsub,
-						semconv.MessagingSystemKey.String("pubsub"),
-						semconv.MessagingDestinationKindTopic,
+						semconv.MessagingSystemKey.String("pubsublite"),
+						semconv.MessagingSourceKindTopic,
 						semconv.MessagingOperationProcess,
 						semconv.MessagingMessageIDKey.String(""),
 					},
