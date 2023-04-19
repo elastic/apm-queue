@@ -18,6 +18,7 @@
 package systemtest
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"encoding/json"
@@ -25,6 +26,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -34,6 +36,16 @@ import (
 	"github.com/hashicorp/terraform-exec/tfexec"
 )
 
+const (
+	// KafkaDeploymentTypeKey is the key to access the deployment type from
+	// the Terraform output.
+	KafkaDeploymentTypeKey = "deployment_type"
+	// KafkaBrokersKey is the key to access the list of kafka brokers from the
+	// Terraform output.
+	KafkaBrokersKey = "kafka_brokers"
+)
+
+var brokersMu sync.RWMutex
 var kafkaBrokers = []string{"localhost:9093"}
 
 var (
@@ -43,12 +55,16 @@ var (
 
 // KafkaConfig for Kafka cluster provisioning with topics.
 type KafkaConfig struct {
-	// TFPath is the path where the terraform files are present. If it's not
-	// `tf/kafka`, PortForward won't work
+	// TFPath is the path where the terraform files are present.
 	TFPath string
-	// Topics to create in the Kafka cluster.
+	// Namespace to pass down as the `namespace` Terraform var.
+	Namespace string
+	// Namespace to pass down as the `name` Terraform var.
+	Name string
+	// Topics to create in the Kafka cluster. It's passed down as the
+	// `topics` Terraform var.
 	Topics []string
-	// PortForward. If set to true, it forwards traffic to the PortForwardResource
+	// PortForward. If set to true, it forwards traffic to PortForwardResource
 	// using PortForwardMapping.
 	PortForward bool
 	// PortForwardResource specifies the resource to which the traffic
@@ -69,10 +85,31 @@ func newLocalKafkaConfig(topics ...string) KafkaConfig {
 
 // ProvisionKafka provisions a Kafka cluster. The specified terraform path
 // must accept at least these variables:
-// - namespace
-// - topics
+// - namespace (string)
+// - name (string)
+// - topics (list(string))
+// The terraform module should output at least these variables:
+// - deployment_type (string)
+// - kafka_brokers (list(string))
+//
+// If `deployment_type` output is "k8s", `kubectl port-forward` will be run
+// targeting the `PortForwardResource` with `PortForwardMapping`.
 func ProvisionKafka(ctx context.Context, cfg KafkaConfig) error {
-	logger.Infof("provisioning Kafka infrastructure with config: %+v", cfg)
+	if cfg.Name == "" {
+		if n := os.Getenv("KAFKA_NAME"); n != "" {
+			cfg.Name = n
+		} else {
+			cfg.Name = "kafka"
+		}
+	}
+	if cfg.Namespace == "" {
+		if n := os.Getenv("KAFKA_NAMESPACE"); n != "" {
+			cfg.Namespace = n
+		} else {
+			cfg.Namespace = "kafka"
+		}
+	}
+	logger().Infof("provisioning Kafka infrastructure with config: %+v", cfg)
 	tf, err := NewTerraform(ctx, cfg.TFPath)
 	if err != nil {
 		return err
@@ -80,7 +117,6 @@ func ProvisionKafka(ctx context.Context, cfg KafkaConfig) error {
 	if err := tf.Init(ctx, tfexec.Upgrade(true)); err != nil {
 		return err
 	}
-
 	// Create a dummy topic so the infrastructure awaits until all the required
 	// infrastructure is available. It will be destroyed during the first test.
 	if len(cfg.Topics) == 0 {
@@ -90,30 +126,45 @@ func ProvisionKafka(ctx context.Context, cfg KafkaConfig) error {
 	if err != nil {
 		return err
 	}
-	namespace := "kafka"
+	namespaceVar := tfexec.Var(fmt.Sprintf("namespace=%s", cfg.Namespace))
+	nameVar := tfexec.Var(fmt.Sprintf("name=%s", cfg.Name))
 	topicsVar := tfexec.Var(fmt.Sprintf("topics=%s", jsonTopics))
-	namespaceVar := tfexec.Var(fmt.Sprintf("namespace=%s", namespace))
 	// Ensure terraform destroy runs once per TF path.
 	RegisterDestroy(cfg.TFPath, func() {
-		logger.Info("destroying provisioned Kafka infrastructure...")
-		tf.Destroy(ctx, topicsVar, namespaceVar)
+		logger().Info("destroying provisioned Kafka infrastructure...")
+		tf.Destroy(ctx, topicsVar, namespaceVar, nameVar)
 	})
-	if err := tf.Apply(ctx, topicsVar, namespaceVar); err != nil {
+	if err := tf.Apply(ctx, topicsVar, namespaceVar, nameVar); err != nil {
 		return err
 	}
-	logger.Info("Kafka infastructure fully provisioned!")
-	if cfg.PortForward {
+	tfOutput, err := tf.Output(ctx)
+	if err != nil {
+		return err
+	}
+	if raw, ok := tfOutput[KafkaBrokersKey]; ok {
+		var brokers []string
+		if err := json.Unmarshal(raw.Value, &brokers); err != nil {
+			return err
+		}
+		if len(brokers) > 0 {
+			SetKafkaBrokers(brokers...)
+		}
+	}
+	dt := string(bytes.TrimSpace(tfOutput[KafkaDeploymentTypeKey].Value))
+	// If PortForward is set to true, and the deployment_type is k8s, start
+	// forwarding traffic to/from kafka to localhost.
+	if cfg.PortForward && dt == `"k8s"` {
 		var err error
 		runOnce.Do(func() {
-			// NOTE(marclop) These are hardcoded and assume the used terraform
-			// uses the strimzi operator.
+			// NOTE(marclop) These assume terraform uses the strimzi operator.
 			if cfg.PortForwardResource == "" {
-				cfg.PortForwardResource = "service/kafka-kafka-bootstrap"
+				cfg.PortForwardResource = fmt.Sprintf("service/%s-kafka-bootstrap", cfg.Name)
 			}
 			if cfg.PortForwardMapping == "" {
 				cfg.PortForwardMapping = "9093:9093"
 			}
-			err = kubectlForwardKafka(namespace,
+			err = kubectlForwardKafka(cfg.Namespace,
+				cfg.Name,
 				cfg.PortForwardResource,
 				cfg.PortForwardMapping,
 			)
@@ -122,20 +173,20 @@ func ProvisionKafka(ctx context.Context, cfg KafkaConfig) error {
 			return err
 		}
 	}
+	logger().Info("Kafka infastructure fully provisioned!")
 	return nil
 }
 
-func kubectlForwardKafka(ns, service, mapping string) error {
+func kubectlForwardKafka(ns, name, service, mapping string) error {
 	cmd := exec.Command("kubectl", "port-forward", "-n", ns, service, mapping)
-	logger.Infof("Running %s...", strings.Join(cmd.Args, " "))
+	logger().Infof("Running %s...", strings.Join(cmd.Args, " "))
 	if err := cmd.Start(); err != nil {
 		return err
 	}
 	// Patch zone for Kafka client calls to be correctly resolved.
 	srv, err := mockdns.NewServerWithLogger(map[string]mockdns.Zone{
-		// NOTE(marclop) The entry is hardcoded and assumes the used terraform
-		// uses the strimzi operator, and the cluster name is "kafka".
-		fmt.Sprintf("kafka-kafka-0.kafka-kafka-brokers.%s.svc.", ns): {
+		// NOTE(marclop) Assumes terraform uses the strimzi operator.
+		fmt.Sprintf("%s-kafka-0.%s-kafka-brokers.%s.svc.", name, name, ns): {
 			A: []string{"127.0.0.1"},
 		},
 	}, log.New(io.Discard, "", 0), false)
@@ -149,7 +200,7 @@ func kubectlForwardKafka(ns, service, mapping string) error {
 	}
 	go cmd.Wait() // Run the forwarder
 	RegisterDestroy(ns+service+mapping, func() {
-		logger.Infof("Stopping %s...", strings.Join(cmd.Args, " "))
+		logger().Infof("Stopping %s...", strings.Join(cmd.Args, " "))
 		srv.Close()
 		cmd.Process.Kill()
 		cmd.Process.Wait()
@@ -162,4 +213,18 @@ func newKafkaTLSDialer() *tls.Dialer {
 		NetDialer: &net.Dialer{Resolver: mockResolver},
 		Config:    &tls.Config{InsecureSkipVerify: true},
 	}
+}
+
+// KafkaBrokers returns the Kafka brokers to use for tests.
+func KafkaBrokers() []string {
+	brokersMu.RLock()
+	defer brokersMu.RUnlock()
+	return append(kafkaBrokers)
+}
+
+// SetKafkaBrokers sets the kafka brokers.
+func SetKafkaBrokers(brokers ...string) {
+	brokersMu.Lock()
+	defer brokersMu.Unlock()
+	kafkaBrokers = append(brokers)
 }

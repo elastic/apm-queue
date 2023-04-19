@@ -89,11 +89,11 @@ func init() {
 	persistentSuffix = RandomSuffix()
 	googleProject = os.Getenv("GOOGLE_PROJECT")
 	if googleProject == "" {
-		logger.Warn("GOOGLE_PROJECT environment variable not set")
+		logger().Warn("GOOGLE_PROJECT environment variable not set")
 	}
 	googleRegion = os.Getenv("GOOGLE_REGION")
 	if googleRegion == "" {
-		logger.Warn("GOOGLE_REGION environment variable not set")
+		logger().Warn("GOOGLE_REGION environment variable not set")
 	}
 }
 

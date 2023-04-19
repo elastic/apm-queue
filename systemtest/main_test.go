@@ -22,7 +22,6 @@ import (
 	"context"
 	"flag"
 	"os"
-	"strings"
 	"testing"
 	"time"
 
@@ -33,12 +32,6 @@ func testMain(m *testing.M) int {
 	var skipDestroy bool
 	flag.BoolVar(&skipDestroy, "skip-destroy", false, "do not destroy the provisioned infrastructure after the tests finish")
 	flag.Parse()
-	brokers := os.Getenv("KAFKA_BROKERS")
-	if brokers == "" {
-		logger.Infof("KAFKA_BROKERS environment variable not set, defaulting to %s", kafkaBrokers[0])
-	} else {
-		kafkaBrokers = strings.Split(brokers, ",")
-	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
@@ -53,10 +46,10 @@ func testMain(m *testing.M) int {
 		defer Destroy()
 	}
 	if err := g.Wait(); err != nil {
-		logger.Error(err)
+		logger().Error(err)
 		return 1
 	}
-	logger.Info("running system tests...")
+	logger().Info("running system tests...")
 	return m.Run()
 }
 

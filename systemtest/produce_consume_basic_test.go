@@ -72,12 +72,9 @@ func TestProduceConsumeSingleTopic(t *testing.T) {
 					Decoder: json.JSON{},
 					Topics:  topics,
 					GroupID: t.Name(),
-					Processor: model.ProcessBatchFunc(func(_ context.Context, b *model.Batch) error {
-						for _, r := range *b {
-							assert.Equal(t, r.Processor, model.TransactionProcessor, r)
-							records.Add(1)
-						}
-						return nil
+					Processor: assertBatchFunc(t, consumerAssertions{
+						records:   &records,
+						processor: model.TransactionProcessor,
 					}),
 				}),
 				timeout: timeout,
@@ -106,12 +103,9 @@ func TestProduceConsumeSingleTopic(t *testing.T) {
 					Logger:        logger,
 					Decoder:       json.JSON{},
 					Subscriptions: pubSubLiteSubscriptions(topics...),
-					Processor: model.ProcessBatchFunc(func(_ context.Context, b *model.Batch) error {
-						for _, r := range *b {
-							assert.Equal(t, r.Processor, model.TransactionProcessor, r)
-							records.Add(1)
-						}
-						return nil
+					Processor: assertBatchFunc(t, consumerAssertions{
+						records:   &records,
+						processor: model.TransactionProcessor,
 					}),
 				}),
 				timeout: timeout,
@@ -157,4 +151,22 @@ func testProduceConsume(ctx context.Context, t testing.TB, cfg produceConsumeCfg
 		cfg.events,
 		cfg.records.Load(),
 	)
+}
+
+type consumerAssertions struct {
+	processor model.Processor
+	records   *atomic.Int64
+}
+
+func assertBatchFunc(t testing.TB, assertions consumerAssertions) model.BatchProcessor {
+	return model.ProcessBatchFunc(func(_ context.Context, b *model.Batch) error {
+		assert.Greater(t, len(*b), 0)
+		for _, r := range *b {
+			assert.Equal(t, r.Processor, assertions.processor, r)
+			if assertions.records != nil {
+				assertions.records.Add(1)
+			}
+		}
+		return nil
+	})
 }

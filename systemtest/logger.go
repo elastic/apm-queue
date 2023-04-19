@@ -18,39 +18,58 @@
 package systemtest
 
 import (
+	"strings"
+	"sync"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
-	"go.uber.org/zap/zaptest/observer"
 )
 
-var logger *zap.SugaredLogger
-
-func init() {
+var loggerInstanceMu sync.Mutex
+var loggerInstance *zap.SugaredLogger
+var logger = func() *zap.SugaredLogger {
+	loggerInstanceMu.Lock()
+	defer loggerInstanceMu.Unlock()
+	if loggerInstance != nil {
+		return loggerInstance
+	}
 	l, err := zap.NewDevelopment()
 	if err != nil {
 		panic(err)
 	}
-	logger = l.Sugar()
+	loggerInstance = l.Sugar()
+	return loggerInstance
 }
 
 // NoLevelLogger returns a logger that asserts that no entries are observed for
 // a particular log level. This is useful to assert that tests don't have any
 // Error or Warn entries for example.
 func NoLevelLogger(t testing.TB, l zapcore.Level) *zap.Logger {
-	core, logs := observer.New(l)
-	t.Cleanup(func() {
-		entries := logs.TakeAll()
-		if !assert.Len(t, entries, 0) {
-			if len(entries) > 10 {
-				entries = entries[len(entries)-10:]
-			}
-			for _, entry := range entries {
-				t.Error(entry.Message)
-			}
-		}
+	return zap.New(noLevelCore{t, l,
+		zapcore.NewConsoleEncoder(zap.NewDevelopmentEncoderConfig()),
 	})
-	return zap.New(core)
 }
+
+type noLevelCore struct {
+	t   testing.TB
+	l   zapcore.Level
+	enc zapcore.Encoder
+}
+
+func (c noLevelCore) Enabled(l zapcore.Level) bool      { return true }
+func (c noLevelCore) With([]zapcore.Field) zapcore.Core { return c }
+func (c noLevelCore) Check(e zapcore.Entry, ce *zapcore.CheckedEntry) *zapcore.CheckedEntry {
+	return ce.AddCore(e, c)
+}
+
+func (c noLevelCore) Write(entry zapcore.Entry, f []zapcore.Field) error {
+	if entry.Level >= c.l {
+		if b, err := c.enc.EncodeEntry(entry, f); err == nil {
+			c.t.Error(strings.Trim(b.String(), "\n"))
+		}
+	}
+	return nil
+}
+
+func (noLevelCore) Sync() error { return nil }

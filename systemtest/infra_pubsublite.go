@@ -61,7 +61,10 @@ func newPubSubLiteConfig(topics ...string) PubSubLiteConfig {
 // - suffix (used to suffix the reservation)
 // - topics
 func ProvisionPubSubLite(ctx context.Context, cfg PubSubLiteConfig) error {
-	logger.Infof("provisioning PubSubLite infrastructure with config: %+v", cfg)
+	if cfg.ReservationSuffix == "" {
+		cfg.ReservationSuffix = persistentSuffix
+	}
+	logger().Infof("provisioning PubSubLite infrastructure with config: %+v", cfg)
 	tf, err := NewTerraform(ctx, cfg.TFPath)
 	if err != nil {
 		return err
@@ -74,21 +77,18 @@ func ProvisionPubSubLite(ctx context.Context, cfg PubSubLiteConfig) error {
 	if err != nil {
 		return err
 	}
-	if cfg.ReservationSuffix == "" {
-		cfg.ReservationSuffix = persistentSuffix
-	}
 	projectVar := tfexec.Var(fmt.Sprintf("project=%s", cfg.Project))
 	regionVar := tfexec.Var(fmt.Sprintf("region=%s", cfg.Region))
 	suffixVar := tfexec.Var(fmt.Sprintf("suffix=%s", cfg.ReservationSuffix))
 	topicsVar := tfexec.Var(fmt.Sprintf("topics=%s", jsonTopics))
 	// Ensure terraform destroy runs once per TF path.
 	RegisterDestroy(cfg.TFPath, func() {
-		logger.Info("destroying provisioned PubSubLite infrastructure...")
+		logger().Info("destroying provisioned PubSubLite infrastructure...")
 		tf.Destroy(ctx, projectVar, regionVar, suffixVar, topicsVar)
 	})
 	if err := tf.Apply(ctx, projectVar, regionVar, suffixVar, topicsVar); err != nil {
 		return err
 	}
-	logger.Info("PubSubLite infastructure fully provisioned!")
+	logger().Info("PubSubLite infastructure fully provisioned!")
 	return nil
 }

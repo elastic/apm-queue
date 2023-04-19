@@ -6,6 +6,7 @@ provider "helm" {
 
 locals {
   topics_value = "{${join(",", var.topics)}}"
+  wait_timeout = "240s"
 }
 
 resource "helm_release" "strimzi" {
@@ -15,12 +16,6 @@ resource "helm_release" "strimzi" {
   namespace        = var.namespace
   wait             = true
   create_namespace = true
-}
-
-variable "namespace" {
-  default     = "kafka"
-  type        = string
-  description = "the namespace where to provision the Kafka operator and cluster"
 }
 
 resource "helm_release" "kafka" {
@@ -33,6 +28,14 @@ resource "helm_release" "kafka" {
   set {
     name  = "topics"
     value = local.topics_value
+  }
+  set {
+    name  = "cluster"
+    value = var.name
+  }
+  set {
+    name  = "namespace"
+    value = var.namespace
   }
   wait             = true
   create_namespace = true
@@ -48,8 +51,24 @@ resource "null_resource" "kafka_ready" {
 
   provisioner "local-exec" {
     # Ensure that the kafka topics have been provisioned.
-    command = "kubectl -n ${var.namespace} wait --timeout=${var.wait_timeout} --for=condition=Ready=True kafkatopics ${var.topics[0]}"
+    command = "kubectl -n ${var.namespace} wait --timeout=${local.wait_timeout} --for=condition=Ready=True kafkatopics ${var.topics[0]}"
   }
+}
+
+#
+# Vars
+#
+
+variable "namespace" {
+  default     = "kafka"
+  type        = string
+  description = "the namespace where to provision the Kafka operator and cluster"
+}
+
+variable "name" {
+  default     = "kafka"
+  type        = string
+  description = "the name to use for the Kafka cluster"
 }
 
 variable "topics" {
@@ -57,9 +76,16 @@ variable "topics" {
   description = "the list of topics that will be created by the operator"
 }
 
+#
+# Outputs
+#
 
-variable "wait_timeout" {
-  type        = string
-  description = "the amount of time to wait until the topic is available"
-  default     = "240s"
+output "deployment_type" {
+  value       = "k8s"
+  description = "the deployment type"
+}
+
+output "kafka_brokers" {
+  value       = ["localhost:9093"]
+  description = "the list of brokers to use to connect"
 }

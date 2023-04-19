@@ -29,7 +29,7 @@ import (
 )
 
 func newKafkaProducer(t testing.TB, cfg kafka.ProducerConfig) *kafka.Producer {
-	cfg.Brokers = kafkaBrokers
+	cfg.Brokers = KafkaBrokers()
 	// Use a patched TLS dialer for Kafka.
 	cfg.Dialer = newKafkaTLSDialer().DialContext
 	producer, err := kafka.NewProducer(cfg)
@@ -54,7 +54,7 @@ func newPubSubLiteProducer(ctx context.Context, t testing.TB, cfg pubsublite.Pro
 }
 
 func newKafkaConsumer(t testing.TB, cfg kafka.ConsumerConfig) *kafka.Consumer {
-	cfg.Brokers = kafkaBrokers
+	cfg.Brokers = KafkaBrokers()
 	// Use a patched TLS dialer for Kafka.
 	cfg.Dialer = newKafkaTLSDialer().DialContext
 	consumer, err := kafka.NewConsumer(cfg)
