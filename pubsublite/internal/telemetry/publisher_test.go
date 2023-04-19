@@ -41,6 +41,7 @@ func TestPublisher(t *testing.T) {
 	tp := sdktrace.NewTracerProvider(
 		sdktrace.WithSyncer(exp),
 	)
+	defer tp.Shutdown(context.Background())
 	otel.SetTextMapPropagator(propagation.TraceContext{})
 
 	for _, tt := range []struct {
