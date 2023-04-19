@@ -41,6 +41,7 @@ func TestConsumer(t *testing.T) {
 		sdktrace.WithSyncer(exp),
 	)
 	otel.SetTextMapPropagator(propagation.TraceContext{})
+	defer tp.Shutdown(context.Background())
 
 	for _, tt := range []struct {
 		name string
