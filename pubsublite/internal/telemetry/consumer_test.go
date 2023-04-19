@@ -106,16 +106,16 @@ func TestConsumer(t *testing.T) {
 					"traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
 				},
 			},
-			traceID: mustTraceIDFromHex("4bf92f3577b34da6a3ce929d0e0e4736"),
+			traceID: mustTraceIDFromHex(t, "4bf92f3577b34da6a3ce929d0e0e4736"),
 			expectedSpans: tracetest.SpanStubs{
 				tracetest.SpanStub{
 					Name:     "pubsublite.Receive",
 					SpanKind: trace.SpanKindConsumer,
 					SpanContext: trace.NewSpanContext(trace.SpanContextConfig{
-						TraceID: mustTraceIDFromHex("4bf92f3577b34da6a3ce929d0e0e4736"),
+						TraceID: mustTraceIDFromHex(t, "4bf92f3577b34da6a3ce929d0e0e4736"),
 					}),
 					Parent: trace.NewSpanContext(trace.SpanContextConfig{
-						TraceID: mustTraceIDFromHex("4bf92f3577b34da6a3ce929d0e0e4736"),
+						TraceID: mustTraceIDFromHex(t, "4bf92f3577b34da6a3ce929d0e0e4736"),
 						Remote:  true,
 					}),
 					Attributes: []attribute.KeyValue{
@@ -162,11 +162,10 @@ func TestConsumer(t *testing.T) {
 	}
 }
 
-func mustTraceIDFromHex(s string) (t trace.TraceID) {
-	var err error
-	t, err = trace.TraceIDFromHex(s)
-	if err != nil {
-		panic(err)
-	}
-	return
+func mustTraceIDFromHex(t *testing.T, s string) (tr trace.TraceID) {
+	t.Helper()
+
+	tr, err := trace.TraceIDFromHex(s)
+	assert.NoError(t, err)
+	return tr
 }
