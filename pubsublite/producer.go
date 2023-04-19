@@ -112,23 +112,11 @@ func NewProducer(ctx context.Context, cfg ProducerConfig) (*Producer, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("pubsublite: invalid producer config: %w", err)
 	}
-	// TODO(marclop) connection pools:
-	// https://pkg.go.dev/cloud.google.com/go/pubsublite#hdr-gRPC_Connection_Pools
-	settings := pscompat.PublishSettings{
-		// TODO(marclop) tweak producing settings, to cap memory use, trying
-		// to size for good performance. It may be desireable to provide a
-		// maximum memory usage for this component and size accordingly.
-		// The number of topics should be taken into account since it creates
-		// a publisher client per topic.
-	}
 	producers := make(map[apmqueue.Topic]*pscompat.PublisherClient)
 	for _, topic := range cfg.Topics {
-		publisher, err := pscompat.NewPublisherClientWithSettings(ctx,
-			formatTopic(cfg.Project, cfg.Region, topic),
-			settings, cfg.ClientOpts...,
-		)
+		publisher, err := newPublisher(ctx, cfg, topic)
 		if err != nil {
-			return nil, fmt.Errorf("pubsublite: failed creating producer: %w", err)
+			return nil, fmt.Errorf("pubsublite: failed creating publisher: %w", err)
 		}
 		producers[topic] = publisher
 	}
@@ -202,7 +190,11 @@ func (p *Producer) ProcessBatch(ctx context.Context, batch *model.Batch) error {
 		topic := p.cfg.TopicRouter(event)
 		producer, ok := p.producer[topic]
 		if !ok {
-			return fmt.Errorf("pubsublite: unable to find producer for %s", topic)
+			publisher, err := newPublisher(ctx, p.cfg, topic)
+			if err != nil {
+				return fmt.Errorf("pubsublite: failed creating publisher: %w", err)
+			}
+			p.producer[topic] = publisher
 		}
 		responses = append(responses, resTopic{
 			// NOTE(marclop) producer.Publish() is completely asynchronous and
@@ -223,6 +215,27 @@ func (p *Producer) ProcessBatch(ctx context.Context, batch *model.Batch) error {
 		return ctx.Err()
 	}
 	return nil
+}
+
+func newPublisher(ctx context.Context, cfg ProducerConfig, topic apmqueue.Topic) (*pscompat.PublisherClient, error) {
+	// TODO(marclop) connection pools:
+	// https://pkg.go.dev/cloud.google.com/go/pubsublite#hdr-gRPC_Connection_Pools
+	settings := pscompat.PublishSettings{
+		// TODO(marclop) tweak producing settings, to cap memory use, trying
+		// to size for good performance. It may be desireable to provide a
+		// maximum memory usage for this component and size accordingly.
+		// The number of topics should be taken into account since it creates
+		// a publisher client per topic.
+	}
+	publisher, err := pscompat.NewPublisherClientWithSettings(ctx,
+		formatTopic(cfg.Project, cfg.Region, topic),
+		settings, cfg.ClientOpts...,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return publisher, nil
 }
 
 func blockUntilProduced(ctx context.Context, res []resTopic, logger *zap.Logger) {
