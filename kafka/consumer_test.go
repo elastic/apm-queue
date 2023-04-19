@@ -20,6 +20,7 @@ package kafka
 import (
 	"context"
 	"crypto/tls"
+	"strconv"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -224,6 +225,70 @@ func TestMultipleConsumers(t *testing.T) {
 	assert.Eventually(t, func() bool {
 		return count.Load() == 1000
 	}, 1*time.Second, 50*time.Millisecond)
+}
+
+func TestMultipleConsumerGroups(t *testing.T) {
+	event := model.APMEvent{Transaction: &model.Transaction{ID: "1"}}
+	topics := []string{"topic"}
+	codec := json.JSON{}
+	client, addrs := newClusterWithTopics(t, topics...)
+
+	cfg := ConsumerConfig{
+		Brokers: addrs,
+		Topics:  topics,
+		Decoder: codec,
+		Logger:  zap.NewNop(),
+	}
+
+	b, err := codec.Encode(event)
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	m := make(map[string]*atomic.Int64)
+
+	amount := 100
+
+	for i := 0; i < amount; i++ {
+		gid := "groupid" + strconv.Itoa(i)
+		cfg.GroupID = gid
+		m[gid] = &atomic.Int64{}
+		cfg.Processor = model.ProcessBatchFunc(func(ctx context.Context, b *model.Batch) error {
+			count := m[gid]
+			count.Add(1)
+			assert.Len(t, *b, 1)
+			assert.Equal(t, event, (*b)[0])
+			return nil
+		})
+		consumer := newConsumer(t, cfg)
+		go func() {
+			assert.ErrorIs(t, consumer.Run(ctx), context.Canceled)
+		}()
+	}
+
+	waitCh := make(chan struct{})
+	go func() {
+		defer close(waitCh)
+		for i := 0; i < amount; i++ {
+			client.Produce(context.Background(), &kgo.Record{
+				Topic: topics[0],
+				Value: b,
+			}, func(r *kgo.Record, err error) {
+				assert.NoError(t, err)
+				assert.NotNil(t, r)
+			})
+
+		}
+	}()
+
+	<-waitCh
+
+	for k, i := range m {
+		assert.Eventually(t, func() bool {
+			return i.Load() == int64(amount)
+		}, 1*time.Second, 50*time.Millisecond, k)
+	}
 }
 
 func TestConsumerRunError(t *testing.T) {
