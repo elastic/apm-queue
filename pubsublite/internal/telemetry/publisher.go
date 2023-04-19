@@ -51,6 +51,8 @@ func Publisher(ctx context.Context, tracer trace.Tracer, msg *pubsub.Message, h 
 
 	res := h(ctx, msg)
 
+	// This creates one goroutine for each message, which may cause overhead for
+	// mid-high producers.
 	go func() {
 		mid, err := res.Get(ctx)
 		span.SetAttributes(semconv.MessagingMessageIDKey.String(mid))
