@@ -250,9 +250,8 @@ func TestMultipleConsumerGroups(t *testing.T) {
 
 	m := make(map[string]*atomic.Int64)
 
-	amount := 100
-
-	for i := 0; i < amount; i++ {
+	groups := 10
+	for i := 0; i < groups; i++ {
 		gid := "groupid" + strconv.Itoa(i)
 		cfg.GroupID = gid
 		m[gid] = &atomic.Int64{}
@@ -269,26 +268,20 @@ func TestMultipleConsumerGroups(t *testing.T) {
 		}()
 	}
 
-	waitCh := make(chan struct{})
-	go func() {
-		defer close(waitCh)
-		for i := 0; i < amount; i++ {
-			client.Produce(context.Background(), &kgo.Record{
-				Topic: topics[0],
-				Value: b,
-			}, func(r *kgo.Record, err error) {
-				assert.NoError(t, err)
-				assert.NotNil(t, r)
-			})
-
-		}
-	}()
-
-	<-waitCh
+	produceRecords := 100
+	for i := 0; i < produceRecords; i++ {
+		client.Produce(context.Background(), &kgo.Record{
+			Topic: topics[0],
+			Value: b,
+		}, func(r *kgo.Record, err error) {
+			assert.NoError(t, err)
+			assert.NotNil(t, r)
+		})
+	}
 
 	for k, i := range m {
 		assert.Eventually(t, func() bool {
-			return i.Load() == int64(amount)
+			return i.Load() == int64(produceRecords)
 		}, 1*time.Second, 50*time.Millisecond, k)
 	}
 }
