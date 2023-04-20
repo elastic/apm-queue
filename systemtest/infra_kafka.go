@@ -234,12 +234,12 @@ func newKafkaTLSDialer() *tls.Dialer {
 func KafkaBrokers() []string {
 	brokersMu.RLock()
 	defer brokersMu.RUnlock()
-	return append(kafkaBrokers)
+	return append([]string{}, kafkaBrokers...)
 }
 
 // SetKafkaBrokers sets the kafka brokers.
 func SetKafkaBrokers(brokers ...string) {
 	brokersMu.Lock()
 	defer brokersMu.Unlock()
-	kafkaBrokers = append(brokers)
+	kafkaBrokers = append([]string{}, brokers...)
 }
