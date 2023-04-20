@@ -70,7 +70,7 @@ func TestNewProducerBasic(t *testing.T) {
 				TopicRouter: func(event model.APMEvent) apmqueue.Topic {
 					return apmqueue.Topic(topic)
 				},
-				Tracer: tp.Tracer("test"),
+				TracerProvider: tp,
 			})
 			require.NoError(t, err)
 
@@ -131,7 +131,7 @@ func TestNewProducerBasic(t *testing.T) {
 			assert.Len(t, fetches.Records(), 0)
 
 			// Assert tracing happened properly
-			assert.Equal(t, len(exp.GetSpans()), spanCount+1)
+			assert.Equal(t, len(exp.GetSpans()), spanCount+3)
 			var span tracetest.SpanStub
 			for _, s := range exp.GetSpans() {
 				if s.Name == "producer.ProcessBatch" {
@@ -141,6 +141,7 @@ func TestNewProducerBasic(t *testing.T) {
 
 			assert.Equal(t, "producer.ProcessBatch", span.Name)
 			assert.Equal(t, []attribute.KeyValue{
+				attribute.Bool("sync", sync),
 				attribute.Int("batch.size", 2),
 			}, span.Attributes)
 
