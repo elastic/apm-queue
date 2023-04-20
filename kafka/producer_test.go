@@ -29,6 +29,9 @@ import (
 	"github.com/twmb/franz-go/pkg/kadm"
 	"github.com/twmb/franz-go/pkg/kfake"
 	"github.com/twmb/franz-go/pkg/kgo"
+	"go.opentelemetry.io/otel/attribute"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.uber.org/zap"
 
 	"github.com/elastic/apm-data/model"
@@ -43,6 +46,12 @@ func TestNewProducer(t *testing.T) {
 }
 
 func TestNewProducerBasic(t *testing.T) {
+	exp := tracetest.NewInMemoryExporter()
+	tp := sdktrace.NewTracerProvider(
+		sdktrace.WithSyncer(exp),
+	)
+	defer tp.Shutdown(context.Background())
+
 	// This test ensures that basic producing is working, it tests:
 	// * Producing to a single topic
 	// * Producing a set number of records
@@ -61,6 +70,7 @@ func TestNewProducerBasic(t *testing.T) {
 				TopicRouter: func(event model.APMEvent) apmqueue.Topic {
 					return apmqueue.Topic(topic)
 				},
+				Tracer: tp.Tracer("test"),
 			})
 			require.NoError(t, err)
 
@@ -72,6 +82,8 @@ func TestNewProducerBasic(t *testing.T) {
 				{Transaction: &model.Transaction{ID: "1"}},
 				{Transaction: &model.Transaction{ID: "2"}},
 			}
+
+			spanCount := len(exp.GetSpans())
 			if !sync {
 				// Cancel the context before calling processBatch
 				var c func()
@@ -117,6 +129,22 @@ func TestNewProducerBasic(t *testing.T) {
 			//lint:ignore SA1012 passing a nil context is a valid use for this call.
 			fetches := client.PollRecords(nil, 1)
 			assert.Len(t, fetches.Records(), 0)
+
+			// Assert tracing happened properly
+			assert.Equal(t, len(exp.GetSpans()), spanCount+1)
+			var span tracetest.SpanStub
+			for _, s := range exp.GetSpans() {
+				if s.Name == "producer.ProcessBatch" {
+					span = s
+				}
+			}
+
+			assert.Equal(t, "producer.ProcessBatch", span.Name)
+			assert.Equal(t, []attribute.KeyValue{
+				attribute.Int("batch.size", 2),
+			}, span.Attributes)
+
+			exp.Reset()
 		})
 	}
 	test(t, true)

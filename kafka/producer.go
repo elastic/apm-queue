@@ -111,6 +111,9 @@ type ProducerConfig struct {
 
 	// DisableTelemetry disables the OpenTelemetry hook
 	DisableTelemetry bool
+	// Tracer allows specifying a custom otel tracer.
+	// Defaults to one retrieved from the global Tracer Provider.
+	Tracer trace.Tracer
 }
 
 // Validate checks that cfg is valid, and returns an error otherwise.
@@ -177,7 +180,10 @@ func NewProducer(cfg ProducerConfig) (*Producer, error) {
 		kotelService := kotel.NewKotel()
 		opts = append(opts, kgo.WithHooks(kotelService.Hooks()...))
 	}
-	tracer := otel.Tracer("kafka")
+	tracer := cfg.Tracer
+	if tracer == nil {
+		tracer = otel.Tracer("kafka")
+	}
 
 	client, err := kgo.NewClient(opts...)
 	if err != nil {
