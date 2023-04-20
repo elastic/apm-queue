@@ -35,7 +35,7 @@ func Publisher(ctx context.Context, tracer trace.Tracer, msg *pubsub.Message, h 
 	ctx, span := tracer.Start(ctx, "pubsublite.Publish",
 		trace.WithSpanKind(trace.SpanKindProducer),
 		trace.WithAttributes(
-			semconv.MessagingSystemKey.String("pubsub"),
+			semconv.MessagingSystemKey.String("pubsublite"),
 			semconv.MessagingDestinationKindTopic,
 		),
 	)
