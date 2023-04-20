@@ -218,8 +218,10 @@ func (p *Producer) Close() error {
 // the messages have been stored in the producer's buffer.
 func (p *Producer) ProcessBatch(ctx context.Context, batch *model.Batch) error {
 	ctx, span := p.tracer.Start(ctx, "producer.ProcessBatch", trace.WithAttributes(
+		attribute.Bool("sync", p.cfg.Sync),
 		attribute.Int("batch.size", len(*batch)),
 	))
+	defer span.End()
 
 	// Take a read lock to prevent Close from closing the client
 	// while we're attempting to produce records.
@@ -248,7 +250,6 @@ func (p *Producer) ProcessBatch(ctx context.Context, batch *model.Batch) error {
 			err = fmt.Errorf("failed to encode event: %w", err)
 			span.RecordError(err)
 			span.SetStatus(codes.Error, err.Error())
-			span.End()
 			return err
 		}
 		record.Value = encoded
@@ -257,10 +258,8 @@ func (p *Producer) ProcessBatch(ctx context.Context, batch *model.Batch) error {
 			ctx = queuecontext.DetachedContext(ctx)
 		}
 		p.client.Produce(ctx, record, func(msg *kgo.Record, err error) {
-			defer func() {
-				wg.Done()
-				span.End()
-			}()
+			defer wg.Done()
+
 			if err != nil {
 				span.RecordError(err)
 				span.SetStatus(codes.Error, err.Error())
@@ -277,6 +276,7 @@ func (p *Producer) ProcessBatch(ctx context.Context, batch *model.Batch) error {
 	if p.cfg.Sync {
 		wg.Wait()
 	}
+
 	return nil
 }
 
