@@ -24,10 +24,15 @@ import (
 	"fmt"
 	"sync"
 
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 
 	"github.com/twmb/franz-go/pkg/kgo"
 	"github.com/twmb/franz-go/pkg/sasl"
+	"github.com/twmb/franz-go/plugin/kotel"
 	"github.com/twmb/franz-go/plugin/kzap"
 
 	"github.com/elastic/apm-data/model"
@@ -40,10 +45,6 @@ type Encoder interface {
 	// Encode accepts a model.APMEvent and returns the encoded representation.
 	Encode(model.APMEvent) ([]byte, error)
 }
-
-// RecordMutator mutates the record associated with the model.APMEvent.
-// If the RecordMutator returns an error, it is considered fatal.
-type RecordMutator func(model.APMEvent, *kgo.Record) error
 
 // CompressionCodec configures how records are compressed before being sent.
 // Type alias to kgo.CompressionCodec.
@@ -90,10 +91,6 @@ type ProducerConfig struct {
 	// TopicRouter returns the topic where an event should be produced.
 	TopicRouter apmqueue.TopicRouter
 
-	// Mutators holds the list of RecordMutator applied to all the records sent
-	// by the producer. If any errors are returned, the producer will not
-	// produce and return the error in ProcessBatch.
-	Mutators []RecordMutator
 	// SASL configures the kgo.Client to use SASL authorization.
 	SASL sasl.Mechanism
 	// TLS configures the kgo.Client to use TLS for authentication.
@@ -101,6 +98,9 @@ type ProducerConfig struct {
 	// CompressionCodec specifies a list of compression codecs.
 	// See kgo.ProducerBatchCompression for more details.
 	CompressionCodec []CompressionCodec
+
+	// DisableTelemetry disables the OpenTelemetry hook
+	DisableTelemetry bool
 }
 
 // Validate checks that cfg is valid, and returns an error otherwise.
@@ -125,6 +125,7 @@ func (cfg ProducerConfig) Validate() error {
 type Producer struct {
 	cfg    ProducerConfig
 	client *kgo.Client
+	tracer trace.Tracer
 
 	mu sync.RWMutex
 }
@@ -156,6 +157,13 @@ func NewProducer(cfg ProducerConfig) (*Producer, error) {
 	if len(cfg.CompressionCodec) > 0 {
 		opts = append(opts, kgo.ProducerBatchCompression(cfg.CompressionCodec...))
 	}
+
+	if !cfg.DisableTelemetry {
+		kotelService := kotel.NewKotel()
+		opts = append(opts, kgo.WithHooks(kotelService.Hooks()...))
+	}
+	tracer := otel.Tracer("kafka")
+
 	client, err := kgo.NewClient(opts...)
 	if err != nil {
 		return nil, fmt.Errorf("kafka: failed creating producer: %w", err)
@@ -167,6 +175,7 @@ func NewProducer(cfg ProducerConfig) (*Producer, error) {
 	return &Producer{
 		cfg:    cfg,
 		client: client,
+		tracer: tracer,
 	}, nil
 }
 
@@ -187,6 +196,10 @@ func (p *Producer) Close() error {
 // messages have been produced to Kafka, otherwise, returns as soon as
 // the messages have been stored in the producer's buffer.
 func (p *Producer) ProcessBatch(ctx context.Context, batch *model.Batch) error {
+	ctx, span := p.tracer.Start(ctx, "producer.ProcessBatch", trace.WithAttributes(
+		attribute.Int("batch.size", len(*batch)),
+	))
+
 	// Take a read lock to prevent Close from closing the client
 	// while we're attempting to produce records.
 	p.mu.RLock()
@@ -209,14 +222,13 @@ func (p *Producer) ProcessBatch(ctx context.Context, batch *model.Batch) error {
 			Headers: headers,
 			Topic:   string(p.cfg.TopicRouter(event)),
 		}
-		for _, rm := range p.cfg.Mutators {
-			if err := rm(event, record); err != nil {
-				return fmt.Errorf("failed to apply record mutator: %w", err)
-			}
-		}
 		encoded, err := p.cfg.Encoder.Encode(event)
 		if err != nil {
-			return fmt.Errorf("failed to encode event: %w", err)
+			err = fmt.Errorf("failed to encode event: %w", err)
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
+			span.End()
+			return err
 		}
 		record.Value = encoded
 		if !p.cfg.Sync {
@@ -224,8 +236,13 @@ func (p *Producer) ProcessBatch(ctx context.Context, batch *model.Batch) error {
 			ctx = queuecontext.DetachedContext(ctx)
 		}
 		p.client.Produce(ctx, record, func(msg *kgo.Record, err error) {
-			defer wg.Done()
+			defer func() {
+				wg.Done()
+				span.End()
+			}()
 			if err != nil {
+				span.RecordError(err)
+				span.SetStatus(codes.Error, err.Error())
 				p.cfg.Logger.Error("failed producing message",
 					zap.Error(err),
 					zap.String("topic", msg.Topic),
