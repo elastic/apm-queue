@@ -27,6 +27,7 @@ import (
 
 	"github.com/twmb/franz-go/pkg/kgo"
 	"github.com/twmb/franz-go/pkg/sasl"
+	"github.com/twmb/franz-go/plugin/kotel"
 	"github.com/twmb/franz-go/plugin/kzap"
 	"go.uber.org/zap"
 
@@ -93,6 +94,9 @@ type ConsumerConfig struct {
 	// client is closed).
 	// This
 	Dialer func(ctx context.Context, network, address string) (net.Conn, error)
+
+	// DisableTelemetry disables the OpenTelemetry hook
+	DisableTelemetry bool
 }
 
 // Validate ensures the configuration is valid, otherwise, returns an error.
@@ -182,6 +186,12 @@ func NewConsumer(cfg ConsumerConfig) (*Consumer, error) {
 	if cfg.MaxPollRecords <= 0 {
 		cfg.MaxPollRecords = 100
 	}
+
+	if !cfg.DisableTelemetry {
+		kotelService := kotel.NewKotel()
+		opts = append(opts, kgo.WithHooks(kotelService.Hooks()...))
+	}
+
 	client, err := kgo.NewClient(opts...)
 	if err != nil {
 		return nil, fmt.Errorf("kafka: failed creating kafka consumer: %w", err)

@@ -25,10 +25,14 @@ import (
 	"net"
 	"sync"
 
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 
 	"github.com/twmb/franz-go/pkg/kgo"
 	"github.com/twmb/franz-go/pkg/sasl"
+	"github.com/twmb/franz-go/plugin/kotel"
 	"github.com/twmb/franz-go/plugin/kzap"
 
 	"github.com/elastic/apm-data/model"
@@ -111,6 +115,9 @@ type ProducerConfig struct {
 	// context is the context on the client itself (which is canceled when the
 	// client is closed).
 	Dialer func(ctx context.Context, network, address string) (net.Conn, error)
+
+	// DisableTelemetry disables the OpenTelemetry hook
+	DisableTelemetry bool
 }
 
 // Validate checks that cfg is valid, and returns an error otherwise.
@@ -138,6 +145,7 @@ func (cfg ProducerConfig) Validate() error {
 type Producer struct {
 	cfg    ProducerConfig
 	client *kgo.Client
+	tracer trace.Tracer
 
 	mu sync.RWMutex
 }
@@ -171,6 +179,13 @@ func NewProducer(cfg ProducerConfig) (*Producer, error) {
 	if len(cfg.CompressionCodec) > 0 {
 		opts = append(opts, kgo.ProducerBatchCompression(cfg.CompressionCodec...))
 	}
+
+	if !cfg.DisableTelemetry {
+		kotelService := kotel.NewKotel()
+		opts = append(opts, kgo.WithHooks(kotelService.Hooks()...))
+	}
+	tracer := otel.Tracer("kafka")
+
 	client, err := kgo.NewClient(opts...)
 	if err != nil {
 		return nil, fmt.Errorf("kafka: failed creating producer: %w", err)
@@ -182,6 +197,7 @@ func NewProducer(cfg ProducerConfig) (*Producer, error) {
 	return &Producer{
 		cfg:    cfg,
 		client: client,
+		tracer: tracer,
 	}, nil
 }
 
@@ -202,6 +218,11 @@ func (p *Producer) Close() error {
 // messages have been produced to Kafka, otherwise, returns as soon as
 // the messages have been stored in the producer's buffer.
 func (p *Producer) ProcessBatch(ctx context.Context, batch *model.Batch) error {
+	ctx, span := p.tracer.Start(ctx, "ProcessBatch", trace.WithAttributes(
+		attribute.Int("batch.size", len(*batch)),
+	))
+	defer span.End()
+
 	// Take a read lock to prevent Close from closing the client
 	// while we're attempting to produce records.
 	p.mu.RLock()
