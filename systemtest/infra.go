@@ -41,22 +41,17 @@ func NewTerraform(ctx context.Context, path string) (*tfexec.Terraform, error) {
 	return tfexec.NewTerraform(path, execPath)
 }
 
-var terraformExecMu sync.Mutex
+var terraformExecOnce sync.Once
 var terraformExec string
 
 func installTerraform(ctx context.Context) (string, error) {
-	terraformExecMu.Lock()
-	defer terraformExecMu.Unlock()
-	if terraformExec != "" {
-		return terraformExec, nil
-	}
-
-	installer := &releases.LatestVersion{Product: product.Terraform}
-	execPath, err := installer.Install(ctx)
-	if err != nil {
-		return "", err
-	}
-	return execPath, err
+	var err error
+	terraformExecOnce.Do(func() {
+		installer := &releases.LatestVersion{Product: product.Terraform}
+		terraformExec, err = installer.Install(ctx)
+		return
+	})
+	return terraformExec, err
 }
 
 var destroyMu sync.Mutex

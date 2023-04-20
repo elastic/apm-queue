@@ -162,7 +162,7 @@ func assertBatchFunc(t testing.TB, assertions consumerAssertions) model.BatchPro
 	return model.ProcessBatchFunc(func(_ context.Context, b *model.Batch) error {
 		assert.Greater(t, len(*b), 0)
 		for _, r := range *b {
-			assert.Equal(t, r.Processor, assertions.processor, r)
+			assert.Equal(t, assertions.processor, r.Processor, r)
 			if assertions.records != nil {
 				assertions.records.Add(1)
 			}
