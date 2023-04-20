@@ -92,7 +92,7 @@ type ConsumerConfig struct {
 	// that caused the dial. If the request is a client-internal request, the
 	// context is the context on the client itself (which is canceled when the
 	// client is closed).
-	// This
+	// This option conflicts with TLS. Only one can be used.
 	Dialer func(ctx context.Context, network, address string) (net.Conn, error)
 
 	// DisableTelemetry disables the OpenTelemetry hook
