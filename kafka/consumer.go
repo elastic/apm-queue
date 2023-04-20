@@ -238,8 +238,9 @@ func (c *Consumer) fetch(ctx context.Context) error {
 	if fetches.IsClientClosed() {
 		return fmt.Errorf("client is closed: %w", context.Canceled)
 	}
-	if errors.Is(fetches.Err0(), context.Canceled) {
-		return fmt.Errorf("context canceled: %w", fetches.Err0())
+	if errors.Is(fetches.Err0(), context.Canceled) ||
+		errors.Is(fetches.Err0(), context.DeadlineExceeded) {
+		return fmt.Errorf("context done: %w", fetches.Err0())
 	}
 	switch c.cfg.Delivery {
 	case apmqueue.AtLeastOnceDeliveryType:

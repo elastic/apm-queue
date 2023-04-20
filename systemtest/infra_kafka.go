@@ -179,7 +179,8 @@ func ProvisionKafka(ctx context.Context, cfg KafkaConfig) error {
 
 func kubectlForwardKafka(ns, name, service, mapping string) error {
 	cmd := exec.Command("kubectl", "port-forward", "-n", ns, service, mapping)
-	logger().Infof("Running %s...", strings.Join(cmd.Args, " "))
+	cmdStr := strings.Join(cmd.Args, " ")
+	logger().Infof("Running %s...", cmdStr)
 	if err := cmd.Start(); err != nil {
 		return err
 	}
@@ -198,10 +199,24 @@ func kubectlForwardKafka(ns, name, service, mapping string) error {
 		srv.PatchNet(resolver)
 		mockResolver = resolver
 	}
-	go cmd.Wait() // Run the forwarder
+	c := make(chan struct{})
+	go func() {
+		err := cmd.Wait() // Run the forwarder
+		if err == nil {
+			return
+		}
+		select {
+		case <-c:
+		default:
+			logger().Errorf("%s exited before tests were completed: %v",
+				cmdStr, err.Error(),
+			)
+		}
+	}()
 	RegisterDestroy(ns+service+mapping, func() {
-		logger().Infof("Stopping %s...", strings.Join(cmd.Args, " "))
+		logger().Infof("Stopping %s...", cmdStr)
 		srv.Close()
+		close(c)
 		cmd.Process.Kill()
 		cmd.Process.Wait()
 	})
