@@ -56,6 +56,7 @@ func Publisher(ctx context.Context, tracer trace.Tracer, msg *pubsub.Message, h 
 
 	// This creates one goroutine for each message, which may cause overhead for
 	// mid-high producers.
+	// See also https://github.com/googleapis/google-cloud-go/issues/2953
 	go func() {
 		mid, err := res.Get(ctx)
 		span.SetAttributes(semconv.MessagingMessageIDKey.String(mid))
