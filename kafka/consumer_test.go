@@ -186,7 +186,6 @@ func TestMultipleConsumers(t *testing.T) {
 		Processor: model.ProcessBatchFunc(func(ctx context.Context, b *model.Batch) error {
 			count.Add(1)
 			assert.Len(t, *b, 1)
-			//assert.Equal(t, event, (*b)[0])
 			return nil
 		}),
 	}
