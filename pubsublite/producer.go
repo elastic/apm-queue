@@ -101,7 +101,7 @@ type resTopic struct {
 type Producer struct {
 	mu        sync.RWMutex
 	cfg       ProducerConfig
-	producer  map[apmqueue.Topic]*pscompat.PublisherClient
+	producer  sync.Map // map[apmqueue.Topic]*pscompat.PublisherClient
 	errg      *errgroup.Group
 	responses chan []resTopic
 	closed    chan struct{}
@@ -112,13 +112,13 @@ func NewProducer(ctx context.Context, cfg ProducerConfig) (*Producer, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("pubsublite: invalid producer config: %w", err)
 	}
-	producers := make(map[apmqueue.Topic]*pscompat.PublisherClient)
+	var producers sync.Map
 	for _, topic := range cfg.Topics {
 		publisher, err := newPublisher(ctx, cfg, topic)
 		if err != nil {
 			return nil, fmt.Errorf("pubsublite: failed creating publisher: %w", err)
 		}
-		producers[topic] = publisher
+		producers.Store(topic, publisher)
 	}
 	errg, _ := errgroup.WithContext(ctx)
 	// NOTE(marclop) should the channel size be dynamic? 100 is an arbitrary
@@ -152,9 +152,10 @@ func NewProducer(ctx context.Context, cfg ProducerConfig) (*Producer, error) {
 func (p *Producer) Close() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	for _, producer := range p.producer {
-		producer.Stop()
-	}
+	p.producer.Range(func(key, value any) bool {
+		value.(*pscompat.PublisherClient).Stop()
+		return true
+	})
 	close(p.closed)
 	close(p.responses)
 	return p.errg.Wait()
@@ -188,20 +189,25 @@ func (p *Producer) ProcessBatch(ctx context.Context, batch *model.Batch) error {
 			}
 		}
 		topic := p.cfg.TopicRouter(event)
-		producer, ok := p.producer[topic]
+		// creating a publisher is expensive and we can't do it lazily so we call Load+LoadOrStore
+		producer, ok := p.producer.Load(topic)
 		if !ok {
 			publisher, err := newPublisher(ctx, p.cfg, topic)
 			if err != nil {
 				return fmt.Errorf("pubsublite: failed creating publisher: %w", err)
 			}
-			p.producer[topic] = publisher
+			producer, ok = p.producer.LoadOrStore(topic, publisher)
+			// race condition, publisher was loaded from the map so we close the other one
+			if ok {
+				publisher.Stop()
+			}
 		}
 		responses = append(responses, resTopic{
 			// NOTE(marclop) producer.Publish() is completely asynchronous and
 			// doesn't use the context. If/when the pubsublite library supports
 			// instrumentation, the context will be useful to propagate traces.
 			// This is accurates as of pubsublite@v1.7.0
-			response: producer.Publish(ctx, &msg),
+			response: producer.(*pscompat.PublisherClient).Publish(ctx, &msg),
 			topic:    topic,
 		})
 	}
