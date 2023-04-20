@@ -178,7 +178,7 @@ func NewConsumer(ctx context.Context, cfg ConsumerConfig) (*Consumer, error) {
 			telemetryAttributes: []attribute.KeyValue{
 				semconv.MessagingSourceNameKey.String(subscription.Name),
 				semconv.CloudRegion(subscription.Region),
-				attribute.String("project", subscription.Project),
+				semconv.CloudAccountID(subscription.Project),
 			},
 		})
 	}
