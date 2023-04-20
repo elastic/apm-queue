@@ -22,6 +22,7 @@ import (
 
 	"cloud.google.com/go/pubsub"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/propagation"
 	semconv "go.opentelemetry.io/otel/semconv/v1.18.0"
@@ -31,13 +32,15 @@ import (
 type producerHandler = func(context.Context, *pubsub.Message) *pubsub.PublishResult
 
 // Publisher adds telemetry data to messages published
-func Publisher(ctx context.Context, tracer trace.Tracer, msg *pubsub.Message, h producerHandler) *pubsub.PublishResult {
+func Publisher(ctx context.Context, tracer trace.Tracer, msg *pubsub.Message, h producerHandler, attrs []attribute.KeyValue) *pubsub.PublishResult {
+
+	attrs = append(attrs,
+		semconv.MessagingSystemKey.String("pubsublite"),
+		semconv.MessagingDestinationKindTopic,
+	)
 	ctx, span := tracer.Start(ctx, "pubsublite.Publish",
 		trace.WithSpanKind(trace.SpanKindProducer),
-		trace.WithAttributes(
-			semconv.MessagingSystemKey.String("pubsublite"),
-			semconv.MessagingDestinationKindTopic,
-		),
+		trace.WithAttributes(attrs...),
 	)
 
 	if msg == nil {

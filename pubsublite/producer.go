@@ -26,6 +26,8 @@ import (
 	"cloud.google.com/go/pubsub"
 	"cloud.google.com/go/pubsublite/pscompat"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	semconv "go.opentelemetry.io/otel/semconv/v1.17.0"
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/api/option"
@@ -107,6 +109,9 @@ type Producer struct {
 	errg      *errgroup.Group
 	responses chan []resTopic
 	closed    chan struct{}
+
+	project string
+	region  string
 }
 
 // NewProducer creates a new PubSub Lite producer for a single project.
@@ -155,6 +160,9 @@ func NewProducer(ctx context.Context, cfg ProducerConfig) (*Producer, error) {
 		closed:    make(chan struct{}),
 		errg:      errg,
 		responses: c,
+
+		project: cfg.Project,
+		region:  cfg.Region,
 	}, nil
 }
 
@@ -212,8 +220,12 @@ func (p *Producer) ProcessBatch(ctx context.Context, batch *model.Batch) error {
 			// doesn't use the context. If/when the pubsublite library supports
 			// instrumentation, the context will be useful to propagate traces.
 			// This is accurates as of pubsublite@v1.7.0
-			response: telemetry.Publisher(ctx, tracer, &msg, producer.Publish),
-			topic:    topic,
+			response: telemetry.Publisher(ctx, tracer, &msg, producer.Publish, []attribute.KeyValue{
+				semconv.MessagingDestinationNameKey.String(string(topic)),
+				semconv.CloudRegion(p.region),
+				semconv.CloudAccountID(p.project),
+			}),
+			topic: topic,
 		})
 	}
 	if p.cfg.Sync {

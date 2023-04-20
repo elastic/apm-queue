@@ -45,8 +45,9 @@ func TestPublisher(t *testing.T) {
 	otel.SetTextMapPropagator(propagation.TraceContext{})
 
 	for _, tt := range []struct {
-		name string
-		msg  *pubsub.Message
+		name       string
+		msg        *pubsub.Message
+		attributes []attribute.KeyValue
 
 		traceID      [16]byte
 		spanID       [8]byte
@@ -65,7 +66,7 @@ func TestPublisher(t *testing.T) {
 					Name:     "pubsublite.Publish",
 					SpanKind: trace.SpanKindProducer,
 					Attributes: []attribute.KeyValue{
-						semconv.MessagingSystemKey.String("pubsub"),
+						semconv.MessagingSystemKey.String("pubsublite"),
 						semconv.MessagingDestinationKindTopic,
 						semconv.MessagingMessageIDKey.String(""),
 					},
@@ -97,7 +98,44 @@ func TestPublisher(t *testing.T) {
 					Name:     "pubsublite.Publish",
 					SpanKind: trace.SpanKindProducer,
 					Attributes: []attribute.KeyValue{
-						semconv.MessagingSystemKey.String("pubsub"),
+						semconv.MessagingSystemKey.String("pubsublite"),
+						semconv.MessagingDestinationKindTopic,
+						semconv.MessagingMessageIDKey.String(""),
+					},
+					InstrumentationLibrary: instrumentation.Library{
+						Name: "test",
+					},
+					Events: []sdktrace.Event{
+						sdktrace.Event{
+							Name: "exception",
+							Attributes: []attribute.KeyValue{
+								attribute.String("exception.type", "*errors.errorString"),
+								attribute.String("exception.message", "context canceled"),
+							},
+						},
+					},
+					Status: sdktrace.Status{
+						Code:        codes.Error,
+						Description: "context canceled",
+					},
+				},
+			},
+		},
+		{
+			name: "with otel attributes",
+			msg:  &pubsub.Message{},
+
+			attributes: []attribute.KeyValue{
+				attribute.String("project", "project_name"),
+			},
+
+			expectedSpans: tracetest.SpanStubs{
+				tracetest.SpanStub{
+					Name:     "pubsublite.Publish",
+					SpanKind: trace.SpanKindProducer,
+					Attributes: []attribute.KeyValue{
+						attribute.String("project", "project_name"),
+						semconv.MessagingSystemKey.String("pubsublite"),
 						semconv.MessagingDestinationKindTopic,
 						semconv.MessagingMessageIDKey.String(""),
 					},
@@ -126,7 +164,7 @@ func TestPublisher(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			_ = Publisher(ctx, tp.Tracer("test"), tt.msg, func(ctx context.Context, msg *pubsub.Message) *pubsub.PublishResult {
 				return res
-			})
+			}, tt.attributes)
 
 			// Wait for the async goroutine to finish runnning
 			cancel()
