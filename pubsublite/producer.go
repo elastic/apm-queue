@@ -194,7 +194,7 @@ func (p *Producer) ProcessBatch(ctx context.Context, batch *model.Batch) error {
 		if !ok {
 			publisher, err := newPublisher(ctx, p.cfg, topic)
 			if err != nil {
-				return fmt.Errorf("pubsublite: failed creating publisher: %w", err)
+				return fmt.Errorf("pubsublite: failed creating publisher client for topic %s: %w", topic, err)
 			}
 			producer, ok = p.producer.LoadOrStore(topic, publisher)
 			// race condition, publisher was loaded from the map so we close the other one
