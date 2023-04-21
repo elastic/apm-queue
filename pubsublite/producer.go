@@ -66,11 +66,6 @@ type ProducerConfig struct {
 // Validate ensures the configuration is valid, otherwise, returns an error.
 func (cfg ProducerConfig) Validate() error {
 	var errs []error
-	if len(cfg.Topics) == 0 {
-		errs = append(errs,
-			errors.New("pubsublite: at least one topic must be set"),
-		)
-	}
 	if cfg.Project == "" {
 		errs = append(errs, errors.New("pubsublite: project must be set"))
 	}
