@@ -233,15 +233,10 @@ func newPublisher(ctx context.Context, cfg ProducerConfig, topic apmqueue.Topic)
 		// The number of topics should be taken into account since it creates
 		// a publisher client per topic.
 	}
-	publisher, err := pscompat.NewPublisherClientWithSettings(ctx,
+	return pscompat.NewPublisherClientWithSettings(ctx,
 		formatTopic(cfg.Project, cfg.Region, topic),
 		settings, cfg.ClientOpts...,
 	)
-	if err != nil {
-		return nil, err
-	}
-
-	return publisher, nil
 }
 
 func blockUntilProduced(ctx context.Context, res []resTopic, logger *zap.Logger) {
