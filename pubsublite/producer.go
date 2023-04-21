@@ -28,6 +28,7 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	semconv "go.opentelemetry.io/otel/semconv/v1.17.0"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/api/option"
@@ -65,6 +66,10 @@ type ProducerConfig struct {
 	// trigger immediate flush after processing a single batch.
 	Sync       bool
 	ClientOpts []option.ClientOption
+
+	// TracerProvider allows specifying a custom otel tracer provider.
+	// Defaults to the global one.
+	TracerProvider trace.TracerProvider
 }
 
 // Validate ensures the configuration is valid, otherwise, returns an error.
@@ -109,6 +114,7 @@ type Producer struct {
 	errg      *errgroup.Group
 	responses chan []resTopic
 	closed    chan struct{}
+	tracer    trace.Tracer
 
 	project string
 	region  string
@@ -154,12 +160,19 @@ func NewProducer(ctx context.Context, cfg ProducerConfig) (*Producer, error) {
 			return nil
 		})
 	}
+
+	tracerProvider := cfg.TracerProvider
+	if tracerProvider == nil {
+		tracerProvider = otel.GetTracerProvider()
+	}
+
 	return &Producer{
 		cfg:       cfg,
 		producer:  producers,
 		closed:    make(chan struct{}),
 		errg:      errg,
 		responses: c,
+		tracer:    tracerProvider.Tracer("pubsublite"),
 
 		project: cfg.Project,
 		region:  cfg.Region,
@@ -195,7 +208,6 @@ func (p *Producer) ProcessBatch(ctx context.Context, batch *model.Batch) error {
 	default:
 	}
 	responses := make([]resTopic, 0, len(*batch))
-	tracer := otel.GetTracerProvider().Tracer("pubsub")
 	for _, event := range *batch {
 		encoded, err := p.cfg.Encoder.Encode(event)
 		if err != nil {
@@ -220,7 +232,7 @@ func (p *Producer) ProcessBatch(ctx context.Context, batch *model.Batch) error {
 			// doesn't use the context. If/when the pubsublite library supports
 			// instrumentation, the context will be useful to propagate traces.
 			// This is accurates as of pubsublite@v1.7.0
-			response: telemetry.Publisher(ctx, tracer, &msg, producer.Publish, []attribute.KeyValue{
+			response: telemetry.Publisher(ctx, p.tracer, &msg, producer.Publish, []attribute.KeyValue{
 				semconv.MessagingDestinationNameKey.String(string(topic)),
 				semconv.CloudRegion(p.region),
 				semconv.CloudAccountID(p.project),

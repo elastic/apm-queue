@@ -28,6 +28,7 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	semconv "go.opentelemetry.io/otel/semconv/v1.18.0"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/api/option"
@@ -60,6 +61,10 @@ type ConsumerConfig struct {
 	// AtMostOnceDeliveryType and AtLeastOnceDeliveryType are supported.
 	Delivery   apmqueue.DeliveryType
 	ClientOpts []option.ClientOption
+
+	// TracerProvider allows specifying a custom otel tracer provider.
+	// Defaults to the global one.
+	TracerProvider trace.TracerProvider
 }
 
 // Subscription represents a PubSub Lite subscription.
@@ -132,6 +137,7 @@ type Consumer struct {
 	cfg            ConsumerConfig
 	consumers      []consumer
 	stopSubscriber context.CancelFunc
+	tracer         trace.Tracer
 }
 
 // NewConsumer creates a new consumer instance for a single subscription.
@@ -182,9 +188,16 @@ func NewConsumer(ctx context.Context, cfg ConsumerConfig) (*Consumer, error) {
 			},
 		})
 	}
+
+	tracerProvider := cfg.TracerProvider
+	if tracerProvider == nil {
+		tracerProvider = otel.GetTracerProvider()
+	}
+
 	return &Consumer{
 		cfg:       cfg,
 		consumers: consumers,
+		tracer:    tracerProvider.Tracer("pubsublite"),
 	}, nil
 }
 
@@ -207,13 +220,12 @@ func (c *Consumer) Run(ctx context.Context) error {
 	ctx, c.stopSubscriber = context.WithCancel(ctx)
 	c.mu.Unlock()
 
-	tracer := otel.GetTracerProvider().Tracer("pubsub")
 	g, ctx := errgroup.WithContext(ctx)
 	for _, consumer := range c.consumers {
 		consumer := consumer
 		g.Go(func() error {
 			return consumer.Receive(ctx,
-				telemetry.Consumer(tracer, consumer.processMessage, consumer.telemetryAttributes),
+				telemetry.Consumer(c.tracer, consumer.processMessage, consumer.telemetryAttributes),
 			)
 		})
 	}
