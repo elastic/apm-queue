@@ -266,9 +266,9 @@ func (p *Producer) ProcessBatch(ctx context.Context, batch *model.Batch) error {
 		p.client.Produce(ctx, record, func(msg *kgo.Record, err error) {
 			defer wg.Done()
 
+			// kotel already handles marking spans as errors. So we don't need to do
+			// anything regarding tracing here.
 			if err != nil {
-				span.RecordError(err)
-				span.SetStatus(codes.Error, err.Error())
 				p.cfg.Logger.Error("failed producing message",
 					zap.Error(err),
 					zap.String("topic", msg.Topic),
