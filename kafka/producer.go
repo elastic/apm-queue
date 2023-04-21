@@ -22,6 +22,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"net"
 	"sync"
 
 	"go.opentelemetry.io/otel"
@@ -94,13 +95,25 @@ type ProducerConfig struct {
 	// SASL configures the kgo.Client to use SASL authorization.
 	SASL sasl.Mechanism
 	// TLS configures the kgo.Client to use TLS for authentication.
+	// This option conflicts with Dialer. Only one can be used.
 	TLS *tls.Config
 	// CompressionCodec specifies a list of compression codecs.
 	// See kgo.ProducerBatchCompression for more details.
 	CompressionCodec []CompressionCodec
+	// Dialer uses fn to dial addresses, overriding the default dialer that uses a
+	// 10s dial timeout and no TLS (unless TLS option is set).
+	//
+	// The context passed to the dial function is the context used in the request
+	// that caused the dial. If the request is a client-internal request, the
+	// context is the context on the client itself (which is canceled when the
+	// client is closed).
+	Dialer func(ctx context.Context, network, address string) (net.Conn, error)
 
 	// DisableTelemetry disables the OpenTelemetry hook
 	DisableTelemetry bool
+	// TracerProvider allows specifying a custom otel tracer provider.
+	// Defaults to the global one.
+	TracerProvider trace.TracerProvider
 }
 
 // Validate checks that cfg is valid, and returns an error otherwise.
@@ -117,6 +130,9 @@ func (cfg ProducerConfig) Validate() error {
 	}
 	if cfg.TopicRouter == nil {
 		err = append(err, errors.New("kafka: topic router must be set"))
+	}
+	if cfg.TLS != nil && cfg.Dialer != nil {
+		err = append(err, errors.New("kafka: only one of TLS or Dialer can be set"))
 	}
 	return errors.Join(err...)
 }
@@ -148,7 +164,9 @@ func NewProducer(cfg ProducerConfig) (*Producer, error) {
 			))
 		}
 	}
-	if cfg.TLS != nil {
+	if cfg.Dialer != nil {
+		opts = append(opts, kgo.Dialer(cfg.Dialer))
+	} else if cfg.TLS != nil {
 		opts = append(opts, kgo.DialTLSConfig(cfg.TLS.Clone()))
 	}
 	if cfg.SASL != nil {
@@ -158,11 +176,20 @@ func NewProducer(cfg ProducerConfig) (*Producer, error) {
 		opts = append(opts, kgo.ProducerBatchCompression(cfg.CompressionCodec...))
 	}
 
+	tracerProvider := cfg.TracerProvider
+	if tracerProvider == nil {
+		tracerProvider = otel.GetTracerProvider()
+	}
+
 	if !cfg.DisableTelemetry {
-		kotelService := kotel.NewKotel()
+		kotelService := kotel.NewKotel(
+			kotel.WithTracer(kotel.NewTracer(
+				kotel.TracerProvider(tracerProvider),
+			)),
+			kotel.WithMeter(kotel.NewMeter()),
+		)
 		opts = append(opts, kgo.WithHooks(kotelService.Hooks()...))
 	}
-	tracer := otel.Tracer("kafka")
 
 	client, err := kgo.NewClient(opts...)
 	if err != nil {
@@ -175,7 +202,7 @@ func NewProducer(cfg ProducerConfig) (*Producer, error) {
 	return &Producer{
 		cfg:    cfg,
 		client: client,
-		tracer: tracer,
+		tracer: tracerProvider.Tracer("kafka"),
 	}, nil
 }
 
@@ -197,8 +224,10 @@ func (p *Producer) Close() error {
 // the messages have been stored in the producer's buffer.
 func (p *Producer) ProcessBatch(ctx context.Context, batch *model.Batch) error {
 	ctx, span := p.tracer.Start(ctx, "producer.ProcessBatch", trace.WithAttributes(
+		attribute.Bool("sync", p.cfg.Sync),
 		attribute.Int("batch.size", len(*batch)),
 	))
+	defer span.End()
 
 	// Take a read lock to prevent Close from closing the client
 	// while we're attempting to produce records.
@@ -227,7 +256,6 @@ func (p *Producer) ProcessBatch(ctx context.Context, batch *model.Batch) error {
 			err = fmt.Errorf("failed to encode event: %w", err)
 			span.RecordError(err)
 			span.SetStatus(codes.Error, err.Error())
-			span.End()
 			return err
 		}
 		record.Value = encoded
@@ -236,13 +264,11 @@ func (p *Producer) ProcessBatch(ctx context.Context, batch *model.Batch) error {
 			ctx = queuecontext.DetachedContext(ctx)
 		}
 		p.client.Produce(ctx, record, func(msg *kgo.Record, err error) {
-			defer func() {
-				wg.Done()
-				span.End()
-			}()
+			defer wg.Done()
+
+			// kotel already handles marking spans as errors. So we don't need to do
+			// anything regarding tracing here.
 			if err != nil {
-				span.RecordError(err)
-				span.SetStatus(codes.Error, err.Error())
 				p.cfg.Logger.Error("failed producing message",
 					zap.Error(err),
 					zap.String("topic", msg.Topic),
@@ -256,6 +282,7 @@ func (p *Producer) ProcessBatch(ctx context.Context, batch *model.Batch) error {
 	if p.cfg.Sync {
 		wg.Wait()
 	}
+
 	return nil
 }
 
