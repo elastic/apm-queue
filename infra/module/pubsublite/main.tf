@@ -2,13 +2,14 @@ locals {
   suffix      = var.suffix
   region      = var.region
   reservation = var.reservation
-  topics      = toset(var.topics)
+  topics      = var.topics == null ? [] : toset(var.topics)
+  prefix      = var.prefix != "" ? "${var.prefix}." : ""
 }
 
 resource "google_pubsub_lite_topic" "topic" {
   for_each = local.topics
 
-  name    = "${var.prefix}.${each.key}${local.suffix}"
+  name    = "${local.prefix}${each.key}${local.suffix}"
   project = data.google_project.project.number
 
   partition_config {
@@ -34,7 +35,7 @@ resource "google_pubsub_lite_topic" "topic" {
 resource "google_pubsub_lite_subscription" "topic" {
   for_each = var.create_subscription ? local.topics : []
 
-  name  = "${var.prefix}.${each.key}${local.suffix}"
+  name  = "${local.prefix}${each.key}${local.suffix}"
   topic = google_pubsub_lite_topic.topic[each.key].name
   delivery_config {
     delivery_requirement = "DELIVER_AFTER_STORED"
