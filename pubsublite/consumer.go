@@ -25,12 +25,17 @@ import (
 
 	"cloud.google.com/go/pubsub"
 	"cloud.google.com/go/pubsublite/pscompat"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	semconv "go.opentelemetry.io/otel/semconv/v1.18.0"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/api/option"
 
 	"github.com/elastic/apm-data/model"
 	apmqueue "github.com/elastic/apm-queue"
+	"github.com/elastic/apm-queue/pubsublite/internal/telemetry"
 	"github.com/elastic/apm-queue/queuecontext"
 )
 
@@ -56,6 +61,10 @@ type ConsumerConfig struct {
 	// AtMostOnceDeliveryType and AtLeastOnceDeliveryType are supported.
 	Delivery   apmqueue.DeliveryType
 	ClientOpts []option.ClientOption
+
+	// TracerProvider allows specifying a custom otel tracer provider.
+	// Defaults to the global one.
+	TracerProvider trace.TracerProvider
 }
 
 // Subscription represents a PubSub Lite subscription.
@@ -128,6 +137,7 @@ type Consumer struct {
 	cfg            ConsumerConfig
 	consumers      []consumer
 	stopSubscriber context.CancelFunc
+	tracer         trace.Tracer
 }
 
 // NewConsumer creates a new consumer instance for a single subscription.
@@ -171,11 +181,23 @@ func NewConsumer(ctx context.Context, cfg ConsumerConfig) (*Consumer, error) {
 				zap.String("region", subscription.Region),
 				zap.String("project", subscription.Project),
 			),
+			telemetryAttributes: []attribute.KeyValue{
+				semconv.MessagingSourceNameKey.String(subscription.Name),
+				semconv.CloudRegion(subscription.Region),
+				semconv.CloudAccountID(subscription.Project),
+			},
 		})
 	}
+
+	tracerProvider := cfg.TracerProvider
+	if tracerProvider == nil {
+		tracerProvider = otel.GetTracerProvider()
+	}
+
 	return &Consumer{
 		cfg:       cfg,
 		consumers: consumers,
+		tracer:    tracerProvider.Tracer("pubsublite"),
 	}, nil
 }
 
@@ -197,11 +219,14 @@ func (c *Consumer) Run(ctx context.Context) error {
 	}
 	ctx, c.stopSubscriber = context.WithCancel(ctx)
 	c.mu.Unlock()
+
 	g, ctx := errgroup.WithContext(ctx)
 	for _, consumer := range c.consumers {
 		consumer := consumer
 		g.Go(func() error {
-			return consumer.Receive(ctx, consumer.processMessage)
+			return consumer.Receive(ctx,
+				telemetry.Consumer(c.tracer, consumer.processMessage, consumer.telemetryAttributes),
+			)
 		})
 	}
 	return g.Wait()
@@ -215,10 +240,11 @@ func (c *Consumer) Healthy() error {
 // consumer wraps a PubSub Lite SubscriberClient.
 type consumer struct {
 	*pscompat.SubscriberClient
-	logger    *zap.Logger
-	delivery  apmqueue.DeliveryType
-	processor model.BatchProcessor
-	decoder   Decoder
+	logger              *zap.Logger
+	delivery            apmqueue.DeliveryType
+	processor           model.BatchProcessor
+	decoder             Decoder
+	telemetryAttributes []attribute.KeyValue
 }
 
 func (c consumer) processMessage(ctx context.Context, msg *pubsub.Message) {
