@@ -130,13 +130,11 @@ func TestNewProducerBasic(t *testing.T) {
 			fetches := client.PollRecords(nil, 1)
 			assert.Len(t, fetches.Records(), 0)
 
-			// kgo runs an unchecked goroutine to mark all the spans it creates as
-			// finished (and close the spans). So the only way to ensure it ran is to
-			// wait. Without this, we get flaky tests in CI.
-			time.Sleep(time.Millisecond)
-
 			// Assert tracing happened properly
-			assert.Equal(t, spanCount+3, len(exp.GetSpans()))
+			assert.Eventually(t, func() bool {
+				return len(exp.GetSpans()) == spanCount+3
+			}, time.Second, 10*time.Millisecond)
+
 			var span tracetest.SpanStub
 			for _, s := range exp.GetSpans() {
 				if s.Name == "producer.ProcessBatch" {
