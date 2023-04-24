@@ -59,8 +59,9 @@ func TestProduceConsumeSingleTopic(t *testing.T) {
 			defer cancel()
 			var records atomic.Int64
 			testProduceConsume(ctx, t, produceConsumeCfg{
-				events:  events,
-				records: &records,
+				events:          events,
+				expectedRecords: events,
+				records:         &records,
 				producer: newKafkaProducer(t, kafka.ProducerConfig{
 					Logger:      logger,
 					Encoder:     json.JSON{},
@@ -90,8 +91,9 @@ func TestProduceConsumeSingleTopic(t *testing.T) {
 			defer cancel()
 			var records atomic.Int64
 			testProduceConsume(ctx, t, produceConsumeCfg{
-				events:  events,
-				records: &records,
+				events:          events,
+				expectedRecords: events,
+				records:         &records,
 				producer: newPubSubLiteProducer(ctx, t, pubsublite.ProducerConfig{
 					Topics:      []apmqueue.Topic{apmqueue.Topic(topics[0])},
 					Logger:      logger,
@@ -115,41 +117,45 @@ func TestProduceConsumeSingleTopic(t *testing.T) {
 }
 
 type produceConsumeCfg struct {
-	events   int
-	producer apmqueue.Producer
-	consumer apmqueue.Consumer
-	records  *atomic.Int64
-	timeout  time.Duration
+	events          int
+	replay          int
+	expectedRecords int
+	producer        apmqueue.Producer
+	consumer        apmqueue.Consumer
+	records         *atomic.Int64
+	timeout         time.Duration
 }
 
 func testProduceConsume(ctx context.Context, t testing.TB, cfg produceConsumeCfg) {
 	// Run consumer and assert that the events are eventually set.
 	go cfg.consumer.Run(ctx)
-	batch := make(model.Batch, 0, cfg.events)
-	for i := 0; i < cfg.events; i++ {
-		batch = append(batch, model.APMEvent{
-			Timestamp: time.Now(),
-			Processor: model.TransactionProcessor,
-			Trace:     model.Trace{ID: fmt.Sprintf("trace-%d", i+1)},
-			Event: model.Event{
-				Duration: time.Millisecond * (time.Duration(rand.Int63n(999)) + 1),
-			},
-			Transaction: &model.Transaction{
-				ID: fmt.Sprintf("transaction-%d", i+1),
-			},
-		})
-	}
+	for j := 0; j < cfg.replay+1; j++ {
+		batch := make(model.Batch, 0, cfg.events)
+		for i := 0; i < cfg.events; i++ {
+			batch = append(batch, model.APMEvent{
+				Timestamp: time.Now(),
+				Processor: model.TransactionProcessor,
+				Trace:     model.Trace{ID: fmt.Sprintf("trace%d-%d", j, i+1)},
+				Event: model.Event{
+					Duration: time.Millisecond * (time.Duration(rand.Int63n(999)) + 1),
+				},
+				Transaction: &model.Transaction{
+					ID: fmt.Sprintf("transaction%d-%d", j, i+1),
+				},
+			})
+		}
 
-	// Produce the records to queue.
-	assert.NoError(t, cfg.producer.ProcessBatch(ctx, &batch))
-	assert.Eventually(t, func() bool {
-		return cfg.records.Load() == int64(cfg.events) // Assertion
+		// Produce the records to queue.
+		assert.NoError(t, cfg.producer.ProcessBatch(ctx, &batch))
+	}
+	assert.Eventuallyf(t, func() bool {
+		return cfg.records.Load() == int64(cfg.expectedRecords) // Assertion
 	},
 		cfg.timeout,          // Timeout
 		100*time.Millisecond, // Poll
-		"expected records (%d) records do not match consumed records (%d)", // ErrMessage
-		cfg.events,
-		cfg.records.Load(),
+		"expected records (%d) records do not match consumed records (%v)", // ErrMessage
+		cfg.expectedRecords,
+		cfg.records,
 	)
 }
 

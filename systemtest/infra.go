@@ -109,6 +109,8 @@ func SuffixTopics(topics ...string) []string {
 	suffixed := make([]string, len(topics))
 	for i := range suffixed {
 		suffixed[i] = fmt.Sprintf("%s.%s", strings.ToLower(topics[i]), suffix)
+		suffixed[i] = strings.ReplaceAll(suffixed[i], "_", "-")
+		suffixed[i] = strings.ReplaceAll(suffixed[i], "/", "-")
 	}
 	return suffixed
 }
