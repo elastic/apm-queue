@@ -21,6 +21,7 @@ package systemtest
 import (
 	"context"
 	"flag"
+	"fmt"
 	"os"
 	"testing"
 	"time"
@@ -37,10 +38,16 @@ func testMain(m *testing.M) int {
 	defer cancel()
 	g, ctx := errgroup.WithContext(ctx)
 	g.Go(func() error {
-		return ProvisionKafka(ctx, newLocalKafkaConfig())
+		if err := ProvisionKafka(ctx, newLocalKafkaConfig()); err != nil {
+			return fmt.Errorf("failed to provision kafka: %w", err)
+		}
+		return nil
 	})
 	g.Go(func() error {
-		return ProvisionPubSubLite(ctx, newPubSubLiteConfig())
+		if err := ProvisionPubSubLite(ctx, newPubSubLiteConfig()); err != nil {
+			return fmt.Errorf("failed to provision pubsublite: %w", err)
+		}
+		return nil
 	})
 	if !skipDestroy {
 		defer Destroy()
