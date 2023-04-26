@@ -105,7 +105,7 @@ type resTopic struct {
 type Producer struct {
 	mu        sync.RWMutex
 	cfg       ProducerConfig
-	producer  sync.Map // map[apmqueue.Topic]*pscompat.PublisherClient
+	producers sync.Map // map[apmqueue.Topic]*pscompat.PublisherClient
 	errg      *errgroup.Group
 	responses chan []resTopic
 	closed    chan struct{}
@@ -151,7 +151,7 @@ func NewProducer(ctx context.Context, cfg ProducerConfig) (*Producer, error) {
 
 	return &Producer{
 		cfg:       cfg,
-		producer:  producers,
+		producers: producers,
 		closed:    make(chan struct{}),
 		errg:      errg,
 		responses: c,
@@ -170,7 +170,7 @@ func NewProducer(ctx context.Context, cfg ProducerConfig) (*Producer, error) {
 func (p *Producer) Close() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	p.producer.Range(func(key, value any) bool {
+	p.producers.Range(func(key, value any) bool {
 		value.(*pscompat.PublisherClient).Stop()
 		return true
 	})
@@ -208,13 +208,13 @@ func (p *Producer) ProcessBatch(ctx context.Context, batch *model.Batch) error {
 		}
 		topic := p.cfg.TopicRouter(event)
 		// creating a publisher is expensive and we can't do it lazily so we call Load+LoadOrStore
-		producer, ok := p.producer.Load(topic)
+		producer, ok := p.producers.Load(topic)
 		if !ok {
 			publisher, err := newPublisher(ctx, p.cfg, topic)
 			if err != nil {
 				return fmt.Errorf("pubsublite: failed creating publisher client for topic %s: %w", topic, err)
 			}
-			producer, ok = p.producer.LoadOrStore(topic, publisher)
+			producer, ok = p.producers.LoadOrStore(topic, publisher)
 			// race condition, publisher was loaded from the map so we close the other one
 			if ok {
 				publisher.Stop()
