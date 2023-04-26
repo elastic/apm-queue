@@ -131,7 +131,10 @@ func TestNewProducerBasic(t *testing.T) {
 			assert.Len(t, fetches.Records(), 0)
 
 			// Assert tracing happened properly
-			assert.Equal(t, len(exp.GetSpans()), spanCount+3)
+			assert.Eventually(t, func() bool {
+				return len(exp.GetSpans()) == spanCount+3
+			}, time.Second, 10*time.Millisecond)
+
 			var span tracetest.SpanStub
 			for _, s := range exp.GetSpans() {
 				if s.Name == "producer.ProcessBatch" {

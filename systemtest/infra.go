@@ -47,7 +47,10 @@ var terraformExec string
 func installTerraform(ctx context.Context) (string, error) {
 	var err error
 	terraformExecOnce.Do(func() {
-		installer := &releases.LatestVersion{Product: product.Terraform}
+		installer := &releases.LatestVersion{
+			Product: product.Terraform,
+			Timeout: 5 * time.Minute,
+		}
 		terraformExec, err = installer.Install(ctx)
 		return
 	})
