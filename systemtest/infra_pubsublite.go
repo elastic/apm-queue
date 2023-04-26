@@ -24,6 +24,8 @@ import (
 	"path/filepath"
 
 	"github.com/hashicorp/terraform-exec/tfexec"
+
+	apmqueue "github.com/elastic/apm-queue"
 )
 
 var (
@@ -40,12 +42,12 @@ type PubSubLiteConfig struct {
 	// Region is the GCP region.
 	Region string
 	// Topics (and subscriptions) to create.
-	Topics []string
+	Topics []apmqueue.Topic
 	// ReservationSuffix to use.
 	ReservationSuffix string
 }
 
-func newPubSubLiteConfig(topics ...string) PubSubLiteConfig {
+func newPubSubLiteConfig(topics ...apmqueue.Topic) PubSubLiteConfig {
 	return PubSubLiteConfig{
 		Topics:  topics,
 		Project: googleProject,

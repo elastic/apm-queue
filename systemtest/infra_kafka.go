@@ -34,6 +34,8 @@ import (
 
 	"github.com/foxcpp/go-mockdns"
 	"github.com/hashicorp/terraform-exec/tfexec"
+
+	apmqueue "github.com/elastic/apm-queue"
 )
 
 const (
@@ -63,7 +65,7 @@ type KafkaConfig struct {
 	Name string
 	// Topics to create in the Kafka cluster. It's passed down as the
 	// `topics` Terraform var.
-	Topics []string
+	Topics []apmqueue.Topic
 	// PortForward. If set to true, it forwards traffic to PortForwardResource
 	// using PortForwardMapping.
 	PortForward bool
@@ -75,7 +77,7 @@ type KafkaConfig struct {
 	PortForwardMapping string
 }
 
-func newLocalKafkaConfig(topics ...string) KafkaConfig {
+func newLocalKafkaConfig(topics ...apmqueue.Topic) KafkaConfig {
 	return KafkaConfig{
 		Topics:      topics,
 		PortForward: true,
