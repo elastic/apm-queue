@@ -84,7 +84,9 @@ func ProvisionPubSubLite(ctx context.Context, cfg PubSubLiteConfig) error {
 	// Ensure terraform destroy runs once per TF path.
 	RegisterDestroy(cfg.TFPath, func() {
 		logger().Info("destroying provisioned PubSubLite infrastructure...")
-		tf.Destroy(ctx, projectVar, regionVar, suffixVar, topicsVar)
+		if err := tf.Destroy(context.Background(), projectVar, regionVar, suffixVar, topicsVar); err != nil {
+			logger().Error(err)
+		}
 	})
 	if err := tf.Apply(ctx, projectVar, regionVar, suffixVar, topicsVar); err != nil {
 		return fmt.Errorf("failed to run terraform apply: %w", err)
