@@ -132,7 +132,9 @@ func ProvisionKafka(ctx context.Context, cfg KafkaConfig) error {
 	// Ensure terraform destroy runs once per TF path.
 	RegisterDestroy(cfg.TFPath, func() {
 		logger().Info("destroying provisioned Kafka infrastructure...")
-		tf.Destroy(ctx, topicsVar, namespaceVar, nameVar)
+		if err := tf.Destroy(context.Background(), topicsVar, namespaceVar, nameVar); err != nil {
+			logger().Error(err)
+		}
 	})
 	if err := tf.Apply(ctx, topicsVar, namespaceVar, nameVar); err != nil {
 		return fmt.Errorf("failed to run terraform apply: %w", err)
