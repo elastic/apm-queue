@@ -125,9 +125,9 @@ func TestConsumerHealth(t *testing.T) {
 			}
 
 			if tc.expectErr {
-				assert.Error(t, consumer.Healthy())
+				assert.Error(t, consumer.Healthy(context.Background()))
 			} else {
-				assert.NoError(t, consumer.Healthy())
+				assert.NoError(t, consumer.Healthy(context.Background()))
 			}
 		})
 	}

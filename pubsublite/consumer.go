@@ -233,7 +233,7 @@ func (c *Consumer) Run(ctx context.Context) error {
 }
 
 // Healthy returns an error if the consumer isn't healthy.
-func (c *Consumer) Healthy() error {
+func (c *Consumer) Healthy(ctx context.Context) error {
 	return nil // TODO(marclop)
 }
 

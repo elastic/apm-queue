@@ -295,8 +295,8 @@ func (c *Consumer) fetch(ctx context.Context) error {
 
 // Healthy returns an error if the Kafka client fails to reach a discovered
 // broker.
-func (c *Consumer) Healthy() error {
-	if err := c.client.Ping(context.Background()); err != nil {
+func (c *Consumer) Healthy(ctx context.Context) error {
+	if err := c.client.Ping(ctx); err != nil {
 		return fmt.Errorf("health probe: %w", err)
 	}
 	return nil

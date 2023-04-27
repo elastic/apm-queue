@@ -288,8 +288,8 @@ func (p *Producer) ProcessBatch(ctx context.Context, batch *model.Batch) error {
 
 // Healthy returns an error if the Kafka client fails to reach a discovered
 // broker.
-func (p *Producer) Healthy() error {
-	if err := p.client.Ping(context.Background()); err != nil {
+func (p *Producer) Healthy(ctx context.Context) error {
+	if err := p.client.Ping(ctx); err != nil {
 		return fmt.Errorf("health probe: %w", err)
 	}
 	return nil
