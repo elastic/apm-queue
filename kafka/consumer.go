@@ -50,7 +50,7 @@ type ConsumerConfig struct {
 	// Brokers is the list of kafka brokers used to seed the Kafka client.
 	Brokers []string
 	// Topics that the consumer will consume messages from
-	Topics []string
+	Topics []apmqueue.Topic
 	// GroupID to join as part of the consumer group.
 	GroupID string
 	// ClientID to use when connecting to Kafka. This is used for logging
@@ -148,10 +148,14 @@ func NewConsumer(cfg ConsumerConfig) (*Consumer, error) {
 		decoder:   cfg.Decoder,
 		delivery:  cfg.Delivery,
 	}
+	topics := make([]string, 0, len(cfg.Topics))
+	for _, t := range cfg.Topics {
+		topics = append(topics, string(t))
+	}
 	opts := []kgo.Opt{
 		kgo.SeedBrokers(cfg.Brokers...),
 		kgo.ConsumerGroup(cfg.GroupID),
-		kgo.ConsumeTopics(cfg.Topics...),
+		kgo.ConsumeTopics(topics...),
 		kgo.WithLogger(kzap.New(cfg.Logger.Named("kafka"))),
 		// If a rebalance happens while the client is polling, the consumed
 		// records may belong to a partition which has been reassigned to a

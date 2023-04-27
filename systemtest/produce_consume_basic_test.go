@@ -37,26 +37,24 @@ import (
 )
 
 func TestProduceConsumeSingleTopic(t *testing.T) {
+	// This test covers:
+	// - TopicRouter publishes to a topic, regardless of the event content.
+	// - Consumer consumes from a single topic.
+	// - No errors are logged.
 	logger := NoLevelLogger(t, zap.ErrorLevel)
 	events := 100
 	timeout := 60 * time.Second
-	for _, sync := range []bool{true, false} {
-		name := "Async"
-		if sync {
-			name = "Sync"
-		}
-		topics := SuffixTopics(t.Name())
+	doSyncAsync(func(name string, sync bool) {
+		topics := SuffixTopics(apmqueue.Topic(t.Name() + name))
 		topicRouter := func(event model.APMEvent) apmqueue.Topic {
-			return apmqueue.Topic(topics[0])
+			return topics[0]
 		}
 		t.Run("Kafka"+name, func(t *testing.T) {
-			err := ProvisionKafka(context.Background(),
-				newLocalKafkaConfig(topics...),
-			)
-			require.NoError(t, err)
-
 			ctx, cancel := context.WithTimeout(context.Background(), timeout)
 			defer cancel()
+			require.NoError(t,
+				ProvisionKafka(ctx, newLocalKafkaConfig(topics...)),
+			)
 			var records atomic.Int64
 			testProduceConsume(ctx, t, produceConsumeCfg{
 				events:  events,
@@ -81,19 +79,17 @@ func TestProduceConsumeSingleTopic(t *testing.T) {
 			})
 		})
 		t.Run("PubSubLite"+name, func(t *testing.T) {
-			err := ProvisionPubSubLite(context.Background(),
-				newPubSubLiteConfig(topics...),
-			)
-			require.NoError(t, err)
-
 			ctx, cancel := context.WithTimeout(context.Background(), timeout)
 			defer cancel()
+			require.NoError(t,
+				ProvisionPubSubLite(ctx, newPubSubLiteConfig(topics...)),
+			)
 			var records atomic.Int64
 			testProduceConsume(ctx, t, produceConsumeCfg{
 				events:  events,
 				records: &records,
 				producer: newPubSubLiteProducer(ctx, t, pubsublite.ProducerConfig{
-					Topics:      []apmqueue.Topic{apmqueue.Topic(topics[0])},
+					Topics:      topics,
 					Logger:      logger,
 					Encoder:     json.JSON{},
 					TopicRouter: topicRouter,
@@ -111,7 +107,87 @@ func TestProduceConsumeSingleTopic(t *testing.T) {
 				timeout: timeout,
 			})
 		})
-	}
+	})
+}
+
+func TestProduceConsumeMultipleTopics(t *testing.T) {
+	// This test covers:
+	// - TopicRouter publishes to different topics based on event contents.
+	// - Consumer can consume from more than one topic.
+	// - No errors are logged.
+	logger := NoLevelLogger(t, zap.ErrorLevel)
+	events := 100
+	timeout := 60 * time.Second
+	doSyncAsync(func(name string, sync bool) {
+		topics := SuffixTopics(
+			apmqueue.Topic(t.Name()+name+"Even"),
+			apmqueue.Topic(t.Name()+name+"Odd"),
+		)
+		topicRouter := func(event model.APMEvent) apmqueue.Topic {
+			if event.Event.Duration%2 == 0 {
+				return topics[0]
+			}
+			return topics[1]
+		}
+		t.Run("Kafka"+name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), timeout)
+			defer cancel()
+			require.NoError(t,
+				ProvisionKafka(ctx, newLocalKafkaConfig(topics...)),
+			)
+			var records atomic.Int64
+			testProduceConsume(ctx, t, produceConsumeCfg{
+				events:  events,
+				records: &records,
+				timeout: timeout,
+				producer: newKafkaProducer(t, kafka.ProducerConfig{
+					Logger:      logger,
+					Encoder:     json.JSON{},
+					TopicRouter: topicRouter,
+					Sync:        sync,
+				}),
+				consumer: newKafkaConsumer(t, kafka.ConsumerConfig{
+					Logger:  logger,
+					Decoder: json.JSON{},
+					Topics:  topics,
+					GroupID: t.Name(),
+					Processor: assertBatchFunc(t, consumerAssertions{
+						records:   &records,
+						processor: model.TransactionProcessor,
+					}),
+				}),
+			})
+		})
+		t.Run("PubSubLite"+name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), timeout)
+			defer cancel()
+			require.NoError(t,
+				ProvisionPubSubLite(ctx, newPubSubLiteConfig(topics...)),
+			)
+			var records atomic.Int64
+			testProduceConsume(ctx, t, produceConsumeCfg{
+				events:  events,
+				records: &records,
+				timeout: timeout,
+				producer: newPubSubLiteProducer(ctx, t, pubsublite.ProducerConfig{
+					Topics:      topics,
+					Logger:      logger,
+					Encoder:     json.JSON{},
+					TopicRouter: topicRouter,
+					Sync:        sync,
+				}),
+				consumer: newPubSubLiteConsumer(ctx, t, pubsublite.ConsumerConfig{
+					Logger:        logger,
+					Decoder:       json.JSON{},
+					Subscriptions: pubSubLiteSubscriptions(topics...),
+					Processor: assertBatchFunc(t, consumerAssertions{
+						records:   &records,
+						processor: model.TransactionProcessor,
+					}),
+				}),
+			})
+		})
+	})
 }
 
 type produceConsumeCfg struct {
@@ -120,6 +196,19 @@ type produceConsumeCfg struct {
 	consumer apmqueue.Consumer
 	records  *atomic.Int64
 	timeout  time.Duration
+}
+
+func doSyncAsync(f func(name string, sync bool)) {
+	for _, sync := range []bool{true, false} {
+		var name string
+		switch sync {
+		case true:
+			name = "Sync"
+		case false:
+			name = "Async"
+		}
+		f(name, sync)
+	}
 }
 
 func testProduceConsume(ctx context.Context, t testing.TB, cfg produceConsumeCfg) {
@@ -142,6 +231,9 @@ func testProduceConsume(ctx context.Context, t testing.TB, cfg produceConsumeCfg
 
 	// Produce the records to queue.
 	assert.NoError(t, cfg.producer.ProcessBatch(ctx, &batch))
+	if cfg.records == nil {
+		return
+	}
 	assert.Eventually(t, func() bool {
 		return cfg.records.Load() == int64(cfg.events) // Assertion
 	},
