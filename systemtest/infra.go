@@ -29,6 +29,8 @@ import (
 	"github.com/hashicorp/hc-install/product"
 	"github.com/hashicorp/hc-install/releases"
 	"github.com/hashicorp/terraform-exec/tfexec"
+
+	apmqueue "github.com/elastic/apm-queue"
 )
 
 // NewTerraform returns a terraform executable for the specified path. It
@@ -47,7 +49,10 @@ var terraformExec string
 func installTerraform(ctx context.Context) (string, error) {
 	var err error
 	terraformExecOnce.Do(func() {
-		installer := &releases.LatestVersion{Product: product.Terraform}
+		installer := &releases.LatestVersion{
+			Product: product.Terraform,
+			Timeout: 5 * time.Minute,
+		}
 		terraformExec, err = installer.Install(ctx)
 		return
 	})
@@ -104,11 +109,13 @@ func RandomSuffix() string {
 }
 
 // SuffixTopics suffixes the received topics with a random suffix.
-func SuffixTopics(topics ...string) []string {
+func SuffixTopics(topics ...apmqueue.Topic) []apmqueue.Topic {
 	suffix := RandomSuffix()
-	suffixed := make([]string, len(topics))
+	suffixed := make([]apmqueue.Topic, len(topics))
 	for i := range suffixed {
-		suffixed[i] = fmt.Sprintf("%s.%s", strings.ToLower(topics[i]), suffix)
+		suffixed[i] = apmqueue.Topic(
+			fmt.Sprintf("%s.%s", strings.ToLower(string(topics[i])), suffix),
+		)
 		suffixed[i] = strings.ReplaceAll(suffixed[i], "_", "-")
 		suffixed[i] = strings.ReplaceAll(suffixed[i], "/", "-")
 	}

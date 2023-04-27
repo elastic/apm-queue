@@ -32,6 +32,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/elastic/apm-data/model"
+	apmqueue "github.com/elastic/apm-queue"
 	"github.com/elastic/apm-queue/codec/json"
 	saslplain "github.com/elastic/apm-queue/kafka/sasl/plain"
 )
@@ -47,7 +48,7 @@ func TestNewConsumer(t *testing.T) {
 		"invalid client consumer options": {
 			cfg: ConsumerConfig{
 				Brokers:   []string{"localhost:invalidport"},
-				Topics:    []string{"topic"},
+				Topics:    []apmqueue.Topic{"topic"},
 				GroupID:   "groupid",
 				Decoder:   json.JSON{},
 				Logger:    zap.NewNop(),
@@ -58,7 +59,7 @@ func TestNewConsumer(t *testing.T) {
 		"valid": {
 			cfg: ConsumerConfig{
 				Brokers:   []string{"localhost:9092"},
-				Topics:    []string{"topic"},
+				Topics:    []apmqueue.Topic{"topic"},
 				GroupID:   "groupid",
 				ClientID:  "clientid",
 				Version:   "1.0",
@@ -110,7 +111,7 @@ func TestConsumerHealth(t *testing.T) {
 			addrs := cluster.ListenAddrs()
 			consumer := newConsumer(t, ConsumerConfig{
 				Brokers:   addrs,
-				Topics:    []string{"topic"},
+				Topics:    []apmqueue.Topic{"topic"},
 				GroupID:   "groupid",
 				Decoder:   json.JSON{},
 				Logger:    zap.NewNop(),
@@ -124,9 +125,9 @@ func TestConsumerHealth(t *testing.T) {
 			}
 
 			if tc.expectErr {
-				assert.Error(t, consumer.Healthy())
+				assert.Error(t, consumer.Healthy(context.Background()))
 			} else {
-				assert.NoError(t, consumer.Healthy())
+				assert.NoError(t, consumer.Healthy(context.Background()))
 			}
 		})
 	}
@@ -135,7 +136,7 @@ func TestConsumerHealth(t *testing.T) {
 func TestConsumerFetch(t *testing.T) {
 	event := model.APMEvent{Transaction: &model.Transaction{ID: "1"}}
 	codec := json.JSON{}
-	topics := []string{"topic"}
+	topics := []apmqueue.Topic{"topic"}
 	client, addrs := newClusterWithTopics(t, topics...)
 
 	cfg := ConsumerConfig{
@@ -155,7 +156,7 @@ func TestConsumerFetch(t *testing.T) {
 	require.NoError(t, err)
 
 	record := &kgo.Record{
-		Topic: topics[0],
+		Topic: string(topics[0]),
 		Value: b,
 	}
 
@@ -173,7 +174,7 @@ func TestConsumerFetch(t *testing.T) {
 func TestMultipleConsumers(t *testing.T) {
 	event := model.APMEvent{Transaction: &model.Transaction{ID: "1"}}
 	codec := json.JSON{}
-	topics := []string{"topic"}
+	topics := []apmqueue.Topic{"topic"}
 	client, addrs := newClusterWithTopics(t, topics...)
 
 	var count atomic.Int32
@@ -206,7 +207,7 @@ func TestMultipleConsumers(t *testing.T) {
 		defer close(waitCh)
 		for i := 0; i < 1000; i++ {
 			results := client.ProduceSync(context.Background(), &kgo.Record{
-				Topic: topics[0],
+				Topic: string(topics[0]),
 				Value: b,
 			})
 			assert.NoError(t, results.FirstErr())
@@ -231,7 +232,7 @@ func TestMultipleConsumers(t *testing.T) {
 func TestMultipleConsumerGroups(t *testing.T) {
 	event := model.APMEvent{Transaction: &model.Transaction{ID: "1"}}
 	codec := json.JSON{}
-	topics := []string{"topic"}
+	topics := []apmqueue.Topic{"topic"}
 	client, addrs := newClusterWithTopics(t, topics...)
 
 	cfg := ConsumerConfig{
@@ -270,7 +271,7 @@ func TestMultipleConsumerGroups(t *testing.T) {
 	produceRecords := 100
 	for i := 0; i < produceRecords; i++ {
 		client.Produce(context.Background(), &kgo.Record{
-			Topic: topics[0],
+			Topic: string(topics[0]),
 			Value: b,
 		}, func(r *kgo.Record, err error) {
 			assert.NoError(t, err)
@@ -288,7 +289,7 @@ func TestMultipleConsumerGroups(t *testing.T) {
 func TestConsumerRunError(t *testing.T) {
 	consumer := newConsumer(t, ConsumerConfig{
 		Brokers:   []string{"localhost:9092"},
-		Topics:    []string{"topic"},
+		Topics:    []apmqueue.Topic{"topic"},
 		GroupID:   "groupid",
 		Decoder:   json.JSON{},
 		Logger:    zap.NewNop(),

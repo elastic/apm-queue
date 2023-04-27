@@ -24,6 +24,8 @@ import (
 	"path/filepath"
 
 	"github.com/hashicorp/terraform-exec/tfexec"
+
+	apmqueue "github.com/elastic/apm-queue"
 )
 
 var (
@@ -40,12 +42,12 @@ type PubSubLiteConfig struct {
 	// Region is the GCP region.
 	Region string
 	// Topics (and subscriptions) to create.
-	Topics []string
+	Topics []apmqueue.Topic
 	// ReservationSuffix to use.
 	ReservationSuffix string
 }
 
-func newPubSubLiteConfig(topics ...string) PubSubLiteConfig {
+func newPubSubLiteConfig(topics ...apmqueue.Topic) PubSubLiteConfig {
 	return PubSubLiteConfig{
 		Topics:  topics,
 		Project: googleProject,
@@ -67,15 +69,15 @@ func ProvisionPubSubLite(ctx context.Context, cfg PubSubLiteConfig) error {
 	logger().Infof("provisioning PubSubLite infrastructure with config: %+v", cfg)
 	tf, err := NewTerraform(ctx, cfg.TFPath)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to create terraform: %w", err)
 	}
 	if err := tf.Init(ctx, tfexec.Upgrade(true)); err != nil {
-		return err
+		return fmt.Errorf("failed to run terraform init: %w", err)
 	}
 
 	jsonTopics, err := json.Marshal(cfg.Topics)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to marshal topics: %w", err)
 	}
 	projectVar := tfexec.Var(fmt.Sprintf("project=%s", cfg.Project))
 	regionVar := tfexec.Var(fmt.Sprintf("region=%s", cfg.Region))
@@ -84,10 +86,12 @@ func ProvisionPubSubLite(ctx context.Context, cfg PubSubLiteConfig) error {
 	// Ensure terraform destroy runs once per TF path.
 	RegisterDestroy(cfg.TFPath, func() {
 		logger().Info("destroying provisioned PubSubLite infrastructure...")
-		tf.Destroy(ctx, projectVar, regionVar, suffixVar, topicsVar)
+		if err := tf.Destroy(context.Background(), projectVar, regionVar, suffixVar, topicsVar); err != nil {
+			logger().Error(err)
+		}
 	})
 	if err := tf.Apply(ctx, projectVar, regionVar, suffixVar, topicsVar); err != nil {
-		return err
+		return fmt.Errorf("failed to run terraform apply: %w", err)
 	}
 	logger().Info("PubSubLite infastructure fully provisioned!")
 	return nil

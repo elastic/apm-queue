@@ -4,8 +4,8 @@ go 1.20
 
 require (
 	cloud.google.com/go/pubsub v1.30.0
-	cloud.google.com/go/pubsublite v1.7.0
-	github.com/elastic/apm-data v0.1.1-0.20230309014206-3ad1a5caedc9
+	cloud.google.com/go/pubsublite v1.7.1
+	github.com/elastic/apm-data v0.1.1-0.20230426005510-d1edc48bb5e3
 	github.com/stretchr/testify v1.8.2
 	github.com/twmb/franz-go v1.13.2
 	github.com/twmb/franz-go/pkg/kadm v1.8.0
@@ -17,7 +17,7 @@ require (
 	go.opentelemetry.io/otel/trace v1.14.0
 	go.uber.org/zap v1.24.0
 	golang.org/x/sync v0.1.0
-	google.golang.org/api v0.119.0
+	google.golang.org/api v0.120.0
 )
 
 require (
@@ -29,7 +29,7 @@ require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/go-logr/logr v1.2.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
-	github.com/golang/groupcache v0.0.0-20200121045136-8c9f03a8e57e // indirect
+	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
 	github.com/golang/protobuf v1.5.3 // indirect
 	github.com/google/go-cmp v0.5.9 // indirect
 	github.com/google/s2a-go v0.1.2 // indirect

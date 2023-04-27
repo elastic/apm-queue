@@ -59,7 +59,7 @@ func TestNewProducerBasic(t *testing.T) {
 	// * Record.Value can be decoded with the same codec.
 	test := func(t *testing.T, sync bool) {
 		t.Run(fmt.Sprintf("sync_%t", sync), func(t *testing.T) {
-			topic := "default-topic"
+			topic := apmqueue.Topic("default-topic")
 			client, brokers := newClusterWithTopics(t, topic)
 			codec := json.JSON{}
 			producer, err := NewProducer(ProducerConfig{
@@ -68,7 +68,7 @@ func TestNewProducerBasic(t *testing.T) {
 				Logger:  zap.NewNop(),
 				Encoder: codec,
 				TopicRouter: func(event model.APMEvent) apmqueue.Topic {
-					return apmqueue.Topic(topic)
+					return topic
 				},
 				TracerProvider: tp,
 			})
@@ -95,7 +95,7 @@ func TestNewProducerBasic(t *testing.T) {
 				require.NoError(t, producer.ProcessBatch(ctx, &batch))
 			}
 
-			client.AddConsumeTopics(topic)
+			client.AddConsumeTopics(string(topic))
 			for i := 0; i < len(batch); i++ {
 				fetches := client.PollRecords(ctx, 1)
 				require.NoError(t, fetches.Err())
@@ -131,7 +131,10 @@ func TestNewProducerBasic(t *testing.T) {
 			assert.Len(t, fetches.Records(), 0)
 
 			// Assert tracing happened properly
-			assert.Equal(t, len(exp.GetSpans()), spanCount+3)
+			assert.Eventually(t, func() bool {
+				return len(exp.GetSpans()) == spanCount+3
+			}, time.Second, 10*time.Millisecond)
+
 			var span tracetest.SpanStub
 			for _, s := range exp.GetSpans() {
 				if s.Name == "producer.ProcessBatch" {
@@ -152,7 +155,7 @@ func TestNewProducerBasic(t *testing.T) {
 	test(t, false)
 }
 
-func newClusterWithTopics(t *testing.T, topics ...string) (*kgo.Client, []string) {
+func newClusterWithTopics(t *testing.T, topics ...apmqueue.Topic) (*kgo.Client, []string) {
 	t.Helper()
 	cluster, err := kfake.NewCluster()
 	require.NoError(t, err)
@@ -166,7 +169,11 @@ func newClusterWithTopics(t *testing.T, topics ...string) (*kgo.Client, []string
 	kadmClient := kadm.NewClient(client)
 	t.Cleanup(kadmClient.Close)
 
-	_, err = kadmClient.CreateTopics(context.Background(), 2, 1, nil, topics...)
+	strTopic := make([]string, 0, len(topics))
+	for _, t := range topics {
+		strTopic = append(strTopic, string(t))
+	}
+	_, err = kadmClient.CreateTopics(context.Background(), 2, 1, nil, strTopic...)
 	require.NoError(t, err)
 	return client, addrs
 }

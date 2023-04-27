@@ -34,6 +34,8 @@ import (
 
 	"github.com/foxcpp/go-mockdns"
 	"github.com/hashicorp/terraform-exec/tfexec"
+
+	apmqueue "github.com/elastic/apm-queue"
 )
 
 const (
@@ -63,7 +65,7 @@ type KafkaConfig struct {
 	Name string
 	// Topics to create in the Kafka cluster. It's passed down as the
 	// `topics` Terraform var.
-	Topics []string
+	Topics []apmqueue.Topic
 	// PortForward. If set to true, it forwards traffic to PortForwardResource
 	// using PortForwardMapping.
 	PortForward bool
@@ -75,7 +77,7 @@ type KafkaConfig struct {
 	PortForwardMapping string
 }
 
-func newLocalKafkaConfig(topics ...string) KafkaConfig {
+func newLocalKafkaConfig(topics ...apmqueue.Topic) KafkaConfig {
 	return KafkaConfig{
 		Topics:      topics,
 		PortForward: true,
@@ -115,7 +117,7 @@ func ProvisionKafka(ctx context.Context, cfg KafkaConfig) error {
 		return err
 	}
 	if err := tf.Init(ctx, tfexec.Upgrade(true)); err != nil {
-		return err
+		return fmt.Errorf("failed to run terraform init: %w", err)
 	}
 	// Create a dummy topic so the infrastructure awaits until all the required
 	// infrastructure is available. It will be destroyed during the first test.
@@ -124,7 +126,7 @@ func ProvisionKafka(ctx context.Context, cfg KafkaConfig) error {
 	}
 	jsonTopics, err := json.Marshal(cfg.Topics)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to marshal topics: %w", err)
 	}
 	namespaceVar := tfexec.Var(fmt.Sprintf("namespace=%s", cfg.Namespace))
 	nameVar := tfexec.Var(fmt.Sprintf("name=%s", cfg.Name))
@@ -132,19 +134,21 @@ func ProvisionKafka(ctx context.Context, cfg KafkaConfig) error {
 	// Ensure terraform destroy runs once per TF path.
 	RegisterDestroy(cfg.TFPath, func() {
 		logger().Info("destroying provisioned Kafka infrastructure...")
-		tf.Destroy(ctx, topicsVar, namespaceVar, nameVar)
+		if err := tf.Destroy(context.Background(), topicsVar, namespaceVar, nameVar); err != nil {
+			logger().Error(err)
+		}
 	})
 	if err := tf.Apply(ctx, topicsVar, namespaceVar, nameVar); err != nil {
-		return err
+		return fmt.Errorf("failed to run terraform apply: %w", err)
 	}
 	tfOutput, err := tf.Output(ctx)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to run terraform output: %w", err)
 	}
 	if raw, ok := tfOutput[KafkaBrokersKey]; ok {
 		var brokers []string
 		if err := json.Unmarshal(raw.Value, &brokers); err != nil {
-			return err
+			return fmt.Errorf("failed to unmarshal brokers: %w", err)
 		}
 		if len(brokers) > 0 {
 			SetKafkaBrokers(brokers...)
@@ -170,7 +174,7 @@ func ProvisionKafka(ctx context.Context, cfg KafkaConfig) error {
 			)
 		})
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to run port forward: %w", err)
 		}
 	}
 	logger().Info("Kafka infastructure fully provisioned!")
