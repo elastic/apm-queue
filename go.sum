@@ -13,8 +13,8 @@ cloud.google.com/go/longrunning v0.4.1 h1:v+yFJOfKC3yZdY6ZUI933pIYdhyhV8S3NpWrXW
 cloud.google.com/go/longrunning v0.4.1/go.mod h1:4iWDqhBZ70CvZ6BfETbvam3T8FMvLK+eFj0E6AaRQTo=
 cloud.google.com/go/pubsub v1.30.0 h1:vCge8m7aUKBJYOgrZp7EsNDf6QMd2CAlXZqWTn3yq6s=
 cloud.google.com/go/pubsub v1.30.0/go.mod h1:qWi1OPS0B+b5L+Sg6Gmc9zD1Y+HaM0MdUr7LsupY1P4=
-cloud.google.com/go/pubsublite v1.7.1 h1:eoUR9YKMr7oTME8KzaAmJPdPjQsHQvAdirW5+lOvi2g=
-cloud.google.com/go/pubsublite v1.7.1/go.mod h1:7UapoCpdX/0nt4phleaQlrJ5S2GH81hsIlt0U9VbLiI=
+cloud.google.com/go/pubsublite v1.8.0 h1:YHBHZxku5W6FXKkws6TafpdDBtE6SL5LZ5DayjCjm4c=
+cloud.google.com/go/pubsublite v1.8.0/go.mod h1:7UapoCpdX/0nt4phleaQlrJ5S2GH81hsIlt0U9VbLiI=
 github.com/BurntSushi/toml v0.3.1/go.mod h1:xHWCNGjB5oqiDr8zfno3MHue2Ht5sIBksp03qcyfWMU=
 github.com/antihax/optional v1.0.0/go.mod h1:uupD/76wgC+ih3iEmQUL+0Ugr19nfwCT1kdvxnR2qWY=
 github.com/benbjohnson/clock v1.1.0 h1:Q92kusRqC1XV2MjkWETPvjJVqKetz1OzxZB7mHJLju8=
