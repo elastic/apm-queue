@@ -45,7 +45,7 @@ func TestProduceConsumeMultipleGroups(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run("Kafka/"+name, func(t *testing.T) {
-			topics := SuffixTopics(t.Name())
+			topics := SuffixTopics(apmqueue.Topic(t.Name()))
 			topicRouter := func(event model.APMEvent) apmqueue.Topic {
 				return apmqueue.Topic(topics[0])
 			}
@@ -93,7 +93,7 @@ func TestProduceConsumeMultipleGroups(t *testing.T) {
 			})
 		})
 		t.Run("PubSubLite_"+name, func(t *testing.T) {
-			topics := SuffixTopics(t.Name())
+			topics := SuffixTopics(apmqueue.Topic(t.Name()))
 			topicRouter := func(event model.APMEvent) apmqueue.Topic {
 				return apmqueue.Topic(topics[0])
 			}

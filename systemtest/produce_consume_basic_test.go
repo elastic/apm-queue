@@ -138,10 +138,10 @@ func TestProduceConsumeMultipleTopics(t *testing.T) {
 			)
 			var records atomic.Int64
 			testProduceConsume(ctx, t, produceConsumeCfg{
-				events:  events,
+				events:          events,
 				expectedRecords: events,
-				records: &records,
-				timeout: timeout,
+				records:         &records,
+				timeout:         timeout,
 				producer: newKafkaProducer(t, kafka.ProducerConfig{
 					Logger:      logger,
 					Encoder:     json.JSON{},
@@ -168,10 +168,10 @@ func TestProduceConsumeMultipleTopics(t *testing.T) {
 			)
 			var records atomic.Int64
 			testProduceConsume(ctx, t, produceConsumeCfg{
-				events:  events,
+				events:          events,
 				expectedRecords: events,
-				records: &records,
-				timeout: timeout,
+				records:         &records,
+				timeout:         timeout,
 				producer: newPubSubLiteProducer(ctx, t, pubsublite.ProducerConfig{
 					Topics:      topics,
 					Logger:      logger,
@@ -235,10 +235,11 @@ func testProduceConsume(ctx context.Context, t testing.TB, cfg produceConsumeCfg
 			})
 		}
 
-	// Produce the records to queue.
-	assert.NoError(t, cfg.producer.ProcessBatch(ctx, &batch))
-	if cfg.records == nil {
-		return
+		// Produce the records to queue.
+		assert.NoError(t, cfg.producer.ProcessBatch(ctx, &batch))
+		if cfg.records == nil {
+			return
+		}
 	}
 	assert.Eventually(t, func() bool {
 		return cfg.records.Load() == int64(cfg.expectedRecords) // Assertion

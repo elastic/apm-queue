@@ -116,8 +116,8 @@ func SuffixTopics(topics ...apmqueue.Topic) []apmqueue.Topic {
 		suffixed[i] = apmqueue.Topic(
 			fmt.Sprintf("%s.%s", strings.ToLower(string(topics[i])), suffix),
 		)
-		suffixed[i] = strings.ReplaceAll(suffixed[i], "_", "-")
-		suffixed[i] = strings.ReplaceAll(suffixed[i], "/", "-")
+		suffixed[i] = apmqueue.Topic(strings.ReplaceAll(string(suffixed[i]), "_", "-"))
+		suffixed[i] = apmqueue.Topic(strings.ReplaceAll(string(suffixed[i]), "/", "-"))
 	}
 	return suffixed
 }
