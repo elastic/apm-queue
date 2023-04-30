@@ -7,7 +7,7 @@ require (
 	cloud.google.com/go/pubsublite v1.8.0
 	github.com/elastic/apm-data v0.1.1-0.20230426005510-d1edc48bb5e3
 	github.com/stretchr/testify v1.8.2
-	github.com/twmb/franz-go v1.13.2
+	github.com/twmb/franz-go v1.13.3
 	github.com/twmb/franz-go/pkg/kadm v1.8.0
 	github.com/twmb/franz-go/pkg/kfake v0.0.0-20230405224959-0d137e78cd4a
 	github.com/twmb/franz-go/plugin/kotel v1.1.0
