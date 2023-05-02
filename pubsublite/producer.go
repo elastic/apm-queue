@@ -75,11 +75,6 @@ type ProducerConfig struct {
 // Validate ensures the configuration is valid, otherwise, returns an error.
 func (cfg ProducerConfig) Validate() error {
 	var errs []error
-	if len(cfg.Topics) == 0 {
-		errs = append(errs,
-			errors.New("pubsublite: at least one topic must be set"),
-		)
-	}
 	if cfg.Project == "" {
 		errs = append(errs, errors.New("pubsublite: project must be set"))
 	}
@@ -110,7 +105,7 @@ type resTopic struct {
 type Producer struct {
 	mu        sync.RWMutex
 	cfg       ProducerConfig
-	producer  map[apmqueue.Topic]*pscompat.PublisherClient
+	producers sync.Map // map[apmqueue.Topic]*pscompat.PublisherClient
 	errg      *errgroup.Group
 	responses chan []resTopic
 	closed    chan struct{}
@@ -125,25 +120,13 @@ func NewProducer(ctx context.Context, cfg ProducerConfig) (*Producer, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("pubsublite: invalid producer config: %w", err)
 	}
-	// TODO(marclop) connection pools:
-	// https://pkg.go.dev/cloud.google.com/go/pubsublite#hdr-gRPC_Connection_Pools
-	settings := pscompat.PublishSettings{
-		// TODO(marclop) tweak producing settings, to cap memory use, trying
-		// to size for good performance. It may be desireable to provide a
-		// maximum memory usage for this component and size accordingly.
-		// The number of topics should be taken into account since it creates
-		// a publisher client per topic.
-	}
-	producers := make(map[apmqueue.Topic]*pscompat.PublisherClient)
+	var producers sync.Map
 	for _, topic := range cfg.Topics {
-		publisher, err := pscompat.NewPublisherClientWithSettings(ctx,
-			formatTopic(cfg.Project, cfg.Region, topic),
-			settings, cfg.ClientOpts...,
-		)
+		publisher, err := newPublisher(ctx, cfg, topic)
 		if err != nil {
-			return nil, fmt.Errorf("pubsublite: failed creating producer: %w", err)
+			return nil, fmt.Errorf("pubsublite: failed creating publisher client for topic %s: %w", topic, err)
 		}
-		producers[topic] = publisher
+		producers.Store(topic, publisher)
 	}
 	errg, _ := errgroup.WithContext(ctx)
 	// NOTE(marclop) should the channel size be dynamic? 100 is an arbitrary
@@ -168,7 +151,7 @@ func NewProducer(ctx context.Context, cfg ProducerConfig) (*Producer, error) {
 
 	return &Producer{
 		cfg:       cfg,
-		producer:  producers,
+		producers: producers,
 		closed:    make(chan struct{}),
 		errg:      errg,
 		responses: c,
@@ -187,9 +170,10 @@ func NewProducer(ctx context.Context, cfg ProducerConfig) (*Producer, error) {
 func (p *Producer) Close() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	for _, producer := range p.producer {
-		producer.Stop()
-	}
+	p.producers.Range(func(key, value any) bool {
+		value.(*pscompat.PublisherClient).Stop()
+		return true
+	})
 	close(p.closed)
 	close(p.responses)
 	return p.errg.Wait()
@@ -223,16 +207,25 @@ func (p *Producer) ProcessBatch(ctx context.Context, batch *model.Batch) error {
 			}
 		}
 		topic := p.cfg.TopicRouter(event)
-		producer, ok := p.producer[topic]
+		// creating a publisher is expensive and we can't do it lazily so we call Load+LoadOrStore
+		producer, ok := p.producers.Load(topic)
 		if !ok {
-			return fmt.Errorf("pubsublite: unable to find producer for %s", topic)
+			publisher, err := newPublisher(ctx, p.cfg, topic)
+			if err != nil {
+				return fmt.Errorf("pubsublite: failed creating publisher client for topic %s: %w", topic, err)
+			}
+			producer, ok = p.producers.LoadOrStore(topic, publisher)
+			// race condition, publisher was loaded from the map so we close the other one
+			if ok {
+				publisher.Stop()
+			}
 		}
 		responses = append(responses, resTopic{
 			// NOTE(marclop) producer.Publish() is completely asynchronous and
 			// doesn't use the context. If/when the pubsublite library supports
 			// instrumentation, the context will be useful to propagate traces.
 			// This is accurates as of pubsublite@v1.7.0
-			response: telemetry.Publisher(ctx, p.tracer, &msg, producer.Publish, []attribute.KeyValue{
+			response: telemetry.Publisher(ctx, p.tracer, &msg, producer.(*pscompat.PublisherClient).Publish, []attribute.KeyValue{
 				semconv.MessagingDestinationNameKey.String(string(topic)),
 				semconv.CloudRegion(p.region),
 				semconv.CloudAccountID(p.project),
@@ -250,6 +243,22 @@ func (p *Producer) ProcessBatch(ctx context.Context, batch *model.Batch) error {
 		return ctx.Err()
 	}
 	return nil
+}
+
+func newPublisher(ctx context.Context, cfg ProducerConfig, topic apmqueue.Topic) (*pscompat.PublisherClient, error) {
+	// TODO(marclop) connection pools:
+	// https://pkg.go.dev/cloud.google.com/go/pubsublite#hdr-gRPC_Connection_Pools
+	settings := pscompat.PublishSettings{
+		// TODO(marclop) tweak producing settings, to cap memory use, trying
+		// to size for good performance. It may be desireable to provide a
+		// maximum memory usage for this component and size accordingly.
+		// The number of topics should be taken into account since it creates
+		// a publisher client per topic.
+	}
+	return pscompat.NewPublisherClientWithSettings(ctx,
+		formatTopic(cfg.Project, cfg.Region, topic),
+		settings, cfg.ClientOpts...,
+	)
 }
 
 func blockUntilProduced(ctx context.Context, res []resTopic, logger *zap.Logger) {
