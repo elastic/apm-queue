@@ -12,9 +12,9 @@ require (
 	github.com/twmb/franz-go/pkg/kfake v0.0.0-20230405224959-0d137e78cd4a
 	github.com/twmb/franz-go/plugin/kotel v1.1.0
 	github.com/twmb/franz-go/plugin/kzap v1.1.2
-	go.opentelemetry.io/otel v1.15.0
-	go.opentelemetry.io/otel/sdk v1.15.0
-	go.opentelemetry.io/otel/trace v1.15.0
+	go.opentelemetry.io/otel v1.15.1
+	go.opentelemetry.io/otel/sdk v1.15.1
+	go.opentelemetry.io/otel/trace v1.15.1
 	go.uber.org/zap v1.24.0
 	golang.org/x/sync v0.1.0
 	google.golang.org/api v0.120.0
