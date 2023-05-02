@@ -124,7 +124,7 @@ func NewProducer(ctx context.Context, cfg ProducerConfig) (*Producer, error) {
 	for _, topic := range cfg.Topics {
 		publisher, err := newPublisher(ctx, cfg, topic)
 		if err != nil {
-			return nil, fmt.Errorf("pubsublite: failed creating publisher: %w", err)
+			return nil, fmt.Errorf("pubsublite: failed creating publisher client for topic %s: %w", topic, err)
 		}
 		producers.Store(topic, publisher)
 	}
