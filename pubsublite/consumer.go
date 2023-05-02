@@ -87,21 +87,6 @@ func (s Subscription) String() string {
 	)
 }
 
-// Validate ensures the subscription is valid.
-func (s Subscription) Validate() error {
-	var errs []error
-	if s.Name == "" {
-		errs = append(errs, errors.New("pubsublite: subscription: name must be set"))
-	}
-	if s.Project == "" {
-		errs = append(errs, errors.New("pubsublite: subscription: project must be set"))
-	}
-	if s.Region == "" {
-		errs = append(errs, errors.New("pubsublite: subscription: region must be set"))
-	}
-	return errors.Join(errs...)
-}
-
 // Validate ensures the configuration is valid, otherwise, returns an error.
 func (cfg ConsumerConfig) Validate() error {
 	var errs []error
