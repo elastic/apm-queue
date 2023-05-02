@@ -282,7 +282,7 @@ func blockUntilProduced(ctx context.Context, res []resTopic, logger *zap.Logger)
 	}
 }
 
-func (p *Producer) Healthy() error {
+func (p *Producer) Healthy(ctx context.Context) error {
 	return nil // TODO(marclop)
 }
 

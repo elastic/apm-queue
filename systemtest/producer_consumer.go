@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	apmqueue "github.com/elastic/apm-queue"
 	"github.com/elastic/apm-queue/kafka"
 	"github.com/elastic/apm-queue/pubsublite"
 )
@@ -76,7 +77,7 @@ func newPubSubLiteConsumer(ctx context.Context, t testing.TB, cfg pubsublite.Con
 	return consumer
 }
 
-func pubSubLiteSubscriptions(topics ...string) []pubsublite.Subscription {
+func pubSubLiteSubscriptions(topics ...apmqueue.Topic) []pubsublite.Subscription {
 	if len(topics) == 0 {
 		return nil
 	}
@@ -85,7 +86,7 @@ func pubSubLiteSubscriptions(topics ...string) []pubsublite.Subscription {
 		subs = append(subs, pubsublite.Subscription{
 			Project: googleProject,
 			Region:  googleRegion,
-			Name:    topic,
+			Name:    string(topic),
 		})
 	}
 	return subs

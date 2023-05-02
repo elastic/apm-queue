@@ -44,7 +44,7 @@ type Consumer interface {
 	// Run executes the consumer in a blocking manner.
 	Run(ctx context.Context) error
 	// Healthy returns an error if the consumer isn't healthy.
-	Healthy() error
+	Healthy(ctx context.Context) error
 	// Close closes the consumer.
 	Close() error
 }
@@ -53,7 +53,7 @@ type Consumer interface {
 type Producer interface {
 	model.BatchProcessor
 	// Healthy returns an error if the producer isn't healthy.
-	Healthy() error
+	Healthy(ctx context.Context) error
 	// Close closes the producer.
 	Close() error
 }
