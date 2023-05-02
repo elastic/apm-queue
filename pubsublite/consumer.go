@@ -187,14 +187,14 @@ func NewConsumer(ctx context.Context, cfg ConsumerConfig) (*Consumer, error) {
 			processor:        cfg.Processor,
 			decoder:          cfg.Decoder,
 			logger: cfg.Logger.With(
-				zap.String("subscription", subscription.Name),
-				zap.String("region", subscription.Region),
-				zap.String("project", subscription.Project),
+				zap.String("subscription", string(topic)),
+				zap.String("region", cfg.Region),
+				zap.String("project", cfg.Project),
 			),
 			telemetryAttributes: []attribute.KeyValue{
-				semconv.MessagingSourceNameKey.String(subscription.Name),
-				semconv.CloudRegion(subscription.Region),
-				semconv.CloudAccountID(subscription.Project),
+				semconv.MessagingSourceNameKey.String(string(topic)),
+				semconv.CloudRegion(cfg.Region),
+				semconv.CloudAccountID(cfg.Project),
 			},
 		})
 	}
