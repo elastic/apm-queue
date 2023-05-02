@@ -47,8 +47,12 @@ type Decoder interface {
 
 // ConsumerConfig defines the configuration for the PubSub Lite consumer.
 type ConsumerConfig struct {
-	// PubSub Lite subscriptions.
-	Subscriptions []Subscription
+	// Region is the GCP region for the producer.
+	Region string
+	// Project is the GCP project for the producer.
+	Project string
+	// Topics holds Pub/Sub Lite topics from which messages will be consumed.
+	Topics []apmqueue.Topic
 	// Decoder holds an encoding.Decoder for decoding events.
 	Decoder Decoder
 	// Logger to use for any errors.
@@ -101,15 +105,16 @@ func (s Subscription) Validate() error {
 // Validate ensures the configuration is valid, otherwise, returns an error.
 func (cfg ConsumerConfig) Validate() error {
 	var errs []error
-	if len(cfg.Subscriptions) == 0 {
+	if len(cfg.Topics) == 0 {
 		errs = append(errs,
-			errors.New("pubsublite: at least one subscription must be set"),
+			errors.New("pubsublite: at least one topic must be set"),
 		)
 	}
-	for i, subscription := range cfg.Subscriptions {
-		if err := subscription.Validate(); err != nil {
-			errs = append(errs, fmt.Errorf("%d: %w", i, err))
-		}
+	if cfg.Project == "" {
+		errs = append(errs, errors.New("pubsublite: project must be set"))
+	}
+	if cfg.Region == "" {
+		errs = append(errs, errors.New("pubsublite: region must be set"))
 	}
 	if cfg.Decoder == nil {
 		errs = append(errs, errors.New("pubsublite: decoder must be set"))
@@ -163,8 +168,13 @@ func NewConsumer(ctx context.Context, cfg ConsumerConfig) (*Consumer, error) {
 			return nil // nil is returned to avoid terminating the subscriber.
 		},
 	}
-	consumers := make([]consumer, 0, len(cfg.Subscriptions))
-	for _, subscription := range cfg.Subscriptions {
+	consumers := make([]consumer, 0, len(cfg.Topics))
+	for _, topic := range cfg.Topics {
+		subscription := Subscription{
+			Name:    string(topic),
+			Project: cfg.Project,
+			Region:  cfg.Region,
+		}
 		client, err := pscompat.NewSubscriberClientWithSettings(
 			ctx, subscription.String(), settings, cfg.ClientOpts...,
 		)
