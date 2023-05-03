@@ -18,7 +18,6 @@
 package pubsublite
 
 import (
-	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -27,7 +26,7 @@ import (
 )
 
 func TestNewProducer(t *testing.T) {
-	_, err := NewProducer(context.Background(), ProducerConfig{})
+	_, err := NewProducer(ProducerConfig{})
 	assert.Error(t, err)
 }
 
