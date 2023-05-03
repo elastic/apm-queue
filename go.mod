@@ -3,7 +3,7 @@ module github.com/elastic/apm-queue
 go 1.20
 
 require (
-	cloud.google.com/go/pubsub v1.30.0
+	cloud.google.com/go/pubsub v1.30.1
 	cloud.google.com/go/pubsublite v1.8.0
 	github.com/elastic/apm-data v0.1.1-0.20230502063930-debaa7cc7724
 	github.com/stretchr/testify v1.8.2
