@@ -98,8 +98,6 @@ func TestProduceConsumeSingleTopic(t *testing.T) {
 					Logger:  logger,
 					Decoder: json.JSON{},
 					Topics:  topics,
-					Project: googleProject,
-					Region:  googleRegion,
 					Processor: assertBatchFunc(t, consumerAssertions{
 						records:   &records,
 						processor: model.TransactionProcessor,
@@ -180,8 +178,6 @@ func TestProduceConsumeMultipleTopics(t *testing.T) {
 					Logger:  logger,
 					Decoder: json.JSON{},
 					Topics:  topics,
-					Project: googleProject,
-					Region:  googleRegion,
 					Processor: assertBatchFunc(t, consumerAssertions{
 						records:   &records,
 						processor: model.TransactionProcessor,
