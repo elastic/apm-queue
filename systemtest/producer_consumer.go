@@ -42,10 +42,10 @@ func newKafkaProducer(t testing.TB, cfg kafka.ProducerConfig) *kafka.Producer {
 	return producer
 }
 
-func newPubSubLiteProducer(ctx context.Context, t testing.TB, cfg pubsublite.ProducerConfig) *pubsublite.Producer {
+func newPubSubLiteProducer(t testing.TB, cfg pubsublite.ProducerConfig) *pubsublite.Producer {
 	cfg.Project = googleProject
 	cfg.Region = googleRegion
-	producer, err := pubsublite.NewProducer(ctx, cfg)
+	producer, err := pubsublite.NewProducer(cfg)
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		err := producer.Close()

@@ -88,17 +88,18 @@ func TestProduceConsumeSingleTopic(t *testing.T) {
 			testProduceConsume(ctx, t, produceConsumeCfg{
 				events:  events,
 				records: &records,
-				producer: newPubSubLiteProducer(ctx, t, pubsublite.ProducerConfig{
-					Topics:      topics,
+				producer: newPubSubLiteProducer(t, pubsublite.ProducerConfig{
 					Logger:      logger,
 					Encoder:     json.JSON{},
 					TopicRouter: topicRouter,
 					Sync:        sync,
 				}),
 				consumer: newPubSubLiteConsumer(ctx, t, pubsublite.ConsumerConfig{
-					Logger:        logger,
-					Decoder:       json.JSON{},
-					Subscriptions: pubSubLiteSubscriptions(topics...),
+					Logger:  logger,
+					Decoder: json.JSON{},
+					Topics:  topics,
+					Project: googleProject,
+					Region:  googleRegion,
 					Processor: assertBatchFunc(t, consumerAssertions{
 						records:   &records,
 						processor: model.TransactionProcessor,
@@ -169,17 +170,18 @@ func TestProduceConsumeMultipleTopics(t *testing.T) {
 				events:  events,
 				records: &records,
 				timeout: timeout,
-				producer: newPubSubLiteProducer(ctx, t, pubsublite.ProducerConfig{
-					Topics:      topics,
+				producer: newPubSubLiteProducer(t, pubsublite.ProducerConfig{
 					Logger:      logger,
 					Encoder:     json.JSON{},
 					TopicRouter: topicRouter,
 					Sync:        sync,
 				}),
 				consumer: newPubSubLiteConsumer(ctx, t, pubsublite.ConsumerConfig{
-					Logger:        logger,
-					Decoder:       json.JSON{},
-					Subscriptions: pubSubLiteSubscriptions(topics...),
+					Logger:  logger,
+					Decoder: json.JSON{},
+					Topics:  topics,
+					Project: googleProject,
+					Region:  googleRegion,
 					Processor: assertBatchFunc(t, consumerAssertions{
 						records:   &records,
 						processor: model.TransactionProcessor,
