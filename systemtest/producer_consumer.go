@@ -24,7 +24,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	apmqueue "github.com/elastic/apm-queue"
 	"github.com/elastic/apm-queue/kafka"
 	"github.com/elastic/apm-queue/pubsublite"
 )
@@ -42,10 +41,10 @@ func newKafkaProducer(t testing.TB, cfg kafka.ProducerConfig) *kafka.Producer {
 	return producer
 }
 
-func newPubSubLiteProducer(ctx context.Context, t testing.TB, cfg pubsublite.ProducerConfig) *pubsublite.Producer {
+func newPubSubLiteProducer(t testing.TB, cfg pubsublite.ProducerConfig) *pubsublite.Producer {
 	cfg.Project = googleProject
 	cfg.Region = googleRegion
-	producer, err := pubsublite.NewProducer(ctx, cfg)
+	producer, err := pubsublite.NewProducer(cfg)
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		err := producer.Close()
@@ -68,6 +67,8 @@ func newKafkaConsumer(t testing.TB, cfg kafka.ConsumerConfig) *kafka.Consumer {
 }
 
 func newPubSubLiteConsumer(ctx context.Context, t testing.TB, cfg pubsublite.ConsumerConfig) *pubsublite.Consumer {
+	cfg.Project = googleProject
+	cfg.Region = googleRegion
 	consumer, err := pubsublite.NewConsumer(ctx, cfg)
 	require.NoError(t, err)
 	t.Cleanup(func() {
@@ -75,19 +76,4 @@ func newPubSubLiteConsumer(ctx context.Context, t testing.TB, cfg pubsublite.Con
 		assert.NoError(t, err)
 	})
 	return consumer
-}
-
-func pubSubLiteSubscriptions(topics ...apmqueue.Topic) []pubsublite.Subscription {
-	if len(topics) == 0 {
-		return nil
-	}
-	subs := make([]pubsublite.Subscription, 0, len(topics))
-	for _, topic := range topics {
-		subs = append(subs, pubsublite.Subscription{
-			Project: googleProject,
-			Region:  googleRegion,
-			Name:    string(topic),
-		})
-	}
-	return subs
 }
