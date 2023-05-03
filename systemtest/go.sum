@@ -149,6 +149,7 @@ github.com/tidwall/sjson v1.2.5 h1:kLy8mja+1c9jlljvWTlSazM7cKDRfJuR/bOJhcY5NcY=
 github.com/twmb/franz-go v1.13.3 h1:AO0HcPu7hNMi+ue+jz3CnV+VpuAizaazQuqTo1SvLr4=
 github.com/twmb/franz-go v1.13.3/go.mod h1:jm/FtYxmhxDTN0gNSb26XaJY0irdSVcsckLiR5tQNMk=
 github.com/twmb/franz-go/pkg/kadm v1.8.0 h1:vvKwZpxYn+VmM32v4mKkecHLKavZW+HcYLRKKxly5ZY=
+github.com/twmb/franz-go/pkg/kadm v1.8.0/go.mod h1:qUSM7pxoMCU1UNu5H4USE64ODcVmeG9LS96mysv1nu8=
 github.com/twmb/franz-go/pkg/kfake v0.0.0-20230405224959-0d137e78cd4a h1:n4MRnUKC+zXcZhoKpWMgl2T7yyJXP4POTSs6kl7GFl8=
 github.com/twmb/franz-go/pkg/kmsg v1.5.0 h1:eqVJquFQLdBNLrRMWX03pPDPpngn6PTjGZLlZnagouk=
 github.com/twmb/franz-go/pkg/kmsg v1.5.0/go.mod h1:se9Mjdt0Nwzc9lnjJ0HyDtLyBnaBDAd7pCje47OhSyw=

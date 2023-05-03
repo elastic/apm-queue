@@ -9,6 +9,8 @@ require (
 	github.com/hashicorp/hc-install v0.5.1
 	github.com/hashicorp/terraform-exec v0.18.1
 	github.com/stretchr/testify v1.8.2
+	github.com/twmb/franz-go v1.13.3
+	github.com/twmb/franz-go/pkg/kadm v1.8.0
 	go.uber.org/zap v1.24.0
 	golang.org/x/sync v0.1.0
 )
@@ -40,7 +42,6 @@ require (
 	github.com/pierrec/lz4/v4 v4.1.17 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
-	github.com/twmb/franz-go v1.13.3 // indirect
 	github.com/twmb/franz-go/pkg/kmsg v1.5.0 // indirect
 	github.com/twmb/franz-go/plugin/kotel v1.1.0 // indirect
 	github.com/twmb/franz-go/plugin/kzap v1.1.2 // indirect
