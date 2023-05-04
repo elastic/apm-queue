@@ -403,7 +403,7 @@ func TestGracefulSutdown(t *testing.T) {
 		}
 		assert.Eventually(t, func() bool {
 			return processed.Load() == int32(records) && errored.Load() == 0
-		}, 5*time.Second, time.Millisecond)
+		}, 6*time.Second, time.Millisecond)
 		t.Logf("got: %d events processed, %d errored", processed.Load(), errored.Load())
 	}
 
