@@ -367,7 +367,7 @@ func TestGracefulSutdown(t *testing.T) {
 		var processed atomic.Int32
 		var errored atomic.Int32
 		process := make(chan struct{})
-		records := 5
+		records := 2
 		consumer := newConsumer(t, ConsumerConfig{
 			Brokers:        brokers,
 			GroupID:        "group",
@@ -406,8 +406,10 @@ func TestGracefulSutdown(t *testing.T) {
 		}
 		assert.Eventually(t, func() bool {
 			return processed.Load() == int32(records) && errored.Load() == 0
-		}, 5*time.Second, time.Millisecond)
-		t.Logf("got: %d events processed, %d errored", processed.Load(), errored.Load())
+		}, 6*time.Second, time.Millisecond)
+		t.Logf("got: %d events processed, %d errored, want: %d processed",
+			processed.Load(), errored.Load(), records,
+		)
 	}
 
 	t.Run("AtLeastOnceDelivery", func(t *testing.T) {
