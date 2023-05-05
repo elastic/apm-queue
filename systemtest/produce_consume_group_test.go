@@ -39,25 +39,25 @@ func TestProduceConsumeDelivery(t *testing.T) {
 	logger := NoLevelLogger(t, zap.ErrorLevel)
 
 	testCases := map[string]struct {
-		deliveryType    apmqueue.DeliveryType
-		events          int
-		replay          int
-		expectedRecords int
-		timeout         time.Duration
+		deliveryType         apmqueue.DeliveryType
+		events               int
+		replay               int
+		expectedRecordsCount int
+		timeout              time.Duration
 	}{
 		"at most once": {
-			deliveryType:    apmqueue.AtMostOnceDeliveryType,
-			events:          100,
-			replay:          1,
-			expectedRecords: 199,
-			timeout:         60 * time.Second,
+			deliveryType:         apmqueue.AtMostOnceDeliveryType,
+			events:               100,
+			replay:               1,
+			expectedRecordsCount: 199,
+			timeout:              60 * time.Second,
 		},
 		"at least once": {
-			deliveryType:    apmqueue.AtLeastOnceDeliveryType,
-			events:          100,
-			replay:          1,
-			expectedRecords: 199,
-			timeout:         60 * time.Second,
+			deliveryType:         apmqueue.AtLeastOnceDeliveryType,
+			events:               100,
+			replay:               1,
+			expectedRecordsCount: 199,
+			timeout:              60 * time.Second,
 		},
 	}
 
@@ -80,7 +80,7 @@ func TestProduceConsumeDelivery(t *testing.T) {
 			testProduceConsume(ctx, t, produceConsumeCfg{
 				events:          tc.events,
 				replay:          tc.replay,
-				expectedRecords: tc.expectedRecords,
+				expectedRecords: tc.expectedRecordsCount,
 				records:         &records,
 				producer: newKafkaProducer(t, kafka.ProducerConfig{
 					Logger:      logger,
@@ -128,7 +128,7 @@ func TestProduceConsumeDelivery(t *testing.T) {
 			testProduceConsume(ctx, t, produceConsumeCfg{
 				events:          tc.events,
 				replay:          tc.replay,
-				expectedRecords: tc.expectedRecords,
+				expectedRecords: tc.expectedRecordsCount,
 				records:         &records,
 				producer: newPubSubLiteProducer(t, pubsublite.ProducerConfig{
 					Logger:      logger,

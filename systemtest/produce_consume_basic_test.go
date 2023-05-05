@@ -57,9 +57,9 @@ func TestProduceConsumeSingleTopic(t *testing.T) {
 			)
 			var records atomic.Int64
 			testProduceConsume(ctx, t, produceConsumeCfg{
-				events:          events,
-				expectedRecords: events,
-				records:         &records,
+				events:               events,
+				expectedRecordsCount: events,
+				records:              &records,
 				producer: newKafkaProducer(t, kafka.ProducerConfig{
 					Logger:      logger,
 					Encoder:     json.JSON{},
@@ -137,10 +137,10 @@ func TestProduceConsumeMultipleTopics(t *testing.T) {
 			)
 			var records atomic.Int64
 			testProduceConsume(ctx, t, produceConsumeCfg{
-				events:          events,
-				expectedRecords: events,
-				records:         &records,
-				timeout:         timeout,
+				events:               events,
+				expectedRecordsCount: events,
+				records:              &records,
+				timeout:              timeout,
 				producer: newKafkaProducer(t, kafka.ProducerConfig{
 					Logger:      logger,
 					Encoder:     json.JSON{},
@@ -167,10 +167,10 @@ func TestProduceConsumeMultipleTopics(t *testing.T) {
 			)
 			var records atomic.Int64
 			testProduceConsume(ctx, t, produceConsumeCfg{
-				events:          events,
-				expectedRecords: events,
-				records:         &records,
-				timeout:         timeout,
+				events:               events,
+				expectedRecordsCount: events,
+				records:              &records,
+				timeout:              timeout,
 				producer: newPubSubLiteProducer(t, pubsublite.ProducerConfig{
 					Logger:      logger,
 					Encoder:     json.JSON{},
@@ -192,13 +192,13 @@ func TestProduceConsumeMultipleTopics(t *testing.T) {
 }
 
 type produceConsumeCfg struct {
-	events          int
-	replay          int
-	expectedRecords int
-	producer        apmqueue.Producer
-	consumer        apmqueue.Consumer
-	records         *atomic.Int64
-	timeout         time.Duration
+	events               int
+	replay               int
+	expectedRecordsCount int
+	producer             apmqueue.Producer
+	consumer             apmqueue.Consumer
+	records              *atomic.Int64
+	timeout              time.Duration
 }
 
 func doSyncAsync(f func(name string, sync bool)) {
@@ -240,12 +240,12 @@ func testProduceConsume(ctx context.Context, t testing.TB, cfg produceConsumeCfg
 		}
 	}
 	assert.Eventually(t, func() bool {
-		return cfg.records.Load() == int64(cfg.expectedRecords) // Assertion
+		return cfg.records.Load() == int64(cfg.expectedRecordsCount) // Assertion
 	},
 		cfg.timeout,          // Timeout
 		100*time.Millisecond, // Poll
 		"expected records (%d) records do not match consumed records (%v)", // ErrMessage
-		cfg.expectedRecords,
+		cfg.expectedRecordsCount,
 		cfg.records,
 	)
 }
