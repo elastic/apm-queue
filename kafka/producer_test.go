@@ -155,7 +155,7 @@ func TestNewProducerBasic(t *testing.T) {
 	test(t, false)
 }
 
-func newClusterWithTopics(t *testing.T, topics ...apmqueue.Topic) (*kgo.Client, []string) {
+func newClusterWithTopics(t testing.TB, topics ...apmqueue.Topic) (*kgo.Client, []string) {
 	t.Helper()
 	cluster, err := kfake.NewCluster()
 	require.NoError(t, err)
