@@ -137,17 +137,16 @@ func TestProduceConsumeMultipleGroups(t *testing.T) {
 				replay:          tc.replay,
 				expectedRecords: tc.expectedRecords,
 				records:         &records,
-				producer: newPubSubLiteProducer(ctx, t, pubsublite.ProducerConfig{
-					Topics:      []apmqueue.Topic{apmqueue.Topic(topics[0])},
+				producer: newPubSubLiteProducer(t, pubsublite.ProducerConfig{
 					Logger:      logger,
 					Encoder:     json.JSON{},
 					TopicRouter: topicRouter,
 				}),
 				consumer: newPubSubLiteConsumer(ctx, t, pubsublite.ConsumerConfig{
-					Logger:        logger,
-					Decoder:       json.JSON{},
-					Subscriptions: pubSubLiteSubscriptions(topics...),
-					Delivery:      tc.deliveryType,
+					Logger:   logger,
+					Decoder:  json.JSON{},
+					Topics:   topics,
+					Delivery: tc.deliveryType,
 					Processor: model.ProcessBatchFunc(func(ctx context.Context, b *model.Batch) error {
 						var err error
 						once.Do(func() {
