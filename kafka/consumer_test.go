@@ -387,16 +387,16 @@ func TestGracefulSutdown(t *testing.T) {
 				return nil
 			}),
 		})
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-		go func() { consumer.Run(ctx) }()
 
 		b, err := codec.Encode(model.APMEvent{Transaction: &model.Transaction{ID: "1"}})
 		require.NoError(t, err)
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 		for i := 0; i < records; i++ {
 			produceRecord(ctx, t, client, &kgo.Record{Topic: "topic", Value: b})
 		}
 
+		go func() { consumer.Run(ctx) }()
 		select {
 		case process <- struct{}{}:
 			close(process) // Allow records to be processed
