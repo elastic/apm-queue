@@ -263,7 +263,8 @@ func (c *Consumer) fetch(ctx context.Context) error {
 		if err := c.client.CommitUncommittedOffsets(ctx); err != nil {
 			// NOTE(marclop): If the commit fails with an unrecoverable error,
 			// return it and terminate the consumer. This will avoid potentially
-			// processing records twice, and it's up to the consumer
+			// processing records twice, and it's up to the consumer to re-start
+			// the consumer.
 			return ErrCommitFailed
 		}
 		// Allow re-balancing now that we have committed offsets, preventing

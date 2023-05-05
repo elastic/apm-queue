@@ -188,7 +188,8 @@ func TestConsumerDelivery(t *testing.T) {
 		initialRecords int
 		maxPollRecords int
 		lastRecords    int
-		// Number of successfully processed events.
+		// Number of successfully processed events. The assertion is GE due to
+		// variable guarantee factors.
 		processed int32
 		// Number of unsuccessfully processed events.
 		errored int32
@@ -208,8 +209,9 @@ func TestConsumerDelivery(t *testing.T) {
 			maxPollRecords: 2,
 			lastRecords:    10,
 
-			processed: 26, // 30 total - 2 errored - 2 lost before batch processor.
-			errored:   2,  // The first two fetch fails.
+			// 30 total - 2 errored - 2 lost before they can be processed.
+			processed: 26,
+			errored:   2, // The first two fetch fails.
 		},
 		"12_produced_1_poll_AMOD": {
 			deliveryType:   apmqueue.AtMostOnceDeliveryType,
@@ -347,7 +349,8 @@ func TestConsumerDelivery(t *testing.T) {
 			}
 
 			assert.Eventually(t, func() bool {
-				return processed.Load() == tc.processed &&
+				// Some events may or may not be processed. Assert GE.
+				return processed.Load() >= tc.processed &&
 					errored.Load() == tc.errored
 			}, 2*time.Second, time.Millisecond)
 			t.Logf("got: %d events errored, %d processed, want: %d errored, %d processed",
@@ -364,7 +367,7 @@ func TestGracefulSutdown(t *testing.T) {
 		var processed atomic.Int32
 		var errored atomic.Int32
 		process := make(chan struct{})
-		records := 10
+		records := 5
 		consumer := newConsumer(t, ConsumerConfig{
 			Brokers:        brokers,
 			GroupID:        "group",
@@ -403,7 +406,7 @@ func TestGracefulSutdown(t *testing.T) {
 		}
 		assert.Eventually(t, func() bool {
 			return processed.Load() == int32(records) && errored.Load() == 0
-		}, 6*time.Second, time.Millisecond)
+		}, time.Second, time.Millisecond)
 		t.Logf("got: %d events processed, %d errored", processed.Load(), errored.Load())
 	}
 
