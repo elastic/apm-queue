@@ -3,7 +3,7 @@ module github.com/elastic/apm-queue/kafka/sasl/azure
 go 1.20
 
 require (
-	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.5.0
+	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.6.0
 	github.com/twmb/franz-go v1.13.3
 )
 

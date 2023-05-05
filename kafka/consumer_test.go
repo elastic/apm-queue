@@ -20,6 +20,7 @@ package kafka
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"strconv"
 	"sync/atomic"
 	"testing"
@@ -30,6 +31,8 @@ import (
 	"github.com/twmb/franz-go/pkg/kfake"
 	"github.com/twmb/franz-go/pkg/kgo"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+	"go.uber.org/zap/zaptest"
 
 	"github.com/elastic/apm-data/model"
 	apmqueue "github.com/elastic/apm-queue"
@@ -145,7 +148,7 @@ func TestConsumerFetch(t *testing.T) {
 		GroupID: "groupid",
 		Decoder: codec,
 		Logger:  zap.NewNop(),
-		Processor: model.ProcessBatchFunc(func(ctx context.Context, b *model.Batch) error {
+		Processor: model.ProcessBatchFunc(func(_ context.Context, b *model.Batch) error {
 			assert.Len(t, *b, 1)
 			assert.Equal(t, event, (*b)[0])
 			return nil
@@ -155,20 +158,266 @@ func TestConsumerFetch(t *testing.T) {
 	b, err := codec.Encode(event)
 	require.NoError(t, err)
 
-	record := &kgo.Record{
-		Topic: string(topics[0]),
-		Value: b,
-	}
-
-	results := client.ProduceSync(context.Background(), record)
-	assert.NoError(t, results.FirstErr())
-
-	r, err := results.First()
-	assert.NoError(t, err)
-	assert.NotNil(t, r)
-
+	produceRecord(context.Background(), t, client,
+		&kgo.Record{Topic: string(topics[0]), Value: b},
+	)
 	consumer := newConsumer(t, cfg)
 	assert.NoError(t, consumer.fetch(context.Background()))
+}
+
+func TestConsumerDelivery(t *testing.T) {
+	// ALOD = at least once delivery
+	// AMOD = at most once delivery
+	event := model.APMEvent{Transaction: &model.Transaction{ID: "1"}}
+	codec := json.JSON{}
+	topics := []apmqueue.Topic{"topic"}
+
+	// Produces `initialRecords` + `lastRecords` in total. Asserting the
+	// "lossy" behavior of the consumer implementation, depending on the
+	// chosen DeliveryType.
+	// `initialRecords` are produced, then, the concurrent consumer is
+	// started, and the first receive will always fail to process the first
+	// records in the received poll (`maxPollRecords`).
+	// Next, the context is cancelled and the consumer is stopped.
+	// A new consumer is created which takes over from the last committed
+	// offset.
+	// Depending on the DeliveryType some or none records should be lost.
+	cases := map[string]struct {
+		// Test setup.
+		deliveryType   apmqueue.DeliveryType
+		initialRecords int
+		maxPollRecords int
+		lastRecords    int
+		// Number of successfully processed events. The assertion is GE due to
+		// variable guarantee factors.
+		processed int32
+		// Number of unsuccessfully processed events.
+		errored int32
+	}{
+		"12_produced_10_poll_AMOD": {
+			deliveryType:   apmqueue.AtMostOnceDeliveryType,
+			initialRecords: 10,
+			maxPollRecords: 10,
+			lastRecords:    2,
+
+			processed: 2,  // The last produced records are processed.
+			errored:   10, // The initial produced records are lost.
+		},
+		"30_produced_2_poll_AMOD": {
+			deliveryType:   apmqueue.AtMostOnceDeliveryType,
+			initialRecords: 20,
+			maxPollRecords: 2,
+			lastRecords:    10,
+
+			// 30 total - 2 errored - 2 lost before they can be processed.
+			processed: 26,
+			errored:   2, // The first two fetch fails.
+		},
+		"12_produced_1_poll_AMOD": {
+			deliveryType:   apmqueue.AtMostOnceDeliveryType,
+			initialRecords: 1,
+			maxPollRecords: 1,
+			lastRecords:    11,
+
+			processed: 11, // The last produced records are processed.
+			errored:   1,  // The initial produced records are lost.
+		},
+		"12_produced_10_poll_ALOD": {
+			deliveryType:   apmqueue.AtLeastOnceDeliveryType,
+			initialRecords: 10,
+			maxPollRecords: 10,
+			lastRecords:    2,
+
+			processed: 12, // All records are re-processed.
+			errored:   10, // The initial batch errors.
+		},
+		"30_produced_2_poll_ALOD": {
+			deliveryType:   apmqueue.AtLeastOnceDeliveryType,
+			initialRecords: 20,
+			maxPollRecords: 2,
+			lastRecords:    10,
+
+			processed: 30, // All records are processed.
+			errored:   2,  // The initial batch errors.
+		},
+		"12_produced_1_poll_ALOD": {
+			deliveryType:   apmqueue.AtLeastOnceDeliveryType,
+			initialRecords: 1,
+			maxPollRecords: 1,
+			lastRecords:    11,
+
+			processed: 11,
+			errored:   1,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			client, addrs := newClusterWithTopics(t, topics...)
+			failRecord := make(chan struct{})
+			processRecord := make(chan struct{})
+			defer close(failRecord)
+
+			baseLogger := zaptest.NewLogger(t, zaptest.Level(zapcore.DebugLevel))
+
+			var processed atomic.Int32
+			var errored atomic.Int32
+			cfg := ConsumerConfig{
+				Delivery:       tc.deliveryType,
+				Brokers:        addrs,
+				Decoder:        codec,
+				Topics:         topics,
+				GroupID:        "groupid",
+				Logger:         baseLogger,
+				MaxPollRecords: tc.maxPollRecords,
+				Processor: model.ProcessBatchFunc(func(ctx context.Context, b *model.Batch) error {
+					select {
+					// Records are marked as processed on receive processRecord.
+					case <-processRecord:
+						processed.Add(int32(len(*b)))
+					// Records are marked as failed when ctx is canceled, or
+					// on receive failRecord.
+					case <-failRecord:
+						errored.Add(int32(len(*b)))
+						return errors.New("failed processing record")
+					case <-ctx.Done():
+						errored.Add(int32(len(*b)))
+						return ctx.Err()
+					}
+					return nil
+				}),
+			}
+
+			b, err := codec.Encode(event)
+			require.NoError(t, err)
+			record := &kgo.Record{
+				Topic: string(topics[0]),
+				Value: b,
+			}
+
+			// Context used for the consumer
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			for i := 0; i < int(tc.initialRecords); i++ {
+				produceRecord(ctx, t, client, record)
+			}
+
+			cfg.Logger = baseLogger.Named("1")
+			consumer := newConsumer(t, cfg)
+			go func() {
+				err := consumer.Run(ctx)
+				assert.Error(t, err)
+			}()
+
+			// Wait until the batch processor function is called.
+			// The first event is processed and after the context is canceled,
+			// the partition consumers are also stopped. Fetching and record
+			// processing is decoupled. The consumer may have fetched more
+			// records while waiting for `failRecord`.
+			// For AMOD, the offsets are committed after being fetched, which
+			// means that records may be lost before they reach the Processor.
+			select {
+			case failRecord <- struct{}{}:
+				cancel()
+			case <-time.After(time.Second):
+				t.Fatal("timed out waiting for consumer to process event")
+			}
+			consumer.Close()
+
+			assert.Eventually(t, func() bool {
+				return int(errored.Load()) == tc.maxPollRecords
+			}, time.Second, time.Millisecond)
+
+			// Start a new consumer in the background and then produce
+			ctx, cancel = context.WithCancel(context.Background())
+			defer cancel()
+			// Produce tc.lastRecords.
+			for i := 0; i < tc.lastRecords; i++ {
+				produceRecord(ctx, t, client, record)
+			}
+			cfg.MaxPollRecords = tc.lastRecords
+			cfg.Logger = baseLogger.Named("2")
+			consumer = newConsumer(t, cfg)
+			go func() {
+				assert.ErrorIs(t, consumer.Run(ctx), context.Canceled)
+			}()
+			// Wait for the first record to be consumed before running any assertion.
+			select {
+			case processRecord <- struct{}{}:
+				close(processRecord) // Allow records to be processed
+			case <-time.After(6 * time.Second):
+				t.Fatal("timed out waiting for consumer to process event")
+			}
+
+			assert.Eventually(t, func() bool {
+				// Some events may or may not be processed. Assert GE.
+				return processed.Load() >= tc.processed &&
+					errored.Load() == tc.errored
+			}, 2*time.Second, time.Millisecond)
+			t.Logf("got: %d events errored, %d processed, want: %d errored, %d processed",
+				errored.Load(), processed.Load(), tc.errored, tc.processed,
+			)
+		})
+	}
+}
+
+func TestGracefulSutdown(t *testing.T) {
+	test := func(t testing.TB, dt apmqueue.DeliveryType) {
+		client, brokers := newClusterWithTopics(t, "topic")
+		var codec json.JSON
+		var processed atomic.Int32
+		var errored atomic.Int32
+		process := make(chan struct{})
+		records := 2
+		consumer := newConsumer(t, ConsumerConfig{
+			Brokers:        brokers,
+			GroupID:        "group",
+			Topics:         []apmqueue.Topic{"topic"},
+			Decoder:        codec,
+			MaxPollRecords: records,
+			Delivery:       dt,
+			Logger:         zaptest.NewLogger(t, zaptest.Level(zapcore.DebugLevel)),
+			Processor: model.ProcessBatchFunc(func(ctx context.Context, b *model.Batch) error {
+				select {
+				case <-ctx.Done():
+					errored.Add(int32(len(*b)))
+					return ctx.Err()
+				case <-process:
+					processed.Add(int32(len(*b)))
+				}
+				return nil
+			}),
+		})
+
+		b, err := codec.Encode(model.APMEvent{Transaction: &model.Transaction{ID: "1"}})
+		require.NoError(t, err)
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		for i := 0; i < records; i++ {
+			produceRecord(ctx, t, client, &kgo.Record{Topic: "topic", Value: b})
+		}
+
+		go func() { consumer.Run(ctx) }()
+		select {
+		case process <- struct{}{}:
+			close(process) // Allow records to be processed
+			cancel()       // Stop the consumer.
+		case <-time.After(time.Second):
+			t.Fatal("timed out waiting for consumer to process event")
+		}
+		assert.Eventually(t, func() bool {
+			return processed.Load() == int32(records) && errored.Load() == 0
+		}, 6*time.Second, time.Millisecond)
+		t.Logf("got: %d events processed, %d errored, want: %d processed",
+			processed.Load(), errored.Load(), records,
+		)
+	}
+
+	t.Run("AtLeastOnceDelivery", func(t *testing.T) {
+		test(t, apmqueue.AtLeastOnceDeliveryType)
+	})
+	t.Run("AtMostOnceDelivery", func(t *testing.T) {
+		test(t, apmqueue.AtMostOnceDeliveryType)
+	})
 }
 
 func TestMultipleConsumers(t *testing.T) {
@@ -184,49 +433,36 @@ func TestMultipleConsumers(t *testing.T) {
 		GroupID: "groupid",
 		Decoder: codec,
 		Logger:  zap.NewNop(),
-		Processor: model.ProcessBatchFunc(func(ctx context.Context, b *model.Batch) error {
+		Processor: model.ProcessBatchFunc(func(_ context.Context, b *model.Batch) error {
 			count.Add(1)
 			assert.Len(t, *b, 1)
 			return nil
 		}),
 	}
 
-	b, err := codec.Encode(event)
-	require.NoError(t, err)
-
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	consumers := 2
+	for i := 0; i < consumers; i++ {
+		go func() {
+			consumer := newConsumer(t, cfg)
+			assert.ErrorIs(t, consumer.Run(ctx), context.Canceled)
+		}()
+	}
 
-	consumer1 := newConsumer(t, cfg)
-	go func() {
-		assert.ErrorIs(t, consumer1.Run(ctx), context.Canceled)
-	}()
-
-	waitCh := make(chan struct{})
-	go func() {
-		defer close(waitCh)
-		for i := 0; i < 1000; i++ {
-			results := client.ProduceSync(context.Background(), &kgo.Record{
-				Topic: string(topics[0]),
-				Value: b,
-			})
-			assert.NoError(t, results.FirstErr())
-			record, err := results.First()
-			assert.NoError(t, err)
-			assert.NotNil(t, record)
-		}
-	}()
-
-	consumer2 := newConsumer(t, cfg)
-	go func() {
-		assert.ErrorIs(t, consumer2.Run(ctx), context.Canceled)
-	}()
-
-	<-waitCh
-
+	b, err := codec.Encode(event)
+	require.NoError(t, err)
+	record := kgo.Record{
+		Topic: string(topics[0]),
+		Value: b,
+	}
+	produced := 1000
+	for i := 0; i < produced; i++ {
+		produceRecord(ctx, t, client, &record)
+	}
 	assert.Eventually(t, func() bool {
-		return count.Load() == 1000
-	}, 1*time.Second, 50*time.Millisecond)
+		return count.Load() == int32(produced)
+	}, time.Second, 50*time.Millisecond)
 }
 
 func TestMultipleConsumerGroups(t *testing.T) {
@@ -234,7 +470,6 @@ func TestMultipleConsumerGroups(t *testing.T) {
 	codec := json.JSON{}
 	topics := []apmqueue.Topic{"topic"}
 	client, addrs := newClusterWithTopics(t, topics...)
-
 	cfg := ConsumerConfig{
 		Brokers: addrs,
 		Topics:  topics,
@@ -247,17 +482,15 @@ func TestMultipleConsumerGroups(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-
 	m := make(map[string]*atomic.Int64)
-
 	groups := 10
 	for i := 0; i < groups; i++ {
 		gid := "groupid" + strconv.Itoa(i)
 		cfg.GroupID = gid
-		m[gid] = &atomic.Int64{}
-		cfg.Processor = model.ProcessBatchFunc(func(ctx context.Context, b *model.Batch) error {
-			count := m[gid]
-			count.Add(1)
+		var counter atomic.Int64
+		m[gid] = &counter
+		cfg.Processor = model.ProcessBatchFunc(func(_ context.Context, b *model.Batch) error {
+			counter.Add(1)
 			assert.Len(t, *b, 1)
 			assert.Equal(t, event, (*b)[0])
 			return nil
@@ -270,7 +503,7 @@ func TestMultipleConsumerGroups(t *testing.T) {
 
 	produceRecords := 100
 	for i := 0; i < produceRecords; i++ {
-		client.Produce(context.Background(), &kgo.Record{
+		client.Produce(ctx, &kgo.Record{
 			Topic: string(topics[0]),
 			Value: b,
 		}, func(r *kgo.Record, err error) {
@@ -282,7 +515,7 @@ func TestMultipleConsumerGroups(t *testing.T) {
 	for k, i := range m {
 		assert.Eventually(t, func() bool {
 			return i.Load() == int64(produceRecords)
-		}, 1*time.Second, 50*time.Millisecond, k)
+		}, time.Second, 50*time.Millisecond, k)
 	}
 }
 
@@ -305,11 +538,20 @@ func TestConsumerRunError(t *testing.T) {
 	require.Error(t, consumer.Run(context.Background()))
 }
 
-func newConsumer(t *testing.T, cfg ConsumerConfig) *Consumer {
+func newConsumer(t testing.TB, cfg ConsumerConfig) *Consumer {
 	consumer, err := NewConsumer(cfg)
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		assert.NoError(t, consumer.Close())
 	})
 	return consumer
+}
+
+func produceRecord(ctx context.Context, t testing.TB, c *kgo.Client, r *kgo.Record) {
+	t.Helper()
+	results := c.ProduceSync(ctx, r)
+	assert.NoError(t, results.FirstErr())
+	r, err := results.First()
+	assert.NoError(t, err)
+	assert.NotNil(t, r)
 }
