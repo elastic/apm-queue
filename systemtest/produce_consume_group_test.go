@@ -78,10 +78,10 @@ func TestProduceConsumeDelivery(t *testing.T) {
 			var records atomic.Int64
 			var once sync.Once
 			testProduceConsume(ctx, t, produceConsumeCfg{
-				events:          tc.events,
-				replay:          tc.replay,
-				expectedRecords: tc.expectedRecordsCount,
-				records:         &records,
+				events:               tc.events,
+				replay:               tc.replay,
+				expectedRecordsCount: tc.expectedRecordsCount,
+				records:              &records,
 				producer: newKafkaProducer(t, kafka.ProducerConfig{
 					Logger:      logger,
 					Encoder:     json.JSON{},
@@ -126,10 +126,10 @@ func TestProduceConsumeDelivery(t *testing.T) {
 			var records atomic.Int64
 			var once sync.Once
 			testProduceConsume(ctx, t, produceConsumeCfg{
-				events:          tc.events,
-				replay:          tc.replay,
-				expectedRecords: tc.expectedRecordsCount,
-				records:         &records,
+				events:               tc.events,
+				replay:               tc.replay,
+				expectedRecordsCount: tc.expectedRecordsCount,
+				records:              &records,
 				producer: newPubSubLiteProducer(t, pubsublite.ProducerConfig{
 					Logger:      logger,
 					Encoder:     json.JSON{},
