@@ -35,7 +35,7 @@ import (
 	"github.com/elastic/apm-queue/pubsublite"
 )
 
-func TestProduceConsumeMultipleGroups(t *testing.T) {
+func TestProduceConsumeDelivery(t *testing.T) {
 	logger := NoLevelLogger(t, zap.ErrorLevel)
 
 	testCases := map[string]struct {
