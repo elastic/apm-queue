@@ -125,7 +125,7 @@ func (cfg ConsumerConfig) Validate() error {
 type Consumer struct {
 	mu             sync.Mutex
 	cfg            ConsumerConfig
-	consumers      []consumer
+	consumers      []*consumer
 	stopSubscriber context.CancelFunc
 	tracer         trace.Tracer
 }
@@ -153,7 +153,8 @@ func NewConsumer(ctx context.Context, cfg ConsumerConfig) (*Consumer, error) {
 			return nil // nil is returned to avoid terminating the subscriber.
 		},
 	}
-	consumers := make([]consumer, 0, len(cfg.Topics))
+	consumers := make([]*consumer, 0, len(cfg.Topics))
+	cfg.Logger = cfg.Logger.Named("pubsublite")
 	for _, topic := range cfg.Topics {
 		subscription := Subscription{
 			Name:    string(topic),
@@ -166,7 +167,7 @@ func NewConsumer(ctx context.Context, cfg ConsumerConfig) (*Consumer, error) {
 		if err != nil {
 			return nil, fmt.Errorf("pubsublite: failed creating consumer: %w", err)
 		}
-		consumers = append(consumers, consumer{
+		consumers = append(consumers, &consumer{
 			SubscriberClient: client,
 			delivery:         cfg.Delivery,
 			processor:        cfg.Processor,
@@ -219,9 +220,18 @@ func (c *Consumer) Run(ctx context.Context) error {
 	for _, consumer := range c.consumers {
 		consumer := consumer
 		g.Go(func() error {
-			return consumer.Receive(ctx,
-				telemetry.Consumer(c.tracer, consumer.processMessage, consumer.telemetryAttributes),
-			)
+			for {
+				err := consumer.Receive(ctx, telemetry.Consumer(
+					c.tracer,
+					consumer.processMessage,
+					consumer.telemetryAttributes,
+				))
+				// Keep attempting to receive until a fatal error is received.
+				if errors.Is(err, pscompat.ErrBackendUnavailable) {
+					continue
+				}
+				return err
+			}
 		})
 	}
 	return g.Wait()
@@ -240,9 +250,10 @@ type consumer struct {
 	processor           model.BatchProcessor
 	decoder             Decoder
 	telemetryAttributes []attribute.KeyValue
+	failed              sync.Map
 }
 
-func (c consumer) processMessage(ctx context.Context, msg *pubsub.Message) {
+func (c *consumer) processMessage(ctx context.Context, msg *pubsub.Message) {
 	var event model.APMEvent
 	if err := c.decoder.Decode(msg.Data, &event); err != nil {
 		defer msg.Nack()
@@ -264,11 +275,29 @@ func (c consumer) processMessage(ctx context.Context, msg *pubsub.Message) {
 		msg.Ack()
 	case apmqueue.AtLeastOnceDeliveryType:
 		defer func() {
+			// If processing fails, the message will not be Nacked until the 3rd
+			// delivery, otherwise, ack the message.
 			if err != nil {
-				msg.Nack()
-			} else {
-				msg.Ack()
+				attempt := int(1)
+				if a, ok := c.failed.LoadOrStore(msg.ID, attempt); ok {
+					attempt += a.(int)
+				}
+				if attempt > 2 {
+					msg.Nack()
+					c.failed.Delete(msg.ID)
+					return
+				}
+				c.failed.Store(msg.ID, attempt)
+				return
 			}
+			partition, offset := partitionOffset(msg.ID)
+			c.logger.Info("processed previously failed event",
+				zap.Int64("offset", offset),
+				zap.Int("partition", partition),
+				zap.Any("headers", msg.Attributes),
+			)
+			msg.Ack()
+			c.failed.Delete(msg.ID)
 		}()
 	}
 	if err = c.processor.ProcessBatch(ctx, &batch); err != nil {
