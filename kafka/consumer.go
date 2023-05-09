@@ -416,18 +416,22 @@ func (pc partitionConsumer) consume(ctx context.Context, topic string, partition
 			}
 			ctx := queuecontext.WithMetadata(ctx, meta)
 			batch := model.Batch{event}
-			// If a record can't be processed, no retries are attempted and the
-			// record is lost. https://github.com/elastic/apm-queue/issues/118.
+			// If a record can't be processed, no retries are attempted and it
+			// may be lost. https://github.com/elastic/apm-queue/issues/118.
 			if err := pc.processor.ProcessBatch(ctx, &batch); err != nil {
 				logger.Error("data loss: unable to process event",
 					zap.Error(err),
 					zap.Int64("offset", msg.Offset),
 					zap.Any("headers", meta),
 				)
+				switch pc.delivery {
+				case apmqueue.AtLeastOnceDeliveryType:
+					continue
+				}
 			}
 			last = i
 		}
-		// Only commit the records when at least a record has been decoded when
+		// Only commit the records when at least a record has been processed when
 		// AtLeastOnceDeliveryType is set.
 		if pc.delivery == apmqueue.AtLeastOnceDeliveryType && last >= 0 {
 			lastRecord := records[last]
