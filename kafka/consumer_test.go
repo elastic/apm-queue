@@ -249,6 +249,15 @@ func TestConsumerDelivery(t *testing.T) {
 			processed: 11,
 			errored:   1,
 		},
+		"1_produced_1_poll_ALOD": {
+			deliveryType:   apmqueue.AtLeastOnceDeliveryType,
+			initialRecords: 1,
+			maxPollRecords: 1,
+			lastRecords:    0,
+
+			processed: 1,
+			errored:   1,
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
