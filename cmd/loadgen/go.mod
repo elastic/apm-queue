@@ -3,7 +3,7 @@ module github.com/elastic/apm-queue/cmd/loadgen
 go 1.20
 
 require (
-	github.com/elastic/apm-data v0.1.1-0.20230509085043-ae7c428c95ea
+	github.com/elastic/apm-data v0.1.1-0.20230510134320-87e2f1870ee1
 	github.com/elastic/apm-queue v0.0.0-20230411104029-b18d2183e04a
 	github.com/google/uuid v1.3.0
 	go.elastic.co/apm/module/apmzap/v2 v2.4.1
@@ -58,7 +58,7 @@ require (
 	golang.org/x/sys v0.7.0 // indirect
 	golang.org/x/text v0.9.0 // indirect
 	golang.org/x/tools v0.6.0 // indirect
-	google.golang.org/api v0.121.0 // indirect
+	google.golang.org/api v0.122.0 // indirect
 	google.golang.org/appengine v1.6.7 // indirect
 	google.golang.org/genproto v0.0.0-20230410155749-daa745c078e1 // indirect
 	google.golang.org/grpc v1.54.0 // indirect
