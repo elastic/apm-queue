@@ -3,7 +3,7 @@ module github.com/elastic/apm-queue/systemtest
 go 1.20
 
 require (
-	github.com/elastic/apm-data v0.1.1-0.20230509085043-ae7c428c95ea
+	github.com/elastic/apm-data v0.1.1-0.20230510134320-87e2f1870ee1
 	github.com/elastic/apm-queue v0.0.0-20230412171009-9717da3b23c4
 	github.com/foxcpp/go-mockdns v1.0.0
 	github.com/hashicorp/hc-install v0.5.1
@@ -59,7 +59,7 @@ require (
 	golang.org/x/sys v0.7.0 // indirect
 	golang.org/x/text v0.9.0 // indirect
 	golang.org/x/tools v0.8.0 // indirect
-	google.golang.org/api v0.121.0 // indirect
+	google.golang.org/api v0.122.0 // indirect
 	google.golang.org/appengine v1.6.7 // indirect
 	google.golang.org/genproto v0.0.0-20230410155749-daa745c078e1 // indirect
 	google.golang.org/grpc v1.54.0 // indirect
