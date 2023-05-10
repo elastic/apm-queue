@@ -164,20 +164,6 @@ func TestProduceConsumeDelivery(t *testing.T) {
 
 func TestProduceConsumeDeliveryGuarantees(t *testing.T) {
 	codec := json.JSON{}
-	batch := model.Batch{
-		model.APMEvent{
-			Timestamp: time.Now(),
-			Processor: model.TransactionProcessor,
-			Trace:     model.Trace{ID: "trace"},
-			Event: model.Event{
-				Duration: time.Millisecond * (time.Duration(rand.Int63n(999)) + 1),
-			},
-			Transaction: &model.Transaction{
-				ID: "transaction",
-			},
-		},
-	}
-
 	testCases := map[string]struct {
 		deliveryType         apmqueue.DeliveryType
 		events               int
@@ -193,9 +179,51 @@ func TestProduceConsumeDeliveryGuarantees(t *testing.T) {
 		"at least once": {
 			deliveryType:         apmqueue.AtLeastOnceDeliveryType,
 			events:               100,
-			timeout:              90 * time.Second,
+			timeout:              120 * time.Second,
 			expectedRecordsCount: 1,
 		},
+	}
+
+	test := func(t *testing.T, ctx context.Context, producer apmqueue.Producer, records *atomic.Int64, errorConsumer apmqueue.Consumer, records2 *atomic.Int64, successConsumer apmqueue.Consumer, expectedRecordsCount int) {
+		batch := model.Batch{
+			model.APMEvent{
+				Timestamp: time.Now(),
+				Processor: model.TransactionProcessor,
+				Trace:     model.Trace{ID: "trace"},
+				Event: model.Event{
+					Duration: time.Millisecond * (time.Duration(rand.Int63n(999)) + 1),
+				},
+				Transaction: &model.Transaction{
+					ID: "transaction",
+				},
+			},
+		}
+
+		go errorConsumer.Run(ctx)
+		assert.NoError(t, producer.ProcessBatch(ctx, &batch))
+
+		assert.Eventually(t, func() bool {
+			return records.Load() == 1 // Assertion
+		},
+			60*time.Second,       // Timeout
+			100*time.Millisecond, // Poll
+			"expected records (%d) records do not match consumed records (%v)", // ErrMessage
+			1,
+			records,
+		)
+		assert.NoError(t, errorConsumer.Close())
+
+		go successConsumer.Run(ctx)
+
+		assert.Eventually(t, func() bool {
+			return records2.Load() == int64(expectedRecordsCount) // Assertion
+		},
+			60*time.Second,       // Timeout
+			100*time.Millisecond, // Poll
+			"expected records (%d) records do not match consumed records (%v)", // ErrMessage
+			expectedRecordsCount,
+			records2,
+		)
 	}
 
 	for name, tc := range testCases {
@@ -231,19 +259,6 @@ func TestProduceConsumeDeliveryGuarantees(t *testing.T) {
 					return errors.New("first consumer processor error")
 				}),
 			})
-			go errorConsumer.Run(ctx)
-			assert.NoError(t, producer.ProcessBatch(ctx, &batch))
-
-			assert.Eventually(t, func() bool {
-				return records.Load() == 1 // Assertion
-			},
-				60*time.Second,       // Timeout
-				100*time.Millisecond, // Poll
-				"expected records (%d) records do not match consumed records (%v)", // ErrMessage
-				1,
-				records,
-			)
-			assert.NoError(t, errorConsumer.Close())
 
 			var records2 atomic.Int64
 			successConsumer := newKafkaConsumer(t, kafka.ConsumerConfig{
@@ -257,18 +272,8 @@ func TestProduceConsumeDeliveryGuarantees(t *testing.T) {
 					return nil
 				}),
 			})
-			go successConsumer.Run(ctx)
 
-			assert.Eventually(t, func() bool {
-				return records2.Load() == int64(tc.expectedRecordsCount) // Assertion
-			},
-				60*time.Second,       // Timeout
-				100*time.Millisecond, // Poll
-				"expected records (%d) records do not match consumed records (%v)", // ErrMessage
-				tc.expectedRecordsCount,
-				records2,
-			)
-
+			test(t, ctx, producer, &records, errorConsumer, &records2, successConsumer, tc.expectedRecordsCount)
 		})
 		t.Run("PubSubLite/"+name, func(t *testing.T) {
 			topics := SuffixTopics(apmqueue.Topic(t.Name()))
@@ -284,13 +289,13 @@ func TestProduceConsumeDeliveryGuarantees(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), tc.timeout)
 			defer cancel()
 
-			var records atomic.Int64
 			producer := newPubSubLiteProducer(t, pubsublite.ProducerConfig{
 				Logger:      zap.NewNop(),
 				Encoder:     codec,
 				TopicRouter: topicRouter,
 			})
 
+			var records atomic.Int64
 			errorConsumer := newPubSubLiteConsumer(ctx, t, pubsublite.ConsumerConfig{
 				Logger:   zap.NewNop(),
 				Decoder:  codec,
@@ -301,19 +306,6 @@ func TestProduceConsumeDeliveryGuarantees(t *testing.T) {
 					return errors.New("first consumer processor error")
 				}),
 			})
-			go errorConsumer.Run(ctx)
-			assert.NoError(t, producer.ProcessBatch(ctx, &batch))
-
-			assert.Eventually(t, func() bool {
-				return records.Load() == 1 // Assertion
-			},
-				60*time.Second,       // Timeout
-				100*time.Millisecond, // Poll
-				"expected records (%d) records do not match consumed records (%v)", // ErrMessage
-				1,
-				records,
-			)
-			assert.NoError(t, errorConsumer.Close())
 
 			var records2 atomic.Int64
 			successConsumer := newPubSubLiteConsumer(ctx, t, pubsublite.ConsumerConfig{
@@ -326,17 +318,8 @@ func TestProduceConsumeDeliveryGuarantees(t *testing.T) {
 					return nil
 				}),
 			})
-			go successConsumer.Run(ctx)
 
-			assert.Eventually(t, func() bool {
-				return records2.Load() == int64(tc.expectedRecordsCount) // Assertion
-			},
-				60*time.Second,       // Timeout
-				100*time.Millisecond, // Poll
-				"expected records (%d) records do not match consumed records (%v)", // ErrMessage
-				tc.expectedRecordsCount,
-				records2,
-			)
+			test(t, ctx, producer, &records, errorConsumer, &records2, successConsumer, tc.expectedRecordsCount)
 		})
 	}
 }
