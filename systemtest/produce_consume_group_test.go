@@ -37,6 +37,8 @@ import (
 	"github.com/elastic/apm-queue/pubsublite"
 )
 
+// TestProduceConsumeDelivery verifies that a failure to process an event won't affect the
+// other events in the same batch.
 func TestProduceConsumeDelivery(t *testing.T) {
 	logger := NoLevelLogger(t, zap.ErrorLevel)
 
