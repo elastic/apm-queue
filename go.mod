@@ -5,7 +5,7 @@ go 1.20
 require (
 	cloud.google.com/go/pubsub v1.30.1
 	cloud.google.com/go/pubsublite v1.8.0
-	github.com/elastic/apm-data v0.1.1-0.20230502063930-debaa7cc7724
+	github.com/elastic/apm-data v0.1.1-0.20230509085043-ae7c428c95ea
 	github.com/stretchr/testify v1.8.2
 	github.com/twmb/franz-go v1.13.3
 	github.com/twmb/franz-go/pkg/kadm v1.8.1
@@ -17,7 +17,7 @@ require (
 	go.opentelemetry.io/otel/trace v1.15.1
 	go.uber.org/zap v1.24.0
 	golang.org/x/sync v0.2.0
-	google.golang.org/api v0.121.0
+	google.golang.org/api v0.122.0
 )
 
 require (
