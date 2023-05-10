@@ -163,8 +163,6 @@ func TestProduceConsumeDelivery(t *testing.T) {
 }
 
 func TestProduceConsumeDeliveryGuarantees(t *testing.T) {
-	logger := NoLevelLogger(t, zap.ErrorLevel)
-
 	codec := json.JSON{}
 	batch := model.Batch{
 		model.APMEvent{
@@ -216,14 +214,14 @@ func TestProduceConsumeDeliveryGuarantees(t *testing.T) {
 			defer cancel()
 
 			producer := newKafkaProducer(t, kafka.ProducerConfig{
-				Logger:      logger,
+				Logger:      zap.NewNop(),
 				Encoder:     codec,
 				TopicRouter: topicRouter,
 			})
 
 			var records atomic.Int64
 			errorConsumer := newKafkaConsumer(t, kafka.ConsumerConfig{
-				Logger:   logger,
+				Logger:   zap.NewNop(),
 				Decoder:  codec,
 				Topics:   topics,
 				GroupID:  t.Name(),
@@ -249,7 +247,7 @@ func TestProduceConsumeDeliveryGuarantees(t *testing.T) {
 
 			var records2 atomic.Int64
 			successConsumer := newKafkaConsumer(t, kafka.ConsumerConfig{
-				Logger:   logger,
+				Logger:   zap.NewNop(),
 				Decoder:  codec,
 				Topics:   topics,
 				GroupID:  t.Name(),
@@ -288,13 +286,13 @@ func TestProduceConsumeDeliveryGuarantees(t *testing.T) {
 
 			var records atomic.Int64
 			producer := newPubSubLiteProducer(t, pubsublite.ProducerConfig{
-				Logger:      logger,
+				Logger:      zap.NewNop(),
 				Encoder:     codec,
 				TopicRouter: topicRouter,
 			})
 
 			errorConsumer := newPubSubLiteConsumer(ctx, t, pubsublite.ConsumerConfig{
-				Logger:   logger,
+				Logger:   zap.NewNop(),
 				Decoder:  codec,
 				Topics:   topics,
 				Delivery: tc.deliveryType,
@@ -319,7 +317,7 @@ func TestProduceConsumeDeliveryGuarantees(t *testing.T) {
 
 			var records2 atomic.Int64
 			successConsumer := newPubSubLiteConsumer(ctx, t, pubsublite.ConsumerConfig{
-				Logger:   logger,
+				Logger:   zap.NewNop(),
 				Decoder:  codec,
 				Topics:   topics,
 				Delivery: tc.deliveryType,
