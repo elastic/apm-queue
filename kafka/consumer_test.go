@@ -369,7 +369,7 @@ func TestConsumerDelivery(t *testing.T) {
 	}
 }
 
-func TestGracefulSutdown(t *testing.T) {
+func TestConsumerGracefulShutdown(t *testing.T) {
 	test := func(t testing.TB, dt apmqueue.DeliveryType) {
 		client, brokers := newClusterWithTopics(t, "topic")
 		var codec json.JSON
