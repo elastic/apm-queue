@@ -112,7 +112,7 @@ func TestProduceConsumeDelivery(t *testing.T) {
 				timeout: tc.timeout,
 			})
 		})
-		t.Run("PubSubLite_"+name, func(t *testing.T) {
+		t.Run("PubSubLite/"+name, func(t *testing.T) {
 			topics := SuffixTopics(apmqueue.Topic(t.Name()))
 			topicRouter := func(event model.APMEvent) apmqueue.Topic {
 				return apmqueue.Topic(topics[0])
