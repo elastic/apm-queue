@@ -65,7 +65,6 @@ func TestProduceConsumeDelivery(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run("Kafka/"+name, func(t *testing.T) {
-			logger := NoLevelLogger(t, zap.ErrorLevel)
 			topics := SuffixTopics(apmqueue.Topic(t.Name()))
 			topicRouter := func(event model.APMEvent) apmqueue.Topic {
 				return apmqueue.Topic(topics[0])
@@ -86,12 +85,12 @@ func TestProduceConsumeDelivery(t *testing.T) {
 				expectedRecordsCount: tc.expectedRecordsCount,
 				records:              &records,
 				producer: newKafkaProducer(t, kafka.ProducerConfig{
-					Logger:      logger,
+					Logger:      zap.NewNop(),
 					Encoder:     json.JSON{},
 					TopicRouter: topicRouter,
 				}),
 				consumer: newKafkaConsumer(t, kafka.ConsumerConfig{
-					Logger:   logger,
+					Logger:   zap.NewNop(),
 					Decoder:  json.JSON{},
 					Topics:   topics,
 					GroupID:  t.Name(),
@@ -114,7 +113,6 @@ func TestProduceConsumeDelivery(t *testing.T) {
 			})
 		})
 		t.Run("PubSubLite/"+name, func(t *testing.T) {
-			logger := NoLevelLogger(t, zap.ErrorLevel)
 			topics := SuffixTopics(apmqueue.Topic(t.Name()))
 			topicRouter := func(event model.APMEvent) apmqueue.Topic {
 				return apmqueue.Topic(topics[0])
@@ -135,12 +133,12 @@ func TestProduceConsumeDelivery(t *testing.T) {
 				expectedRecordsCount: tc.expectedRecordsCount,
 				records:              &records,
 				producer: newPubSubLiteProducer(t, pubsublite.ProducerConfig{
-					Logger:      logger,
+					Logger:      zap.NewNop(),
 					Encoder:     json.JSON{},
 					TopicRouter: topicRouter,
 				}),
 				consumer: newPubSubLiteConsumer(ctx, t, pubsublite.ConsumerConfig{
-					Logger:   logger,
+					Logger:   zap.NewNop(),
 					Decoder:  json.JSON{},
 					Topics:   topics,
 					Delivery: tc.deliveryType,
