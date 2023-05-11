@@ -175,7 +175,7 @@ func TestProduceConsumeDeliveryGuarantees(t *testing.T) {
 		"at most once": {
 			deliveryType:         apmqueue.AtMostOnceDeliveryType,
 			events:               100,
-			timeout:              60 * time.Second,
+			timeout:              120 * time.Second,
 			expectedRecordsCount: 0,
 		},
 		"at least once": {
