@@ -27,11 +27,10 @@ import (
 	"log"
 	"net"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"strings"
 	"sync"
 
+	"github.com/elastic/apm-queue/systemtest/portforwarder"
 	"github.com/foxcpp/go-mockdns"
 	"github.com/hashicorp/terraform-exec/tfexec"
 
@@ -162,12 +161,13 @@ func ProvisionKafka(ctx context.Context, cfg KafkaConfig) error {
 		runOnce.Do(func() {
 			// NOTE(marclop) These assume terraform uses the strimzi operator.
 			if cfg.PortForwardResource == "" {
-				cfg.PortForwardResource = fmt.Sprintf("service/%s-kafka-bootstrap", cfg.Name)
+				cfg.PortForwardResource = fmt.Sprintf("%s-kafka-bootstrap", cfg.Name)
 			}
 			if cfg.PortForwardMapping == "" {
 				cfg.PortForwardMapping = "9093:9093"
 			}
-			err = kubectlForwardKafka(cfg.Namespace,
+			err = portforwardKafka(
+				cfg.Namespace,
 				cfg.Name,
 				cfg.PortForwardResource,
 				cfg.PortForwardMapping,
@@ -181,13 +181,7 @@ func ProvisionKafka(ctx context.Context, cfg KafkaConfig) error {
 	return nil
 }
 
-func kubectlForwardKafka(ns, name, service, mapping string) error {
-	cmd := exec.Command("kubectl", "port-forward", "-n", ns, service, mapping)
-	cmdStr := strings.Join(cmd.Args, " ")
-	logger().Infof("Running %s...", cmdStr)
-	if err := cmd.Start(); err != nil {
-		return err
-	}
+func portforwardKafka(ns, name, service, mapping string) error {
 	// Patch zone for Kafka client calls to be correctly resolved.
 	srv, err := mockdns.NewServerWithLogger(map[string]mockdns.Zone{
 		// NOTE(marclop) Assumes terraform uses the strimzi operator.
@@ -203,26 +197,27 @@ func kubectlForwardKafka(ns, name, service, mapping string) error {
 		srv.PatchNet(resolver)
 		mockResolver = resolver
 	}
-	c := make(chan struct{})
+
+	stopCh := make(chan struct{})
+	pfReq := portforwarder.Request{
+		KubeCfg:     "~/.kube/config",
+		ServiceName: service,
+		Namespace:   ns,
+		PortMapping: mapping,
+	}
+	pf, err := pfReq.New(context.Background(), stopCh)
+	if err != nil {
+		return err
+	}
 	go func() {
-		err := cmd.Wait() // Run the forwarder
-		if err == nil {
-			return
-		}
-		select {
-		case <-c:
-		default:
-			logger().Errorf("%s exited before tests were completed: %v",
-				cmdStr, err.Error(),
-			)
+		if err := pf.ForwardPorts(); err != nil {
+			logger().Fatalf("port forward terminated unexpectedly: %v", err)
 		}
 	}()
+
 	RegisterDestroy(ns+service+mapping, func() {
-		logger().Infof("Stopping %s...", cmdStr)
 		srv.Close()
-		close(c)
-		cmd.Process.Kill()
-		cmd.Process.Wait()
+		close(stopCh)
 	})
 	return nil
 }
