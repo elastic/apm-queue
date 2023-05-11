@@ -19,7 +19,6 @@ clean:
 test: go.mod
 	go test -v ./...
 
-
 MODULE_DEPS=$(sort $(shell go list -deps -tags=darwin,linux,windows -f "{{with .Module}}{{if not .Main}}{{.Path}}{{end}}{{end}}"))
 
 notice: NOTICE.txt
