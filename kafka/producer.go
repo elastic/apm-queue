@@ -214,6 +214,7 @@ func NewProducer(cfg ProducerConfig) (*Producer, error) {
 func (p *Producer) Close() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	p.client.Flush(context.Background())
 	p.client.Close()
 	return nil
 }
