@@ -40,8 +40,6 @@ import (
 // TestProduceConsumeDelivery verifies that a failure to process an event won't affect the
 // other events in the same batch.
 func TestProduceConsumeDelivery(t *testing.T) {
-	logger := NoLevelLogger(t, zap.ErrorLevel)
-
 	testCases := map[string]struct {
 		deliveryType         apmqueue.DeliveryType
 		events               int
@@ -67,6 +65,7 @@ func TestProduceConsumeDelivery(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run("Kafka/"+name, func(t *testing.T) {
+			logger := NoLevelLogger(t, zap.ErrorLevel)
 			topics := SuffixTopics(apmqueue.Topic(t.Name()))
 			topicRouter := func(event model.APMEvent) apmqueue.Topic {
 				return apmqueue.Topic(topics[0])
@@ -115,6 +114,7 @@ func TestProduceConsumeDelivery(t *testing.T) {
 			})
 		})
 		t.Run("PubSubLite/"+name, func(t *testing.T) {
+			logger := NoLevelLogger(t, zap.ErrorLevel)
 			topics := SuffixTopics(apmqueue.Topic(t.Name()))
 			topicRouter := func(event model.APMEvent) apmqueue.Topic {
 				return apmqueue.Topic(topics[0])
