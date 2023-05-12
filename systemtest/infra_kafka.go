@@ -30,9 +30,10 @@ import (
 	"path/filepath"
 	"sync"
 
-	"github.com/elastic/apm-queue/systemtest/portforwarder"
 	"github.com/foxcpp/go-mockdns"
 	"github.com/hashicorp/terraform-exec/tfexec"
+
+	"github.com/elastic/apm-queue/systemtest/portforwarder"
 
 	apmqueue "github.com/elastic/apm-queue"
 )
