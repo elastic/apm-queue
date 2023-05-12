@@ -64,7 +64,7 @@ func (r Request) New(
 
 	pod, err := r.getPod(ctx, cfg)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get pod for the give service: %w", err)
+		return nil, fmt.Errorf("failed to get pod for service %s: %w", r.ServiceName, err)
 	}
 
 	transport, upgrader, err := spdy.RoundTripperFor(cfg)

@@ -167,6 +167,7 @@ func ProvisionKafka(ctx context.Context, cfg KafkaConfig) error {
 				cfg.PortForwardMapping = "9093:9093"
 			}
 			err = portforwardKafka(
+				ctx,
 				cfg.Namespace,
 				cfg.Name,
 				cfg.PortForwardResource,
@@ -181,7 +182,7 @@ func ProvisionKafka(ctx context.Context, cfg KafkaConfig) error {
 	return nil
 }
 
-func portforwardKafka(ns, name, service, mapping string) error {
+func portforwardKafka(ctx context.Context, ns, name, service, mapping string) error {
 	// Patch zone for Kafka client calls to be correctly resolved.
 	srv, err := mockdns.NewServerWithLogger(map[string]mockdns.Zone{
 		// NOTE(marclop) Assumes terraform uses the strimzi operator.
@@ -219,6 +220,13 @@ func portforwardKafka(ns, name, service, mapping string) error {
 		srv.Close()
 		close(stopCh)
 	})
+
+	// wait for port forward to be ready
+	select {
+	case <-ctx.Done():
+		return fmt.Errorf("failed while waiting for port forward to be ready: %w", err)
+	case <-pf.Ready:
+	}
 	return nil
 }
 
