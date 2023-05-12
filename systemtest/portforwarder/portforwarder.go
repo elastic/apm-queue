@@ -43,11 +43,11 @@ type Request struct {
 	PortMapping string
 }
 
-// New creates a port-forwarder for the give port forwarding request
-// and returns once the ports are ready. If the ports fail to be
-// ready it returns an error. The resulting forwarder can be run by
-// calling `ForwardPorts`. The forwarder will stop after the `stopCh`
-// is closed.
+// New creates a port-forwarder for the given port forwarding request.
+// The returned port-forwarder can be started by calling `ForwardPorts`.
+// The forwarder will stop after the `stopCh` is closed. `Ready` field
+// in the returned forwarder can be used to check the readiness of the
+// forwarded ports, `Ready` will be closed when the ports are ready.
 func (r Request) New(
 	ctx context.Context,
 	stopCh chan struct{},
