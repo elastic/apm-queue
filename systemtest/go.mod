@@ -14,7 +14,7 @@ require (
 	golang.org/x/sync v0.2.0
 	k8s.io/api v0.27.1
 	k8s.io/apimachinery v0.27.1
-	k8s.io/client-go v0.27.1
+	k8s.io/client-go v11.0.0+incompatible
 )
 
 require (
