@@ -21,6 +21,8 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -33,6 +35,8 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+	"go.uber.org/zap/zaptest"
 
 	"github.com/elastic/apm-data/model"
 	apmqueue "github.com/elastic/apm-queue"
@@ -155,6 +159,105 @@ func TestNewProducerBasic(t *testing.T) {
 	test(t, false)
 }
 
+type stub struct {
+	wait   chan struct{}
+	signal chan struct{}
+}
+
+func (s *stub) MarshalJSON() ([]byte, error) {
+	close(s.signal)
+	<-s.wait
+	return []byte("null"), nil
+}
+
+func TestProducerGracefulShutdown(t *testing.T) {
+	test := func(t testing.TB, dt apmqueue.DeliveryType, syncProducer bool) {
+		_, brokers := newClusterWithTopics(t, "topic")
+		var codec json.JSON
+		var processed atomic.Int64
+		producer := newProducer(t, ProducerConfig{
+			Brokers: brokers,
+			Logger:  zaptest.NewLogger(t, zaptest.Level(zapcore.DebugLevel)),
+			Encoder: codec,
+			Sync:    syncProducer,
+			TopicRouter: func(event model.APMEvent) apmqueue.Topic {
+				return apmqueue.Topic("topic")
+			},
+		})
+		consumer := newConsumer(t, ConsumerConfig{
+			Brokers:  brokers,
+			GroupID:  "group",
+			Topics:   []apmqueue.Topic{"topic"},
+			Decoder:  codec,
+			Delivery: dt,
+			Logger:   zaptest.NewLogger(t, zaptest.Level(zapcore.DebugLevel)),
+			Processor: model.ProcessBatchFunc(func(ctx context.Context, b *model.Batch) error {
+				processed.Add(1)
+				return nil
+			}),
+		})
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		// This is a workaround to hook into the processing code using json marshalling.
+		// The goal is try to close the producer before the batch is sent to kafka but after the ProcessBatch
+		// method is called.
+		// We are using two goroutines because both ProcessBatch and Close will block waiting on each other.
+		// Brief walkthrough:
+		// - Call the producer and start processing the batch
+		// - json encoding will block and a signal will be sent so that we know processing started
+		// - wait for the signal and then try to close the producer in a separate goroutine.
+		// - closing will block until processing finished to avoid losing events
+		var wg sync.WaitGroup
+		wg.Add(2)
+		wait := make(chan struct{})
+		signal := make(chan struct{})
+		go func() {
+			defer wg.Done()
+			assert.NoError(t, producer.ProcessBatch(ctx, &model.Batch{
+				model.APMEvent{Transaction: &model.Transaction{ID: "1", Custom: map[string]any{"foo": &stub{wait: wait, signal: signal}}}},
+			}))
+		}()
+		<-signal
+		go func() {
+			defer wg.Done()
+			close(wait)
+			assert.NoError(t, producer.Close())
+		}()
+
+		// Wait for both goroutines to finish
+		// Ideally the close goroutine is waiting for the producer to finish publishing the events.
+		wg.Wait()
+
+		// Run a consumer that fetches from kafka to verify that the events are there.
+		go func() { consumer.Run(ctx) }()
+		assert.Eventually(t, func() bool {
+			return processed.Load() == 1
+		}, 6*time.Second, time.Millisecond, processed)
+	}
+
+	// use a variable for readability
+	sync := true
+
+	t.Run("AtLeastOnceDelivery", func(t *testing.T) {
+		t.Run("sync", func(t *testing.T) {
+			test(t, apmqueue.AtLeastOnceDeliveryType, sync)
+		})
+		t.Run("async", func(t *testing.T) {
+			test(t, apmqueue.AtLeastOnceDeliveryType, !sync)
+		})
+	})
+	t.Run("AtMostOnceDelivery", func(t *testing.T) {
+		t.Run("sync", func(t *testing.T) {
+			test(t, apmqueue.AtMostOnceDeliveryType, sync)
+		})
+		t.Run("async", func(t *testing.T) {
+			test(t, apmqueue.AtMostOnceDeliveryType, !sync)
+		})
+	})
+}
+
 func newClusterWithTopics(t testing.TB, topics ...apmqueue.Topic) (*kgo.Client, []string) {
 	t.Helper()
 	cluster, err := kfake.NewCluster()
@@ -176,4 +279,13 @@ func newClusterWithTopics(t testing.TB, topics ...apmqueue.Topic) (*kgo.Client, 
 	_, err = kadmClient.CreateTopics(context.Background(), 2, 1, nil, strTopic...)
 	require.NoError(t, err)
 	return client, addrs
+}
+
+func newProducer(t testing.TB, cfg ProducerConfig) *Producer {
+	producer, err := NewProducer(cfg)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		assert.NoError(t, producer.Close())
+	})
+	return producer
 }
