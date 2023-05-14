@@ -18,7 +18,7 @@ require (
 	cloud.google.com/go/iam v0.13.0 // indirect
 	cloud.google.com/go/longrunning v0.4.1 // indirect
 	cloud.google.com/go/pubsub v1.30.1 // indirect
-	cloud.google.com/go/pubsublite v1.8.0 // indirect
+	cloud.google.com/go/pubsublite v1.8.1 // indirect
 	github.com/armon/go-radix v1.0.0 // indirect
 	github.com/elastic/go-licenser v0.4.0 // indirect
 	github.com/elastic/go-sysinfo v1.7.1 // indirect
@@ -61,7 +61,7 @@ require (
 	google.golang.org/api v0.122.0 // indirect
 	google.golang.org/appengine v1.6.7 // indirect
 	google.golang.org/genproto v0.0.0-20230410155749-daa745c078e1 // indirect
-	google.golang.org/grpc v1.54.0 // indirect
+	google.golang.org/grpc v1.55.0 // indirect
 	google.golang.org/protobuf v1.30.0 // indirect
 	howett.net/plist v1.0.0 // indirect
 )
