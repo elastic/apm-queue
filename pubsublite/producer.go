@@ -159,6 +159,11 @@ func NewProducer(cfg ProducerConfig) (*Producer, error) {
 func (p *Producer) Close() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	select{
+	case <-p.closed:
+		return nil
+	default:
+	}
 	p.producers.Range(func(key, value any) bool {
 		value.(*pscompat.PublisherClient).Stop()
 		return true
