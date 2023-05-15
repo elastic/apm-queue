@@ -65,6 +65,7 @@ func TestProduceConsumeDelivery(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run("Kafka/"+name, func(t *testing.T) {
+			logger := zap.NewNop()
 			topics := SuffixTopics(apmqueue.Topic(t.Name()))
 			topicRouter := func(event model.APMEvent) apmqueue.Topic {
 				return apmqueue.Topic(topics[0])
@@ -85,12 +86,12 @@ func TestProduceConsumeDelivery(t *testing.T) {
 				expectedRecordsCount: tc.expectedRecordsCount,
 				records:              &records,
 				producer: newKafkaProducer(t, kafka.ProducerConfig{
-					Logger:      zap.NewNop(),
+					Logger:      logger,
 					Encoder:     json.JSON{},
 					TopicRouter: topicRouter,
 				}),
 				consumer: newKafkaConsumer(t, kafka.ConsumerConfig{
-					Logger:   zap.NewNop(),
+					Logger:   logger,
 					Decoder:  json.JSON{},
 					Topics:   topics,
 					GroupID:  t.Name(),
@@ -113,6 +114,7 @@ func TestProduceConsumeDelivery(t *testing.T) {
 			})
 		})
 		t.Run("PubSubLite/"+name, func(t *testing.T) {
+			logger := zap.NewNop()
 			topics := SuffixTopics(apmqueue.Topic(t.Name()))
 			topicRouter := func(event model.APMEvent) apmqueue.Topic {
 				return apmqueue.Topic(topics[0])
@@ -133,12 +135,12 @@ func TestProduceConsumeDelivery(t *testing.T) {
 				expectedRecordsCount: tc.expectedRecordsCount,
 				records:              &records,
 				producer: newPubSubLiteProducer(t, pubsublite.ProducerConfig{
-					Logger:      zap.NewNop(),
+					Logger:      logger,
 					Encoder:     json.JSON{},
 					TopicRouter: topicRouter,
 				}),
 				consumer: newPubSubLiteConsumer(ctx, t, pubsublite.ConsumerConfig{
-					Logger:   zap.NewNop(),
+					Logger:   logger,
 					Decoder:  json.JSON{},
 					Topics:   topics,
 					Delivery: tc.deliveryType,
@@ -228,6 +230,7 @@ func TestProduceConsumeDeliveryGuarantees(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run("Kafka/"+name, func(t *testing.T) {
+			logger := zap.NewNop()
 			topics := SuffixTopics(apmqueue.Topic(t.Name()))
 			topicRouter := func(event model.APMEvent) apmqueue.Topic {
 				return apmqueue.Topic(topics[0])
@@ -242,14 +245,14 @@ func TestProduceConsumeDeliveryGuarantees(t *testing.T) {
 			defer cancel()
 
 			producer := newKafkaProducer(t, kafka.ProducerConfig{
-				Logger:      zap.NewNop(),
+				Logger:      logger,
 				Encoder:     codec,
 				TopicRouter: topicRouter,
 			})
 
 			var records atomic.Int64
 			errorConsumer := newKafkaConsumer(t, kafka.ConsumerConfig{
-				Logger:   zap.NewNop(),
+				Logger:   logger,
 				Decoder:  codec,
 				Topics:   topics,
 				GroupID:  t.Name(),
@@ -262,7 +265,7 @@ func TestProduceConsumeDeliveryGuarantees(t *testing.T) {
 
 			var records2 atomic.Int64
 			successConsumer := newKafkaConsumer(t, kafka.ConsumerConfig{
-				Logger:   zap.NewNop(),
+				Logger:   logger,
 				Decoder:  codec,
 				Topics:   topics,
 				GroupID:  t.Name(),
@@ -276,6 +279,7 @@ func TestProduceConsumeDeliveryGuarantees(t *testing.T) {
 			test(t, ctx, producer, &records, errorConsumer, &records2, successConsumer, tc.expectedRecordsCount)
 		})
 		t.Run("PubSubLite/"+name, func(t *testing.T) {
+			logger := zap.NewNop()
 			topics := SuffixTopics(apmqueue.Topic(t.Name()))
 			topicRouter := func(event model.APMEvent) apmqueue.Topic {
 				return apmqueue.Topic(topics[0])
@@ -290,14 +294,14 @@ func TestProduceConsumeDeliveryGuarantees(t *testing.T) {
 			defer cancel()
 
 			producer := newPubSubLiteProducer(t, pubsublite.ProducerConfig{
-				Logger:      zap.NewNop(),
+				Logger:      logger,
 				Encoder:     codec,
 				TopicRouter: topicRouter,
 			})
 
 			var records atomic.Int64
 			errorConsumer := newPubSubLiteConsumer(ctx, t, pubsublite.ConsumerConfig{
-				Logger:   zap.NewNop(),
+				Logger:   logger,
 				Decoder:  codec,
 				Topics:   topics,
 				Delivery: tc.deliveryType,
@@ -309,7 +313,7 @@ func TestProduceConsumeDeliveryGuarantees(t *testing.T) {
 
 			var records2 atomic.Int64
 			successConsumer := newPubSubLiteConsumer(ctx, t, pubsublite.ConsumerConfig{
-				Logger:   zap.NewNop(),
+				Logger:   logger,
 				Decoder:  codec,
 				Topics:   topics,
 				Delivery: tc.deliveryType,
