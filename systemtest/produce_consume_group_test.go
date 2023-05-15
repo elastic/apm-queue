@@ -203,6 +203,7 @@ func TestProduceConsumeDeliveryGuarantees(t *testing.T) {
 
 		go errorConsumer.Run(ctx)
 		assert.NoError(t, producer.ProcessBatch(ctx, &batch))
+		assert.NoError(t, producer.Close())
 
 		assert.Eventually(t, func() bool {
 			return records.Load() == 1 // Assertion
