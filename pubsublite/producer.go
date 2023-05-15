@@ -159,7 +159,7 @@ func NewProducer(cfg ProducerConfig) (*Producer, error) {
 func (p *Producer) Close() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	select{
+	select {
 	case <-p.closed:
 		return nil
 	default:
