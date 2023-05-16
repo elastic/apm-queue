@@ -201,7 +201,10 @@ func NewConsumer(ctx context.Context, cfg ConsumerConfig) (*Consumer, error) {
 func (c *Consumer) Close() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.stopSubscriber()
+	if c.stopSubscriber != nil {
+		c.cfg.Logger.Info("closing pubsublite consumer...")
+		c.stopSubscriber()
+	}
 	return nil
 }
 
@@ -228,6 +231,7 @@ func (c *Consumer) Run(ctx context.Context) error {
 				))
 				// Keep attempting to receive until a fatal error is received.
 				if errors.Is(err, pscompat.ErrBackendUnavailable) {
+					c.cfg.Logger.Info("transient error found, re-starting consumer...", zap.Error(err))
 					continue
 				}
 				return err
@@ -283,10 +287,12 @@ func (c *consumer) processMessage(ctx context.Context, msg *pubsub.Message) {
 					attempt += a.(int)
 				}
 				if attempt > 2 {
+					c.logger.Info("re-processing limit exceeded, discarding event", zap.Int("attempt", attempt))
 					msg.Nack()
 					c.failed.Delete(msg.ID)
 					return
 				}
+				c.logger.Info("storing message id for re-processing", zap.Int("attempt", attempt))
 				c.failed.Store(msg.ID, attempt)
 				return
 			}
