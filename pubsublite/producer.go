@@ -166,6 +166,7 @@ func (p *Producer) Close() error {
 	}
 	p.producers.Range(func(key, value any) bool {
 		value.(*pscompat.PublisherClient).Stop()
+		p.producers.Delete(key)
 		return true
 	})
 	close(p.closed)

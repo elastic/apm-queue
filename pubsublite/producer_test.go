@@ -18,6 +18,7 @@
 package pubsublite
 
 import (
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -57,4 +58,20 @@ func TestTopicString(t *testing.T) {
 			assert.Equal(t, tt.want, formatTopic(tt.Project, tt.Region, tt.Topic))
 		})
 	}
+}
+
+func TestProducerConcurrentClose(t *testing.T) {
+	producer := Producer{
+		closed:    make(chan struct{}),
+		responses: make(chan []resTopic),
+	}
+	var wg sync.WaitGroup
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			assert.NoError(t, producer.Close())
+		}()
+	}
+	wg.Wait()
 }
