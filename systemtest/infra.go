@@ -113,9 +113,10 @@ func SuffixTopics(topics ...apmqueue.Topic) []apmqueue.Topic {
 	suffix := RandomSuffix()
 	suffixed := make([]apmqueue.Topic, len(topics))
 	for i := range suffixed {
-		suffixed[i] = apmqueue.Topic(
-			fmt.Sprintf("%s.%s", strings.ToLower(string(topics[i])), suffix),
-		)
+		topic := fmt.Sprintf("%s.%s", strings.ToLower(string(topics[i])), suffix)
+		topic = strings.ReplaceAll(topic, "_", "-")
+		topic = strings.ReplaceAll(topic, "/", "-")
+		suffixed[i] = apmqueue.Topic(topic)
 	}
 	return suffixed
 }
