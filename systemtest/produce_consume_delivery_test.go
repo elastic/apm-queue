@@ -276,7 +276,6 @@ func TestConsumerDelivery(t *testing.T) {
 			)
 		})
 		t.Run("PubSubLite/"+name, func(t *testing.T) {
-			t.Skip()
 			topics := SuffixTopics(apmqueue.Topic(t.Name()))
 			require.NoError(t,
 				ProvisionPubSubLite(context.Background(), newPubSubLiteConfig(topics...)),
@@ -336,8 +335,7 @@ func TestConsumerDelivery(t *testing.T) {
 
 			cfg.Logger = baseLogger.Named("1")
 			waitCh := make(chan struct{})
-			cc, cancel := context.WithCancel(context.Background())
-			consumer := newPubSubLiteConsumer(cc, t, cfg)
+			consumer := newPubSubLiteConsumer(context.Background(), t, cfg)
 			go func() {
 				consumer.Run(ctx)
 				close(waitCh)
@@ -364,7 +362,7 @@ func TestConsumerDelivery(t *testing.T) {
 
 			assert.Eventually(t, func() bool {
 				return int(errored.Load()) == tc.maxPollRecords
-			}, 90*time.Second, time.Millisecond, errored)
+			}, 90*time.Second, time.Second, errored)
 
 			cancel()
 
