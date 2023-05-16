@@ -191,7 +191,7 @@ func TestProducerGracefulShutdown(t *testing.T) {
 			Decoder:  codec,
 			Delivery: dt,
 			Logger:   zaptest.NewLogger(t, zaptest.Level(zapcore.DebugLevel)),
-			Processor: model.ProcessBatchFunc(func(ctx context.Context, b *model.Batch) error {
+			Processor: model.ProcessBatchFunc(func(_ context.Context, _ *model.Batch) error {
 				processed.Add(1)
 				return nil
 			}),
@@ -256,6 +256,28 @@ func TestProducerGracefulShutdown(t *testing.T) {
 			test(t, apmqueue.AtMostOnceDeliveryType, !sync)
 		})
 	})
+}
+
+func TestProducerConcurrentClose(t *testing.T) {
+	_, brokers := newClusterWithTopics(t, "topic")
+	producer := newProducer(t, ProducerConfig{
+		Brokers: brokers,
+		Logger:  zap.NewNop(),
+		Encoder: json.JSON{},
+		TopicRouter: func(event model.APMEvent) apmqueue.Topic {
+			return "topic"
+		},
+	})
+
+	var wg sync.WaitGroup
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			assert.NoError(t, producer.Close())
+		}()
+	}
+	wg.Wait()
 }
 
 func newClusterWithTopics(t testing.TB, topics ...apmqueue.Topic) (*kgo.Client, []string) {

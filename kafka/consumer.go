@@ -245,6 +245,10 @@ func (c *Consumer) Run(ctx context.Context) error {
 // fetch polls the Kafka broker for new records up to cfg.MaxPollRecords.
 // Any errors returned by fetch should be considered fatal.
 func (c *Consumer) fetch(ctx context.Context) error {
+	// We need to grab the lock before pulling records to guarantee no events loss on shutdown.
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
 	fetches := c.client.PollRecords(ctx, c.cfg.MaxPollRecords)
 	defer c.client.AllowRebalance()
 
@@ -276,9 +280,6 @@ func (c *Consumer) fetch(ctx context.Context) error {
 			zap.Error(err), zap.String("topic", t), zap.Int32("partition", p),
 		)
 	})
-	// No need to grab the lock until we want to access `c.consumer`.
-	c.mu.RLock()
-	defer c.mu.RUnlock()
 	// Send partition records to be processed by its dedicated goroutine.
 	fetches.EachPartition(func(ftp kgo.FetchTopicPartition) {
 		if len(ftp.Records) == 0 {
