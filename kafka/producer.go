@@ -214,7 +214,9 @@ func NewProducer(cfg ProducerConfig) (*Producer, error) {
 func (p *Producer) Close() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	p.client.Flush(context.Background())
+	if err := p.client.Flush(context.Background()); err != nil {
+		return err
+	}
 	p.client.Close()
 	return nil
 }
@@ -283,7 +285,6 @@ func (p *Producer) ProcessBatch(ctx context.Context, batch *model.Batch) error {
 	if p.cfg.Sync {
 		wg.Wait()
 	}
-
 	return nil
 }
 
