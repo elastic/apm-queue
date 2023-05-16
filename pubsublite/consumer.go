@@ -287,7 +287,7 @@ func (c *consumer) processMessage(ctx context.Context, msg *pubsub.Message) {
 					attempt += a.(int)
 				}
 				if attempt > 2 {
-					c.logger.Info("re-processing limit exceeded, discarding event", zap.Int("attempt", attempt))
+					c.logger.Warn("re-processing limit exceeded, discarding event", zap.Int("attempt", attempt))
 					msg.Nack()
 					c.failed.Delete(msg.ID)
 					return
