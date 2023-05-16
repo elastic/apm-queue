@@ -29,6 +29,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+	"go.uber.org/zap/zaptest"
 
 	"github.com/elastic/apm-data/model"
 	apmqueue "github.com/elastic/apm-queue"
@@ -175,156 +177,133 @@ func TestProduceConsumeDeliveryGuarantees(t *testing.T) {
 		"at most once": {
 			deliveryType:         apmqueue.AtMostOnceDeliveryType,
 			events:               100,
-			timeout:              120 * time.Second,
+			timeout:              90 * time.Second,
 			expectedRecordsCount: 0,
 		},
 		"at least once": {
 			deliveryType:         apmqueue.AtLeastOnceDeliveryType,
 			events:               100,
-			timeout:              120 * time.Second,
+			timeout:              90 * time.Second,
 			expectedRecordsCount: 1,
 		},
 	}
 
-	test := func(t *testing.T, ctx context.Context, producer apmqueue.Producer, records *atomic.Int64, errorConsumer apmqueue.Consumer, records2 *atomic.Int64, successConsumer apmqueue.Consumer, expectedRecordsCount int) {
-		batch := model.Batch{
-			model.APMEvent{
-				Timestamp: time.Now(),
-				Processor: model.TransactionProcessor,
-				Trace:     model.Trace{ID: "trace"},
-				Event: model.Event{
-					Duration: time.Millisecond * (time.Duration(rand.Int63n(999)) + 1),
-				},
-				Transaction: &model.Transaction{
-					ID: "transaction",
-				},
-			},
-		}
+	type consumerF func(testing.TB, string, model.BatchProcessor) apmqueue.Consumer
+	test := func(t *testing.T, ctx context.Context, producer apmqueue.Producer, newConsumer consumerF, expectedRecordsCount int) {
+		var errRecords atomic.Int64
+		errConsumer := newConsumer(t, "err_consumer",
+			model.ProcessBatchFunc(func(_ context.Context, b *model.Batch) error {
+				errRecords.Add(int64(len(*b)))
+				return errors.New("first consumer processor error")
+			}),
+		)
+		go errConsumer.Run(ctx)
 
-		go errorConsumer.Run(ctx)
+		batch := model.Batch{model.APMEvent{
+			Timestamp:   time.Now(),
+			Processor:   model.TransactionProcessor,
+			Trace:       model.Trace{ID: "trace"},
+			Transaction: &model.Transaction{ID: "transaction"},
+			Event: model.Event{
+				Duration: time.Millisecond * (time.Duration(rand.Int63n(999)) + 1),
+			},
+		}}
+		// Produce record and close the producer.
 		assert.NoError(t, producer.ProcessBatch(ctx, &batch))
 		assert.NoError(t, producer.Close())
 
 		assert.Eventually(t, func() bool {
-			return records.Load() == 1 // Assertion
+			return errRecords.Load() == 1 // Expect to receive 1 error.
 		},
 			60*time.Second,       // Timeout
 			100*time.Millisecond, // Poll
 			"expected records (%d) records do not match consumed records (%v)", // ErrMessage
 			1,
-			records,
+			errRecords,
 		)
-		assert.NoError(t, errorConsumer.Close())
+		assert.NoError(t, errConsumer.Close())
 
+		var successRecords atomic.Int64
+		successConsumer := newConsumer(t, "ok_consumer",
+			model.ProcessBatchFunc(func(_ context.Context, b *model.Batch) error {
+				successRecords.Add(int64(len(*b)))
+				return nil
+			}),
+		)
 		go successConsumer.Run(ctx)
 
 		assert.Eventually(t, func() bool {
-			return records2.Load() == int64(expectedRecordsCount) // Assertion
+			return successRecords.Load() == int64(expectedRecordsCount) // Assertion
 		},
 			60*time.Second,       // Timeout
 			100*time.Millisecond, // Poll
 			"expected records (%d) records do not match consumed records (%v)", // ErrMessage
 			expectedRecordsCount,
-			records2,
+			successRecords,
 		)
 	}
 
 	for name, tc := range testCases {
 		t.Run("Kafka/"+name, func(t *testing.T) {
-			logger := zap.NewNop()
+			logger := zaptest.NewLogger(t, zaptest.Level(zapcore.InfoLevel))
+			// logger := zap.NewNop()
 			topics := SuffixTopics(apmqueue.Topic(t.Name()))
 			topicRouter := func(event model.APMEvent) apmqueue.Topic {
 				return apmqueue.Topic(topics[0])
 			}
-
-			err := ProvisionKafka(context.Background(),
+			require.NoError(t, ProvisionKafka(context.Background(),
 				newLocalKafkaConfig(topics...),
-			)
-			require.NoError(t, err)
+			))
 
 			ctx, cancel := context.WithTimeout(context.Background(), tc.timeout)
 			defer cancel()
-
 			producer := newKafkaProducer(t, kafka.ProducerConfig{
-				Logger:      logger,
+				Logger:      logger.Named("producer"),
 				Encoder:     codec,
 				TopicRouter: topicRouter,
 			})
-
-			var records atomic.Int64
-			errorConsumer := newKafkaConsumer(t, kafka.ConsumerConfig{
-				Logger:   logger,
-				Decoder:  codec,
-				Topics:   topics,
-				GroupID:  t.Name(),
-				Delivery: tc.deliveryType,
-				Processor: model.ProcessBatchFunc(func(ctx context.Context, b *model.Batch) error {
-					records.Add(1)
-					return errors.New("first consumer processor error")
-				}),
-			})
-
-			var records2 atomic.Int64
-			successConsumer := newKafkaConsumer(t, kafka.ConsumerConfig{
-				Logger:   logger,
-				Decoder:  codec,
-				Topics:   topics,
-				GroupID:  t.Name(),
-				Delivery: tc.deliveryType,
-				Processor: model.ProcessBatchFunc(func(ctx context.Context, b *model.Batch) error {
-					records2.Add(1)
-					return nil
-				}),
-			})
-
-			test(t, ctx, producer, &records, errorConsumer, &records2, successConsumer, tc.expectedRecordsCount)
+			consumerFunc := func(t testing.TB, name string, bp model.BatchProcessor) apmqueue.Consumer {
+				return newKafkaConsumer(t, kafka.ConsumerConfig{
+					Logger:         logger.Named(name),
+					Decoder:        codec,
+					Topics:         topics,
+					GroupID:        t.Name(),
+					Delivery:       tc.deliveryType,
+					MaxPollRecords: 1, // Wait for 1 record to be fetched.
+					Processor:      bp,
+				})
+			}
+			test(t, ctx, producer, consumerFunc, tc.expectedRecordsCount)
 		})
 		t.Run("PubSubLite/"+name, func(t *testing.T) {
-			logger := zap.NewNop()
+			// logger := zap.NewNop()
+			logger := zaptest.NewLogger(t, zaptest.Level(zapcore.InfoLevel))
 			topics := SuffixTopics(apmqueue.Topic(t.Name()))
 			topicRouter := func(event model.APMEvent) apmqueue.Topic {
 				return apmqueue.Topic(topics[0])
 			}
-
-			err := ProvisionPubSubLite(context.Background(),
+			require.NoError(t, ProvisionPubSubLite(context.Background(),
 				newPubSubLiteConfig(topics...),
-			)
-			require.NoError(t, err)
+			))
 
 			ctx, cancel := context.WithTimeout(context.Background(), tc.timeout)
 			defer cancel()
-
 			producer := newPubSubLiteProducer(t, pubsublite.ProducerConfig{
 				Logger:      logger,
 				Encoder:     codec,
 				TopicRouter: topicRouter,
+				Sync:        true,
 			})
-
-			var records atomic.Int64
-			errorConsumer := newPubSubLiteConsumer(ctx, t, pubsublite.ConsumerConfig{
-				Logger:   logger,
-				Decoder:  codec,
-				Topics:   topics,
-				Delivery: tc.deliveryType,
-				Processor: model.ProcessBatchFunc(func(ctx context.Context, b *model.Batch) error {
-					records.Add(1)
-					return errors.New("first consumer processor error")
-				}),
-			})
-
-			var records2 atomic.Int64
-			successConsumer := newPubSubLiteConsumer(ctx, t, pubsublite.ConsumerConfig{
-				Logger:   logger,
-				Decoder:  codec,
-				Topics:   topics,
-				Delivery: tc.deliveryType,
-				Processor: model.ProcessBatchFunc(func(ctx context.Context, b *model.Batch) error {
-					records2.Add(1)
-					return nil
-				}),
-			})
-
-			test(t, ctx, producer, &records, errorConsumer, &records2, successConsumer, tc.expectedRecordsCount)
+			consumerFunc := func(t testing.TB, name string, bp model.BatchProcessor) apmqueue.Consumer {
+				return newPubSubLiteConsumer(ctx, t, pubsublite.ConsumerConfig{
+					Logger:    logger.Named(name),
+					Decoder:   codec,
+					Topics:    topics,
+					Delivery:  tc.deliveryType,
+					Processor: bp,
+				})
+			}
+			test(t, ctx, producer, consumerFunc, tc.expectedRecordsCount)
 		})
 	}
 }
