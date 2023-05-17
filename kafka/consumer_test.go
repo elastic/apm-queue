@@ -30,6 +30,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/twmb/franz-go/pkg/kfake"
 	"github.com/twmb/franz-go/pkg/kgo"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"go.uber.org/zap/zaptest"
@@ -137,6 +139,12 @@ func TestConsumerHealth(t *testing.T) {
 }
 
 func TestConsumerFetch(t *testing.T) {
+	exp := tracetest.NewInMemoryExporter()
+	tp := sdktrace.NewTracerProvider(
+		sdktrace.WithSyncer(exp),
+	)
+	defer tp.Shutdown(context.Background())
+
 	event := model.APMEvent{Transaction: &model.Transaction{ID: "1"}}
 	codec := json.JSON{}
 	topics := []apmqueue.Topic{"topic"}
@@ -153,6 +161,7 @@ func TestConsumerFetch(t *testing.T) {
 			assert.Equal(t, event, (*b)[0])
 			return nil
 		}),
+		TracerProvider: tp,
 	}
 
 	b, err := codec.Encode(event)
@@ -162,7 +171,10 @@ func TestConsumerFetch(t *testing.T) {
 		&kgo.Record{Topic: string(topics[0]), Value: b},
 	)
 	consumer := newConsumer(t, cfg)
+
+	spanCount := len(exp.GetSpans())
 	assert.NoError(t, consumer.fetch(context.Background()))
+	assert.Len(t, exp.GetSpans(), spanCount+1)
 }
 
 func TestConsumerDelivery(t *testing.T) {
