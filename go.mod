@@ -5,7 +5,7 @@ go 1.20
 require (
 	cloud.google.com/go/pubsub v1.30.1
 	cloud.google.com/go/pubsublite v1.8.1
-	github.com/elastic/apm-data v0.1.1-0.20230511095520-caaa44e1c286
+	github.com/elastic/apm-data v0.1.1-0.20230517015005-269052c59735
 	github.com/stretchr/testify v1.8.2
 	github.com/twmb/franz-go v1.13.3
 	github.com/twmb/franz-go/pkg/kadm v1.8.1

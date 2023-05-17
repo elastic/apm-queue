@@ -29,6 +29,8 @@ import (
 	"github.com/twmb/franz-go/pkg/sasl"
 	"github.com/twmb/franz-go/plugin/kotel"
 	"github.com/twmb/franz-go/plugin/kzap"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 
 	"github.com/elastic/apm-data/model"
@@ -103,6 +105,9 @@ type ConsumerConfig struct {
 
 	// DisableTelemetry disables the OpenTelemetry hook
 	DisableTelemetry bool
+	// TracerProvider allows specifying a custom otel tracer provider.
+	// Defaults to the global one.
+	TracerProvider trace.TracerProvider
 }
 
 // Validate ensures the configuration is valid, otherwise, returns an error.
@@ -139,6 +144,8 @@ type Consumer struct {
 	client   *kgo.Client
 	cfg      ConsumerConfig
 	consumer *consumer
+
+	tracer trace.Tracer
 }
 
 // NewConsumer creates a new instance of a Consumer. The consumer will read from
@@ -197,8 +204,18 @@ func NewConsumer(cfg ConsumerConfig) (*Consumer, error) {
 		cfg.MaxPollRecords = 100
 	}
 
+	tracerProvider := cfg.TracerProvider
+	if tracerProvider == nil {
+		tracerProvider = otel.GetTracerProvider()
+	}
+
 	if !cfg.DisableTelemetry {
-		kotelService := kotel.NewKotel()
+		kotelService := kotel.NewKotel(
+			kotel.WithTracer(kotel.NewTracer(
+				kotel.TracerProvider(tracerProvider),
+			)),
+			kotel.WithMeter(kotel.NewMeter()),
+		)
 		opts = append(opts, kgo.WithHooks(kotelService.Hooks()...))
 	}
 
@@ -213,6 +230,7 @@ func NewConsumer(cfg ConsumerConfig) (*Consumer, error) {
 		cfg:      cfg,
 		client:   client,
 		consumer: consumer,
+		tracer:   tracerProvider.Tracer("kafka"),
 	}, nil
 }
 
@@ -245,6 +263,10 @@ func (c *Consumer) Run(ctx context.Context) error {
 // fetch polls the Kafka broker for new records up to cfg.MaxPollRecords.
 // Any errors returned by fetch should be considered fatal.
 func (c *Consumer) fetch(ctx context.Context) error {
+	// We need to grab the lock before pulling records to guarantee no events loss on shutdown.
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
 	fetches := c.client.PollRecords(ctx, c.cfg.MaxPollRecords)
 	defer c.client.AllowRebalance()
 
@@ -276,9 +298,6 @@ func (c *Consumer) fetch(ctx context.Context) error {
 			zap.Error(err), zap.String("topic", t), zap.Int32("partition", p),
 		)
 	})
-	// No need to grab the lock until we want to access `c.consumer`.
-	c.mu.RLock()
-	defer c.mu.RUnlock()
 	// Send partition records to be processed by its dedicated goroutine.
 	fetches.EachPartition(func(ftp kgo.FetchTopicPartition) {
 		if len(ftp.Records) == 0 {
