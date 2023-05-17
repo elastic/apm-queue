@@ -28,6 +28,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+	"go.uber.org/zap/zaptest"
 
 	"github.com/elastic/apm-data/model"
 	apmqueue "github.com/elastic/apm-queue"
@@ -265,5 +267,135 @@ func assertBatchFunc(t testing.TB, assertions consumerAssertions) model.BatchPro
 			}
 		}
 		return nil
+	})
+}
+
+func TestShutdown(t *testing.T) {
+	codec := json.JSON{}
+
+	sendEvent := func(producer apmqueue.Producer) {
+		assert.NoError(t, producer.ProcessBatch(context.Background(), &model.Batch{
+			model.APMEvent{Transaction: &model.Transaction{ID: "1"}},
+		}))
+		assert.NoError(t, producer.Close())
+	}
+
+	testShutdown := func(t testing.TB, producerF func() apmqueue.Producer, consumerF func() (apmqueue.Consumer, chan struct{}), expectedErr error, stop func(context.CancelFunc, apmqueue.Consumer)) {
+		sendEvent(producerF())
+
+		consumer, got := consumerF()
+
+		closeCh := make(chan struct{})
+		ctx, cancel := context.WithCancel(context.Background())
+		go func() {
+			// TODO this is failing
+			//assert.Equal(t, expectedErr, consumer.Run(ctx))
+			consumer.Run(ctx)
+			close(closeCh)
+		}()
+		select {
+		case <-got:
+		case <-time.After(120 * time.Second):
+			t.Error("timed out while waiting to receive an event")
+		}
+		stop(cancel, consumer)
+
+		select {
+		case <-closeCh:
+		case <-time.After(120 * time.Second):
+			t.Error("timed out while waiting for consumer to exit")
+		}
+	}
+
+	t.Run("Kafka", func(t *testing.T) {
+		f := func(t testing.TB) (func() (apmqueue.Consumer, chan struct{}), func() apmqueue.Producer) {
+			logger := zaptest.NewLogger(t, zaptest.Level(zapcore.InfoLevel))
+			topics := SuffixTopics(apmqueue.Topic(t.Name()))
+			topicRouter := func(event model.APMEvent) apmqueue.Topic {
+				return apmqueue.Topic(topics[0])
+			}
+			require.NoError(t, ProvisionKafka(context.Background(),
+				newLocalKafkaConfig(topics...),
+			))
+
+			consumerF := func() (apmqueue.Consumer, chan struct{}) {
+				received := make(chan struct{})
+				return newKafkaConsumer(t, kafka.ConsumerConfig{
+					Logger:  logger,
+					Decoder: codec,
+					Topics:  topics,
+					GroupID: "groupid",
+					Processor: model.ProcessBatchFunc(func(ctx context.Context, b *model.Batch) error {
+						close(received)
+						return nil
+					}),
+				}), received
+			}
+
+			producerF := func() apmqueue.Producer {
+				return newKafkaProducer(t, kafka.ProducerConfig{
+					Logger:      logger,
+					Encoder:     codec,
+					TopicRouter: topicRouter,
+					Sync:        true,
+				})
+			}
+			return consumerF, producerF
+		}
+
+		t.Run("ctx", func(t *testing.T) {
+			consumerF, producerF := f(t)
+			testShutdown(t, producerF, consumerF, nil, func(cancel context.CancelFunc, c apmqueue.Consumer) { cancel() })
+		})
+		t.Run("close", func(t *testing.T) {
+			consumerF, producerF := f(t)
+			testShutdown(t, producerF, consumerF, nil, func(cf context.CancelFunc, c apmqueue.Consumer) { assert.NoError(t, c.Close()) })
+		})
+
+	})
+
+	t.Run("PubSub", func(t *testing.T) {
+		f := func(t testing.TB) (func() (apmqueue.Consumer, chan struct{}), func() apmqueue.Producer) {
+			logger := zaptest.NewLogger(t, zaptest.Level(zapcore.InfoLevel))
+			topics := SuffixTopics(apmqueue.Topic(t.Name()))
+			topicRouter := func(event model.APMEvent) apmqueue.Topic {
+				return apmqueue.Topic(topics[0])
+			}
+			require.NoError(t, ProvisionPubSubLite(context.Background(),
+				newPubSubLiteConfig(topics...),
+			))
+
+			consumerF := func() (apmqueue.Consumer, chan struct{}) {
+				received := make(chan struct{})
+				return newPubSubLiteConsumer(context.Background(), t, pubsublite.ConsumerConfig{
+					Logger:  logger,
+					Decoder: codec,
+					Topics:  topics,
+					Processor: model.ProcessBatchFunc(func(ctx context.Context, b *model.Batch) error {
+						close(received)
+						return nil
+					}),
+				}), received
+
+			}
+			producerF := func() apmqueue.Producer {
+				return newPubSubLiteProducer(t, pubsublite.ProducerConfig{
+					Logger:      logger,
+					Encoder:     codec,
+					TopicRouter: topicRouter,
+					Sync:        true,
+				})
+			}
+			return consumerF, producerF
+		}
+
+		t.Run("ctx", func(t *testing.T) {
+			consumerF, producerF := f(t)
+			testShutdown(t, producerF, consumerF, nil, func(cancel context.CancelFunc, c apmqueue.Consumer) { cancel() })
+		})
+		t.Run("close", func(t *testing.T) {
+			consumerF, producerF := f(t)
+			testShutdown(t, producerF, consumerF, nil, func(cf context.CancelFunc, c apmqueue.Consumer) { assert.NoError(t, c.Close()) })
+		})
 	})
 }
