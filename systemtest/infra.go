@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"math/rand"
 	"os"
+	"os/exec"
 	"strings"
 	"sync"
 	"time"
@@ -36,9 +37,13 @@ import (
 // NewTerraform returns a terraform executable for the specified path. It
 // installs the latest version.
 func NewTerraform(ctx context.Context, path string) (*tfexec.Terraform, error) {
-	execPath, err := installTerraform(ctx)
-	if err != nil {
-		return nil, err
+	var err error
+	var execPath string
+	if execPath, err = exec.LookPath("terraform"); err != nil {
+		execPath, err = installTerraform(ctx)
+		if err != nil {
+			return nil, err
+		}
 	}
 	return tfexec.NewTerraform(path, execPath)
 }
