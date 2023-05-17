@@ -293,14 +293,14 @@ func TestShutdown(t *testing.T) {
 		select {
 		case <-got:
 		case <-time.After(30 * time.Second):
-			t.Fatal("timed out while waiting to receive an event")
+			t.Error("timed out while waiting to receive an event")
 		}
 		cancel()
 
 		select {
 		case <-closeCh:
 		case <-time.After(30 * time.Second):
-			t.Fatal("timed out while waiting for consumer to exit")
+			t.Error("timed out while waiting for consumer to exit")
 		}
 	}
 
