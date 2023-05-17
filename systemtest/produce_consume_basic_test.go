@@ -279,7 +279,7 @@ func TestShutdown(t *testing.T) {
 		assert.NoError(t, producer.Close())
 	}
 
-	testCtx := func(t testing.TB, producerF func() apmqueue.Producer, consumerF func() (apmqueue.Consumer, chan struct{})) {
+	testShutdown := func(t testing.TB, producerF func() apmqueue.Producer, consumerF func() (apmqueue.Consumer, chan struct{}), expectedErr error, stop func(context.CancelFunc, apmqueue.Consumer)) {
 		sendEvent(producerF())
 
 		consumer, got := consumerF()
@@ -287,44 +287,20 @@ func TestShutdown(t *testing.T) {
 		closeCh := make(chan struct{})
 		ctx, cancel := context.WithCancel(context.Background())
 		go func() {
-			assert.ErrorIs(t, consumer.Run(ctx), context.Canceled)
+			assert.Equal(t, expectedErr, consumer.Run(ctx))
 			close(closeCh)
 		}()
 		select {
 		case <-got:
-		case <-time.After(30 * time.Second):
+		case <-time.After(10 * time.Second):
 			t.Error("timed out while waiting to receive an event")
 		}
-		cancel()
+		stop(cancel, consumer)
 
 		select {
 		case <-closeCh:
-		case <-time.After(30 * time.Second):
+		case <-time.After(10 * time.Second):
 			t.Error("timed out while waiting for consumer to exit")
-		}
-	}
-
-	testClose := func(t testing.TB, producerF func() apmqueue.Producer, consumerF func() (apmqueue.Consumer, chan struct{})) {
-		sendEvent(producerF())
-
-		consumer, got := consumerF()
-
-		closeCh := make(chan struct{})
-		go func() {
-			assert.NoError(t, consumer.Run(context.Background()))
-			close(closeCh)
-		}()
-		select {
-		case <-got:
-		case <-time.After(10 * time.Second):
-			t.Fatal("timed out while waiting to receive an event")
-		}
-		assert.NoError(t, consumer.Close())
-
-		select {
-		case <-closeCh:
-		case <-time.After(10 * time.Second):
-			t.Fatal("timed out while waiting for consumer to exit")
 		}
 	}
 
@@ -366,11 +342,11 @@ func TestShutdown(t *testing.T) {
 
 		t.Run("ctx", func(t *testing.T) {
 			consumerF, producerF := f(t)
-			testCtx(t, producerF, consumerF)
+			testShutdown(t, producerF, consumerF, nil, func(cancel context.CancelFunc, c apmqueue.Consumer) { cancel() })
 		})
 		t.Run("close", func(t *testing.T) {
 			consumerF, producerF := f(t)
-			testClose(t, producerF, consumerF)
+			testShutdown(t, producerF, consumerF, nil, func(cf context.CancelFunc, c apmqueue.Consumer) { assert.NoError(t, c.Close()) })
 		})
 
 	})
@@ -412,11 +388,11 @@ func TestShutdown(t *testing.T) {
 
 		t.Run("ctx", func(t *testing.T) {
 			consumerF, producerF := f(t)
-			testCtx(t, producerF, consumerF)
+			testShutdown(t, producerF, consumerF, nil, func(cancel context.CancelFunc, c apmqueue.Consumer) { cancel() })
 		})
 		t.Run("close", func(t *testing.T) {
 			consumerF, producerF := f(t)
-			testClose(t, producerF, consumerF)
+			testShutdown(t, producerF, consumerF, nil, func(cf context.CancelFunc, c apmqueue.Consumer) { assert.NoError(t, c.Close()) })
 		})
 	})
 }
