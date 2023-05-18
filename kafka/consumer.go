@@ -19,17 +19,11 @@ package kafka
 
 import (
 	"context"
-	"crypto/tls"
 	"errors"
 	"fmt"
-	"net"
 	"sync"
 
 	"github.com/twmb/franz-go/pkg/kgo"
-	"github.com/twmb/franz-go/pkg/sasl"
-	"github.com/twmb/franz-go/plugin/kotel"
-	"github.com/twmb/franz-go/plugin/kzap"
-	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 
@@ -44,9 +38,6 @@ var (
 	ErrCommitFailed = errors.New("kafka: failed to commit offsets")
 )
 
-// SASLMechanism type alias to sasl.Mechanism
-type SASLMechanism = sasl.Mechanism
-
 // Decoder decodes a []byte into a model.APMEvent
 type Decoder interface {
 	// Decode decodes an encoded model.APM Event into its struct form.
@@ -55,18 +46,11 @@ type Decoder interface {
 
 // ConsumerConfig defines the configuration for the Kafka consumer.
 type ConsumerConfig struct {
-	// Brokers is the list of kafka brokers used to seed the Kafka client.
-	Brokers []string
+	CommonConfig
 	// Topics that the consumer will consume messages from
 	Topics []apmqueue.Topic
 	// GroupID to join as part of the consumer group.
 	GroupID string
-	// ClientID to use when connecting to Kafka. This is used for logging
-	// and client identification purposes.
-	ClientID string
-	// Version is the software version to use in the Kafka client. This is
-	// useful since it shows up in Kafka metrics and logs.
-	Version string
 	// Decoder holds an encoding.Decoder for decoding records.
 	Decoder Decoder
 	// MaxPollRecords defines an upper bound to the number of records that can
@@ -79,8 +63,6 @@ type ConsumerConfig struct {
 	// AtMostOnceDeliveryType and AtLeastOnceDeliveryType are supported.
 	// If not set, it defaults to apmqueue.AtMostOnceDeliveryType.
 	Delivery apmqueue.DeliveryType
-	// Logger to use for any errors.
-	Logger *zap.Logger
 	// Processor that will be used to process each event individually.
 	// It is recommended to keep the synchronous processing fast and below the
 	// rebalance.timeout.ms setting in Kafka.
@@ -88,33 +70,13 @@ type ConsumerConfig struct {
 	// The processing time of each processing cycle can be calculated as:
 	// record.process.time * MaxPollRecords.
 	Processor model.BatchProcessor
-	// SASL configures the kgo.Client to use SASL authorization.
-	SASL SASLMechanism
-	// TLS configures the kgo.Client to use TLS for authentication.
-	// This option conflicts with Dialer. Only one can be used.
-	TLS *tls.Config
-	// Dialer uses fn to dial addresses, overriding the default dialer that uses a
-	// 10s dial timeout and no TLS (unless TLS option is set).
-	//
-	// The context passed to the dial function is the context used in the request
-	// that caused the dial. If the request is a client-internal request, the
-	// context is the context on the client itself (which is canceled when the
-	// client is closed).
-	// This option conflicts with TLS. Only one can be used.
-	Dialer func(ctx context.Context, network, address string) (net.Conn, error)
-
-	// DisableTelemetry disables the OpenTelemetry hook
-	DisableTelemetry bool
-	// TracerProvider allows specifying a custom otel tracer provider.
-	// Defaults to the global one.
-	TracerProvider trace.TracerProvider
 }
 
 // Validate ensures the configuration is valid, otherwise, returns an error.
 func (cfg ConsumerConfig) Validate() error {
 	var errs []error
-	if len(cfg.Brokers) == 0 {
-		errs = append(errs, errors.New("kafka: at least one broker must be set"))
+	if err := cfg.CommonConfig.Validate(); err != nil {
+		errs = append(errs, err)
 	}
 	if len(cfg.Topics) == 0 {
 		errs = append(errs, errors.New("kafka: at least one topic must be set"))
@@ -125,14 +87,8 @@ func (cfg ConsumerConfig) Validate() error {
 	if cfg.Decoder == nil {
 		errs = append(errs, errors.New("kafka: decoder must be set"))
 	}
-	if cfg.Logger == nil {
-		errs = append(errs, errors.New("kafka: logger must be set"))
-	}
 	if cfg.Processor == nil {
 		errs = append(errs, errors.New("kafka: processor must be set"))
-	}
-	if cfg.TLS != nil && cfg.Dialer != nil {
-		errs = append(errs, errors.New("kafka: only one of TLS or Dialer can be set"))
 	}
 	return errors.Join(errs...)
 }
@@ -166,10 +122,8 @@ func NewConsumer(cfg ConsumerConfig) (*Consumer, error) {
 		topics = append(topics, string(t))
 	}
 	opts := []kgo.Opt{
-		kgo.SeedBrokers(cfg.Brokers...),
 		kgo.ConsumerGroup(cfg.GroupID),
 		kgo.ConsumeTopics(topics...),
-		kgo.WithLogger(kzap.New(cfg.Logger.Named("kafka"))),
 		// If a rebalance happens while the client is polling, the consumed
 		// records may belong to a partition which has been reassigned to a
 		// different consumer int he group. To avoid this scenario, Polls will
@@ -184,53 +138,18 @@ func NewConsumer(cfg ConsumerConfig) (*Consumer, error) {
 		kgo.OnPartitionsLost(consumer.lost),
 		kgo.OnPartitionsRevoked(consumer.lost),
 	}
-	if cfg.ClientID != "" {
-		opts = append(opts, kgo.ClientID(cfg.ClientID))
-		if cfg.Version != "" {
-			opts = append(opts, kgo.SoftwareNameAndVersion(
-				cfg.ClientID, cfg.Version,
-			))
-		}
-	}
-	if cfg.Dialer != nil {
-		opts = append(opts, kgo.Dialer(cfg.Dialer))
-	} else if cfg.TLS != nil {
-		opts = append(opts, kgo.DialTLSConfig(cfg.TLS.Clone()))
-	}
-	if cfg.SASL != nil {
-		opts = append(opts, kgo.SASL(cfg.SASL))
+	client, err := cfg.newClient(opts...)
+	if err != nil {
+		return nil, fmt.Errorf("kafka: failed creating kafka consumer: %w", err)
 	}
 	if cfg.MaxPollRecords <= 0 {
 		cfg.MaxPollRecords = 100
 	}
-
-	tracerProvider := cfg.TracerProvider
-	if tracerProvider == nil {
-		tracerProvider = otel.GetTracerProvider()
-	}
-
-	if !cfg.DisableTelemetry {
-		kotelService := kotel.NewKotel(
-			kotel.WithTracer(kotel.NewTracer(
-				kotel.TracerProvider(tracerProvider),
-			)),
-			kotel.WithMeter(kotel.NewMeter()),
-		)
-		opts = append(opts, kgo.WithHooks(kotelService.Hooks()...))
-	}
-
-	client, err := kgo.NewClient(opts...)
-	if err != nil {
-		return nil, fmt.Errorf("kafka: failed creating kafka consumer: %w", err)
-	}
-	// Issue a metadata refresh request on construction, so the broker list is
-	// populated.
-	client.ForceMetadataRefresh()
 	return &Consumer{
 		cfg:      cfg,
 		client:   client,
 		consumer: consumer,
-		tracer:   tracerProvider.Tracer("kafka"),
+		tracer:   cfg.tracerProvider().Tracer("kafka"),
 	}, nil
 }
 
