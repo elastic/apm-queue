@@ -67,14 +67,16 @@ func TestNewProducerBasic(t *testing.T) {
 			client, brokers := newClusterWithTopics(t, topic)
 			codec := json.JSON{}
 			producer, err := NewProducer(ProducerConfig{
-				Brokers: brokers,
+				CommonConfig: CommonConfig{
+					Brokers:        brokers,
+					Logger:         zap.NewNop(),
+					TracerProvider: tp,
+				},
 				Sync:    sync,
-				Logger:  zap.NewNop(),
 				Encoder: codec,
 				TopicRouter: func(event model.APMEvent) apmqueue.Topic {
 					return topic
 				},
-				TracerProvider: tp,
 			})
 			require.NoError(t, err)
 
@@ -176,8 +178,10 @@ func TestProducerGracefulShutdown(t *testing.T) {
 		var codec json.JSON
 		var processed atomic.Int64
 		producer := newProducer(t, ProducerConfig{
-			Brokers: brokers,
-			Logger:  zaptest.NewLogger(t, zaptest.Level(zapcore.DebugLevel)),
+			CommonConfig: CommonConfig{
+				Brokers: brokers,
+				Logger:  zaptest.NewLogger(t, zaptest.Level(zapcore.DebugLevel)),
+			},
 			Encoder: codec,
 			Sync:    syncProducer,
 			TopicRouter: func(event model.APMEvent) apmqueue.Topic {
@@ -185,12 +189,14 @@ func TestProducerGracefulShutdown(t *testing.T) {
 			},
 		})
 		consumer := newConsumer(t, ConsumerConfig{
-			Brokers:  brokers,
+			CommonConfig: CommonConfig{
+				Brokers: brokers,
+				Logger:  zaptest.NewLogger(t, zaptest.Level(zapcore.DebugLevel)),
+			},
 			GroupID:  "group",
 			Topics:   []apmqueue.Topic{"topic"},
 			Decoder:  codec,
 			Delivery: dt,
-			Logger:   zaptest.NewLogger(t, zaptest.Level(zapcore.DebugLevel)),
 			Processor: model.ProcessBatchFunc(func(_ context.Context, _ *model.Batch) error {
 				processed.Add(1)
 				return nil
@@ -261,8 +267,10 @@ func TestProducerGracefulShutdown(t *testing.T) {
 func TestProducerConcurrentClose(t *testing.T) {
 	_, brokers := newClusterWithTopics(t, "topic")
 	producer := newProducer(t, ProducerConfig{
-		Brokers: brokers,
-		Logger:  zap.NewNop(),
+		CommonConfig: CommonConfig{
+			Brokers: brokers,
+			Logger:  zap.NewNop(),
+		},
 		Encoder: json.JSON{},
 		TopicRouter: func(event model.APMEvent) apmqueue.Topic {
 			return "topic"

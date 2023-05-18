@@ -19,22 +19,16 @@ package kafka
 
 import (
 	"context"
-	"crypto/tls"
 	"errors"
 	"fmt"
-	"net"
 	"sync"
 
-	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 
 	"github.com/twmb/franz-go/pkg/kgo"
-	"github.com/twmb/franz-go/pkg/sasl"
-	"github.com/twmb/franz-go/plugin/kotel"
-	"github.com/twmb/franz-go/plugin/kzap"
 
 	"github.com/elastic/apm-data/model"
 	apmqueue "github.com/elastic/apm-queue"
@@ -69,19 +63,7 @@ func ZstdCompression() CompressionCodec { return kgo.ZstdCompression() }
 
 // ProducerConfig holds configuration for publishing events to Kafka.
 type ProducerConfig struct {
-	// Brokers holds a slice of (host:port) addresses of the Kafka brokers
-	// to which events should be published.
-	Brokers []string
-
-	// ClientID to use when connecting to Kafka. This is used for logging
-	// and client identification purposes.
-	ClientID string
-	// Version is the software version to use in the Kafka client. This is
-	// useful since it shows up in Kafka metrics and logs.
-	Version string
-
-	// Logger is used for logging producer errors.
-	Logger *zap.Logger
+	CommonConfig
 
 	// Encoder holds an encoding.Encoder for encoding events.
 	Encoder Encoder
@@ -92,49 +74,24 @@ type ProducerConfig struct {
 	// TopicRouter returns the topic where an event should be produced.
 	TopicRouter apmqueue.TopicRouter
 
-	// SASL configures the kgo.Client to use SASL authorization.
-	SASL sasl.Mechanism
-	// TLS configures the kgo.Client to use TLS for authentication.
-	// This option conflicts with Dialer. Only one can be used.
-	TLS *tls.Config
 	// CompressionCodec specifies a list of compression codecs.
 	// See kgo.ProducerBatchCompression for more details.
 	CompressionCodec []CompressionCodec
-	// Dialer uses fn to dial addresses, overriding the default dialer that uses a
-	// 10s dial timeout and no TLS (unless TLS option is set).
-	//
-	// The context passed to the dial function is the context used in the request
-	// that caused the dial. If the request is a client-internal request, the
-	// context is the context on the client itself (which is canceled when the
-	// client is closed).
-	Dialer func(ctx context.Context, network, address string) (net.Conn, error)
-
-	// DisableTelemetry disables the OpenTelemetry hook
-	DisableTelemetry bool
-	// TracerProvider allows specifying a custom otel tracer provider.
-	// Defaults to the global one.
-	TracerProvider trace.TracerProvider
 }
 
 // Validate checks that cfg is valid, and returns an error otherwise.
 func (cfg ProducerConfig) Validate() error {
-	var err []error
-	if len(cfg.Brokers) == 0 {
-		err = append(err, errors.New("kafka: brokers cannot be empty"))
-	}
-	if cfg.Logger == nil {
-		err = append(err, errors.New("kafka: logger cannot be nil"))
+	var errs []error
+	if err := cfg.CommonConfig.Validate(); err != nil {
+		errs = append(errs, err)
 	}
 	if cfg.Encoder == nil {
-		err = append(err, errors.New("kafka: encoder cannot be nil"))
+		errs = append(errs, errors.New("kafka: encoder cannot be nil"))
 	}
 	if cfg.TopicRouter == nil {
-		err = append(err, errors.New("kafka: topic router must be set"))
+		errs = append(errs, errors.New("kafka: topic router must be set"))
 	}
-	if cfg.TLS != nil && cfg.Dialer != nil {
-		err = append(err, errors.New("kafka: only one of TLS or Dialer can be set"))
-	}
-	return errors.Join(err...)
+	return errors.Join(errs...)
 }
 
 // Producer is a model.BatchProcessor that publishes events to Kafka.
@@ -151,58 +108,18 @@ func NewProducer(cfg ProducerConfig) (*Producer, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("kafka: invalid producer config: %w", err)
 	}
-
-	opts := []kgo.Opt{
-		kgo.SeedBrokers(cfg.Brokers...),
-		kgo.WithLogger(kzap.New(cfg.Logger.Named("kafka"))),
-	}
-	if cfg.ClientID != "" {
-		opts = append(opts, kgo.ClientID(cfg.ClientID))
-		if cfg.Version != "" {
-			opts = append(opts, kgo.SoftwareNameAndVersion(
-				cfg.ClientID, cfg.Version,
-			))
-		}
-	}
-	if cfg.Dialer != nil {
-		opts = append(opts, kgo.Dialer(cfg.Dialer))
-	} else if cfg.TLS != nil {
-		opts = append(opts, kgo.DialTLSConfig(cfg.TLS.Clone()))
-	}
-	if cfg.SASL != nil {
-		opts = append(opts, kgo.SASL(cfg.SASL))
-	}
+	var opts []kgo.Opt
 	if len(cfg.CompressionCodec) > 0 {
 		opts = append(opts, kgo.ProducerBatchCompression(cfg.CompressionCodec...))
 	}
-
-	tracerProvider := cfg.TracerProvider
-	if tracerProvider == nil {
-		tracerProvider = otel.GetTracerProvider()
-	}
-
-	if !cfg.DisableTelemetry {
-		kotelService := kotel.NewKotel(
-			kotel.WithTracer(kotel.NewTracer(
-				kotel.TracerProvider(tracerProvider),
-			)),
-			kotel.WithMeter(kotel.NewMeter()),
-		)
-		opts = append(opts, kgo.WithHooks(kotelService.Hooks()...))
-	}
-
-	client, err := kgo.NewClient(opts...)
+	client, err := cfg.newClient(opts...)
 	if err != nil {
 		return nil, fmt.Errorf("kafka: failed creating producer: %w", err)
 	}
-	// Issue a metadata refresh request on construction, so the broker list is
-	// populated.
-	client.ForceMetadataRefresh()
-
 	return &Producer{
 		cfg:    cfg,
 		client: client,
-		tracer: tracerProvider.Tracer("kafka"),
+		tracer: cfg.tracerProvider().Tracer("kafka"),
 	}, nil
 }
 

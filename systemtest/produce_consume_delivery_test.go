@@ -148,11 +148,11 @@ func TestConsumerDelivery(t *testing.T) {
 			var processed atomic.Int32
 			var errored atomic.Int32
 			cfg := kafka.ConsumerConfig{
+				CommonConfig:   kafka.CommonConfig{Logger: baseLogger},
 				Delivery:       tc.deliveryType,
 				Decoder:        codec,
 				Topics:         topics,
 				GroupID:        "groupid",
-				Logger:         baseLogger,
 				MaxPollRecords: tc.maxPollRecords,
 				Processor: model.ProcessBatchFunc(func(ctx context.Context, b *model.Batch) error {
 					select {
@@ -177,9 +177,9 @@ func TestConsumerDelivery(t *testing.T) {
 			defer cancel()
 
 			producer := newKafkaProducer(t, kafka.ProducerConfig{
-				Logger:  baseLogger.Named("producer"),
-				Encoder: codec,
-				Sync:    true,
+				CommonConfig: kafka.CommonConfig{Logger: baseLogger.Named("producer")},
+				Encoder:      codec,
+				Sync:         true,
 				TopicRouter: func(event model.APMEvent) apmqueue.Topic {
 					return apmqueue.Topic(topics[0])
 				},
@@ -230,9 +230,9 @@ func TestConsumerDelivery(t *testing.T) {
 			defer cancel()
 			// Produce tc.lastRecords.
 			producer = newKafkaProducer(t, kafka.ProducerConfig{
-				Logger:  baseLogger.Named("producer"),
-				Encoder: codec,
-				Sync:    true,
+				CommonConfig: kafka.CommonConfig{Logger: baseLogger.Named("producer")},
+				Encoder:      codec,
+				Sync:         true,
 				TopicRouter: func(event model.APMEvent) apmqueue.Topic {
 					return apmqueue.Topic(topics[0])
 				},
@@ -291,10 +291,10 @@ func TestConsumerDelivery(t *testing.T) {
 			var processed atomic.Int32
 			var errored atomic.Int32
 			cfg := pubsublite.ConsumerConfig{
-				Delivery: tc.deliveryType,
-				Decoder:  codec,
-				Topics:   topics,
-				Logger:   baseLogger.Named("consumer"),
+				CommonConfig: pubsublite.CommonConfig{Logger: baseLogger.Named("consumer")},
+				Delivery:     tc.deliveryType,
+				Decoder:      codec,
+				Topics:       topics,
 				Processor: model.ProcessBatchFunc(func(ctx context.Context, b *model.Batch) error {
 					select {
 					// Records are marked as processed on receive processRecord.
@@ -318,9 +318,9 @@ func TestConsumerDelivery(t *testing.T) {
 			defer cancel()
 
 			producer := newPubSubLiteProducer(t, pubsublite.ProducerConfig{
-				Logger:  baseLogger.Named("producer"),
-				Encoder: codec,
-				Sync:    true,
+				CommonConfig: pubsublite.CommonConfig{Logger: baseLogger.Named("producer")},
+				Encoder:      codec,
+				Sync:         true,
 				TopicRouter: func(event model.APMEvent) apmqueue.Topic {
 					return apmqueue.Topic(topics[0])
 				},
@@ -371,9 +371,9 @@ func TestConsumerDelivery(t *testing.T) {
 			defer cancel()
 			// Produce tc.lastRecords.
 			producer = newPubSubLiteProducer(t, pubsublite.ProducerConfig{
-				Logger:  baseLogger.Named("producer"),
-				Encoder: codec,
-				Sync:    true,
+				CommonConfig: pubsublite.CommonConfig{Logger: baseLogger.Named("producer")},
+				Encoder:      codec,
+				Sync:         true,
 				TopicRouter: func(event model.APMEvent) apmqueue.Topic {
 					return apmqueue.Topic(topics[0])
 				},
