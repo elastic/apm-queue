@@ -25,13 +25,11 @@ import (
 
 	"cloud.google.com/go/pubsub"
 	"cloud.google.com/go/pubsublite/pscompat"
-	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	semconv "go.opentelemetry.io/otel/semconv/v1.18.0"
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
-	"google.golang.org/api/option"
 
 	"github.com/elastic/apm-data/model"
 	apmqueue "github.com/elastic/apm-queue"
@@ -47,28 +45,18 @@ type Decoder interface {
 
 // ConsumerConfig defines the configuration for the PubSub Lite consumer.
 type ConsumerConfig struct {
-	// Region is the GCP region for the producer.
-	Region string
-	// Project is the GCP project for the producer.
-	Project string
+	CommonConfig
 	// Topics holds Pub/Sub Lite topics from which messages will be consumed.
 	Topics []apmqueue.Topic
 	// Decoder holds an encoding.Decoder for decoding events.
 	Decoder Decoder
-	// Logger to use for any errors.
-	Logger *zap.Logger
 	// Processor that will be used to process each event individually.
 	// Processor may be called from multiple goroutines and needs to be
 	// safe for concurrent use.
 	Processor model.BatchProcessor
 	// Delivery mechanism to use to acknowledge the messages.
 	// AtMostOnceDeliveryType and AtLeastOnceDeliveryType are supported.
-	Delivery   apmqueue.DeliveryType
-	ClientOpts []option.ClientOption
-
-	// TracerProvider allows specifying a custom otel tracer provider.
-	// Defaults to the global one.
-	TracerProvider trace.TracerProvider
+	Delivery apmqueue.DeliveryType
 }
 
 // Subscription represents a PubSub Lite subscription.
@@ -90,22 +78,16 @@ func (s Subscription) String() string {
 // Validate ensures the configuration is valid, otherwise, returns an error.
 func (cfg ConsumerConfig) Validate() error {
 	var errs []error
+	if err := cfg.CommonConfig.Validate(); err != nil {
+		errs = append(errs, err)
+	}
 	if len(cfg.Topics) == 0 {
 		errs = append(errs,
 			errors.New("pubsublite: at least one topic must be set"),
 		)
 	}
-	if cfg.Project == "" {
-		errs = append(errs, errors.New("pubsublite: project must be set"))
-	}
-	if cfg.Region == "" {
-		errs = append(errs, errors.New("pubsublite: region must be set"))
-	}
 	if cfg.Decoder == nil {
 		errs = append(errs, errors.New("pubsublite: decoder must be set"))
-	}
-	if cfg.Logger == nil {
-		errs = append(errs, errors.New("pubsublite: logger must be set"))
 	}
 	if cfg.Processor == nil {
 		errs = append(errs, errors.New("pubsublite: processor must be set"))
@@ -162,7 +144,7 @@ func NewConsumer(ctx context.Context, cfg ConsumerConfig) (*Consumer, error) {
 			Region:  cfg.Region,
 		}
 		client, err := pscompat.NewSubscriberClientWithSettings(
-			ctx, subscription.String(), settings, cfg.ClientOpts...,
+			ctx, subscription.String(), settings, cfg.ClientOptions...,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("pubsublite: failed creating consumer: %w", err)
@@ -184,16 +166,10 @@ func NewConsumer(ctx context.Context, cfg ConsumerConfig) (*Consumer, error) {
 			},
 		})
 	}
-
-	tracerProvider := cfg.TracerProvider
-	if tracerProvider == nil {
-		tracerProvider = otel.GetTracerProvider()
-	}
-
 	return &Consumer{
 		cfg:       cfg,
 		consumers: consumers,
-		tracer:    tracerProvider.Tracer("pubsublite"),
+		tracer:    cfg.tracerProvider().Tracer("pubsublite"),
 	}, nil
 }
 

@@ -52,27 +52,31 @@ func TestNewConsumer(t *testing.T) {
 		},
 		"invalid client consumer options": {
 			cfg: ConsumerConfig{
-				Brokers:   []string{"localhost:invalidport"},
+				CommonConfig: CommonConfig{
+					Brokers: []string{"localhost:invalidport"},
+					Logger:  zap.NewNop(),
+				},
 				Topics:    []apmqueue.Topic{"topic"},
 				GroupID:   "groupid",
 				Decoder:   json.JSON{},
-				Logger:    zap.NewNop(),
 				Processor: model.ProcessBatchFunc(func(context.Context, *model.Batch) error { return nil }),
 			},
 			expectErr: true,
 		},
 		"valid": {
 			cfg: ConsumerConfig{
-				Brokers:   []string{"localhost:9092"},
-				Topics:    []apmqueue.Topic{"topic"},
+				CommonConfig: CommonConfig{
+					Brokers:  []string{"localhost:9092"},
+					Logger:   zap.NewNop(),
+					ClientID: "clientid",
+					Version:  "1.0",
+					SASL:     saslplain.New(saslplain.Plain{}),
+					TLS:      &tls.Config{},
+				},
 				GroupID:   "groupid",
-				ClientID:  "clientid",
-				Version:   "1.0",
+				Topics:    []apmqueue.Topic{"topic"},
 				Decoder:   json.JSON{},
-				Logger:    zap.NewNop(),
 				Processor: model.ProcessBatchFunc(func(context.Context, *model.Batch) error { return nil }),
-				SASL:      saslplain.New(saslplain.Plain{}),
-				TLS:       &tls.Config{},
 			},
 			expectErr: false,
 		},
@@ -115,11 +119,13 @@ func TestConsumerHealth(t *testing.T) {
 
 			addrs := cluster.ListenAddrs()
 			consumer := newConsumer(t, ConsumerConfig{
-				Brokers:   addrs,
+				CommonConfig: CommonConfig{
+					Brokers: addrs,
+					Logger:  zap.NewNop(),
+				},
 				Topics:    []apmqueue.Topic{"topic"},
 				GroupID:   "groupid",
 				Decoder:   json.JSON{},
-				Logger:    zap.NewNop(),
 				Processor: model.ProcessBatchFunc(func(context.Context, *model.Batch) error { return nil }),
 			})
 
@@ -151,17 +157,19 @@ func TestConsumerFetch(t *testing.T) {
 	client, addrs := newClusterWithTopics(t, topics...)
 
 	cfg := ConsumerConfig{
-		Brokers: addrs,
+		CommonConfig: CommonConfig{
+			Brokers:        addrs,
+			Logger:         zap.NewNop(),
+			TracerProvider: tp,
+		},
 		Topics:  topics,
 		GroupID: "groupid",
 		Decoder: codec,
-		Logger:  zap.NewNop(),
 		Processor: model.ProcessBatchFunc(func(_ context.Context, b *model.Batch) error {
 			assert.Len(t, *b, 1)
 			assert.Equal(t, event, (*b)[0])
 			return nil
 		}),
-		TracerProvider: tp,
 	}
 
 	b, err := codec.Encode(event)
@@ -283,12 +291,14 @@ func TestConsumerDelivery(t *testing.T) {
 			var processed atomic.Int32
 			var errored atomic.Int32
 			cfg := ConsumerConfig{
+				CommonConfig: CommonConfig{
+					Brokers: addrs,
+					Logger:  baseLogger,
+				},
 				Delivery:       tc.deliveryType,
-				Brokers:        addrs,
 				Decoder:        codec,
 				Topics:         topics,
 				GroupID:        "groupid",
-				Logger:         baseLogger,
 				MaxPollRecords: tc.maxPollRecords,
 				Processor: model.ProcessBatchFunc(func(ctx context.Context, b *model.Batch) error {
 					select {
@@ -390,13 +400,15 @@ func TestConsumerGracefulShutdown(t *testing.T) {
 		process := make(chan struct{})
 		records := 2
 		consumer := newConsumer(t, ConsumerConfig{
-			Brokers:        brokers,
+			CommonConfig: CommonConfig{
+				Brokers: brokers,
+				Logger:  zaptest.NewLogger(t, zaptest.Level(zapcore.DebugLevel)),
+			},
 			GroupID:        "group",
 			Topics:         []apmqueue.Topic{"topic"},
 			Decoder:        codec,
 			MaxPollRecords: records,
 			Delivery:       dt,
-			Logger:         zaptest.NewLogger(t, zaptest.Level(zapcore.DebugLevel)),
 			Processor: model.ProcessBatchFunc(func(ctx context.Context, b *model.Batch) error {
 				select {
 				case <-ctx.Done():
@@ -449,11 +461,13 @@ func TestMultipleConsumers(t *testing.T) {
 
 	var count atomic.Int32
 	cfg := ConsumerConfig{
-		Brokers: addrs,
+		CommonConfig: CommonConfig{
+			Brokers: addrs,
+			Logger:  zap.NewNop(),
+		},
 		Topics:  topics,
 		GroupID: "groupid",
 		Decoder: codec,
-		Logger:  zap.NewNop(),
 		Processor: model.ProcessBatchFunc(func(_ context.Context, b *model.Batch) error {
 			count.Add(1)
 			assert.Len(t, *b, 1)
@@ -492,10 +506,12 @@ func TestMultipleConsumerGroups(t *testing.T) {
 	topics := []apmqueue.Topic{"topic"}
 	client, addrs := newClusterWithTopics(t, topics...)
 	cfg := ConsumerConfig{
-		Brokers: addrs,
+		CommonConfig: CommonConfig{
+			Brokers: addrs,
+			Logger:  zap.NewNop(),
+		},
 		Topics:  topics,
 		Decoder: codec,
-		Logger:  zap.NewNop(),
 	}
 
 	b, err := codec.Encode(event)
@@ -542,11 +558,13 @@ func TestMultipleConsumerGroups(t *testing.T) {
 
 func TestConsumerRunError(t *testing.T) {
 	consumer := newConsumer(t, ConsumerConfig{
-		Brokers:   []string{"localhost:9092"},
+		CommonConfig: CommonConfig{
+			Brokers: []string{"localhost:9092"},
+			Logger:  zap.NewNop(),
+		},
 		Topics:    []apmqueue.Topic{"topic"},
 		GroupID:   "groupid",
 		Decoder:   json.JSON{},
-		Logger:    zap.NewNop(),
 		Processor: model.ProcessBatchFunc(func(context.Context, *model.Batch) error { return nil }),
 	})
 
