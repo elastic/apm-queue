@@ -89,9 +89,6 @@ type Producer struct {
 	responses chan []resTopic
 	closed    chan struct{}
 	tracer    trace.Tracer
-
-	project string
-	region  string
 }
 
 // NewProducer creates a new PubSub Lite producer for a single project.
@@ -106,9 +103,6 @@ func NewProducer(cfg ProducerConfig) (*Producer, error) {
 		// number, but it must be greater than 0, so async produces don't block.
 		responses: make(chan []resTopic, 1000),
 		tracer:    cfg.tracerProvider().Tracer("pubsublite"),
-
-		project: cfg.Project,
-		region:  cfg.Region,
 	}
 	if !cfg.Sync {
 		// If producing is async, start a goroutine that blocks until the
