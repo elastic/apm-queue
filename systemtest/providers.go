@@ -90,17 +90,17 @@ func kafkaTypes(ctx context.Context, t testing.TB, opts ...option) (apmqueue.Pro
 	require.NoError(t, ProvisionKafka(ctx, newLocalKafkaConfig(topics...)))
 
 	producer := newKafkaProducer(t, kafka.ProducerConfig{
-		Logger:      logger,
-		Encoder:     cfg.codec,
-		TopicRouter: topicRouter,
-		Sync:        cfg.sync,
+		CommonConfig: kafka.CommonConfig{Logger: logger},
+		Encoder:      cfg.codec,
+		TopicRouter:  topicRouter,
+		Sync:         cfg.sync,
 	})
 	consumer := newKafkaConsumer(t, kafka.ConsumerConfig{
-		Logger:    logger,
-		Decoder:   cfg.codec,
-		Topics:    topics,
-		GroupID:   t.Name(),
-		Processor: cfg.processor,
+		CommonConfig: kafka.CommonConfig{Logger: logger},
+		Decoder:      cfg.codec,
+		Topics:       topics,
+		GroupID:      t.Name(),
+		Processor:    cfg.processor,
 	})
 
 	return producer, consumer
@@ -118,16 +118,16 @@ func pubSubTypes(ctx context.Context, t testing.TB, opts ...option) (apmqueue.Pr
 	require.NoError(t, ProvisionPubSubLite(ctx, newPubSubLiteConfig(topics...)))
 
 	producer := newPubSubLiteProducer(t, pubsublite.ProducerConfig{
-		Logger:      logger,
-		Encoder:     cfg.codec,
-		TopicRouter: topicRouter,
-		Sync:        cfg.sync,
+		CommonConfig: pubsublite.CommonConfig{Logger: logger},
+		Encoder:      cfg.codec,
+		TopicRouter:  topicRouter,
+		Sync:         cfg.sync,
 	})
 	consumer := newPubSubLiteConsumer(ctx, t, pubsublite.ConsumerConfig{
-		Logger:    logger,
-		Decoder:   cfg.codec,
-		Topics:    topics,
-		Processor: cfg.processor,
+		CommonConfig: pubsublite.CommonConfig{Logger: logger},
+		Decoder:      cfg.codec,
+		Topics:       topics,
+		Processor:    cfg.processor,
 	})
 
 	return producer, consumer
