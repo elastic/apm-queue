@@ -78,16 +78,16 @@ func TestProducerGracefulShutdown(t *testing.T) {
 			require.NoError(t, err)
 
 			producer := newKafkaProducer(t, kafka.ProducerConfig{
-				Logger:      logger,
-				Encoder:     codec,
-				TopicRouter: topicRouter,
-				Sync:        tc.sync,
+				CommonConfig: kafka.CommonConfig{Logger: logger},
+				Encoder:      codec,
+				TopicRouter:  topicRouter,
+				Sync:         tc.sync,
 			})
 			consumer := newKafkaConsumer(t, kafka.ConsumerConfig{
-				GroupID: "group",
-				Topics:  topics,
-				Decoder: codec,
-				Logger:  logger,
+				CommonConfig: kafka.CommonConfig{Logger: logger},
+				GroupID:      "group",
+				Topics:       topics,
+				Decoder:      codec,
 				Processor: model.ProcessBatchFunc(func(ctx context.Context, b *model.Batch) error {
 					processed.Add(1)
 					return nil
@@ -139,15 +139,15 @@ func TestProducerGracefulShutdown(t *testing.T) {
 			defer cancel()
 
 			producer := newPubSubLiteProducer(t, pubsublite.ProducerConfig{
-				Logger:      logger,
-				Encoder:     codec,
-				TopicRouter: topicRouter,
-				Sync:        tc.sync,
+				CommonConfig: pubsublite.CommonConfig{Logger: logger},
+				Encoder:      codec,
+				TopicRouter:  topicRouter,
+				Sync:         tc.sync,
 			})
 			consumer := newPubSubLiteConsumer(ctx, t, pubsublite.ConsumerConfig{
-				Topics:  topics,
-				Decoder: codec,
-				Logger:  logger,
+				CommonConfig: pubsublite.CommonConfig{Logger: logger},
+				Topics:       topics,
+				Decoder:      codec,
 				Processor: model.ProcessBatchFunc(func(ctx context.Context, b *model.Batch) error {
 					processed.Add(1)
 					return nil
@@ -215,16 +215,16 @@ func TestConsumerGracefulShutdown(t *testing.T) {
 			require.NoError(t, err)
 
 			producer := newKafkaProducer(t, kafka.ProducerConfig{
-				Logger:      logger,
-				Encoder:     codec,
-				TopicRouter: topicRouter,
+				CommonConfig: kafka.CommonConfig{Logger: logger},
+				Encoder:      codec,
+				TopicRouter:  topicRouter,
 			})
 			consumer := newKafkaConsumer(t, kafka.ConsumerConfig{
+				CommonConfig:   kafka.CommonConfig{Logger: logger},
 				GroupID:        "group",
 				Delivery:       tc.deliveryType,
 				Topics:         topics,
 				Decoder:        codec,
-				Logger:         logger,
 				MaxPollRecords: records,
 				Processor: model.ProcessBatchFunc(func(ctx context.Context, b *model.Batch) error {
 					select {
@@ -285,16 +285,16 @@ func TestConsumerGracefulShutdown(t *testing.T) {
 			defer cancel()
 
 			producer := newPubSubLiteProducer(t, pubsublite.ProducerConfig{
-				Logger:      logger,
-				Encoder:     codec,
-				TopicRouter: topicRouter,
-				Sync:        true,
+				CommonConfig: pubsublite.CommonConfig{Logger: logger},
+				Encoder:      codec,
+				TopicRouter:  topicRouter,
+				Sync:         true,
 			})
 			consumer := newPubSubLiteConsumer(ctx, t, pubsublite.ConsumerConfig{
-				Topics:   topics,
-				Delivery: tc.deliveryType,
-				Decoder:  codec,
-				Logger:   logger,
+				CommonConfig: pubsublite.CommonConfig{Logger: logger},
+				Topics:       topics,
+				Delivery:     tc.deliveryType,
+				Decoder:      codec,
 				Processor: model.ProcessBatchFunc(func(ctx context.Context, b *model.Batch) error {
 					select {
 					case <-ctx.Done():

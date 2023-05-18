@@ -88,16 +88,16 @@ func TestProduceConsumeDelivery(t *testing.T) {
 				expectedRecordsCount: tc.expectedRecordsCount,
 				records:              &records,
 				producer: newKafkaProducer(t, kafka.ProducerConfig{
-					Logger:      logger,
-					Encoder:     json.JSON{},
-					TopicRouter: topicRouter,
+					CommonConfig: kafka.CommonConfig{Logger: logger},
+					Encoder:      json.JSON{},
+					TopicRouter:  topicRouter,
 				}),
 				consumer: newKafkaConsumer(t, kafka.ConsumerConfig{
-					Logger:   logger,
-					Decoder:  json.JSON{},
-					Topics:   topics,
-					GroupID:  t.Name(),
-					Delivery: tc.deliveryType,
+					CommonConfig: kafka.CommonConfig{Logger: logger},
+					Decoder:      json.JSON{},
+					Topics:       topics,
+					GroupID:      t.Name(),
+					Delivery:     tc.deliveryType,
 					Processor: model.ProcessBatchFunc(func(ctx context.Context, b *model.Batch) error {
 						var err error
 						once.Do(func() {
@@ -137,15 +137,15 @@ func TestProduceConsumeDelivery(t *testing.T) {
 				expectedRecordsCount: tc.expectedRecordsCount,
 				records:              &records,
 				producer: newPubSubLiteProducer(t, pubsublite.ProducerConfig{
-					Logger:      logger,
-					Encoder:     json.JSON{},
-					TopicRouter: topicRouter,
+					CommonConfig: pubsublite.CommonConfig{Logger: logger},
+					Encoder:      json.JSON{},
+					TopicRouter:  topicRouter,
 				}),
 				consumer: newPubSubLiteConsumer(ctx, t, pubsublite.ConsumerConfig{
-					Logger:   logger,
-					Decoder:  json.JSON{},
-					Topics:   topics,
-					Delivery: tc.deliveryType,
+					CommonConfig: pubsublite.CommonConfig{Logger: logger},
+					Decoder:      json.JSON{},
+					Topics:       topics,
+					Delivery:     tc.deliveryType,
 					Processor: model.ProcessBatchFunc(func(ctx context.Context, b *model.Batch) error {
 						var err error
 						once.Do(func() {
@@ -258,13 +258,13 @@ func TestProduceConsumeDeliveryGuarantees(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), tc.timeout)
 			defer cancel()
 			producer := newKafkaProducer(t, kafka.ProducerConfig{
-				Logger:      logger.Named("producer"),
-				Encoder:     codec,
-				TopicRouter: topicRouter,
+				CommonConfig: kafka.CommonConfig{Logger: logger.Named("producer")},
+				Encoder:      codec,
+				TopicRouter:  topicRouter,
 			})
 			consumerFunc := func(t testing.TB, name string, bp model.BatchProcessor) apmqueue.Consumer {
 				return newKafkaConsumer(t, kafka.ConsumerConfig{
-					Logger:         logger.Named(name),
+					CommonConfig:   kafka.CommonConfig{Logger: logger.Named(name)},
 					Decoder:        codec,
 					Topics:         topics,
 					GroupID:        t.Name(),
@@ -289,18 +289,18 @@ func TestProduceConsumeDeliveryGuarantees(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), tc.timeout)
 			defer cancel()
 			producer := newPubSubLiteProducer(t, pubsublite.ProducerConfig{
-				Logger:      logger,
-				Encoder:     codec,
-				TopicRouter: topicRouter,
-				Sync:        true,
+				CommonConfig: pubsublite.CommonConfig{Logger: logger},
+				Encoder:      codec,
+				TopicRouter:  topicRouter,
+				Sync:         true,
 			})
 			consumerFunc := func(t testing.TB, name string, bp model.BatchProcessor) apmqueue.Consumer {
 				return newPubSubLiteConsumer(ctx, t, pubsublite.ConsumerConfig{
-					Logger:    logger.Named(name),
-					Decoder:   codec,
-					Topics:    topics,
-					Delivery:  tc.deliveryType,
-					Processor: bp,
+					CommonConfig: pubsublite.CommonConfig{Logger: logger.Named(name)},
+					Decoder:      codec,
+					Topics:       topics,
+					Delivery:     tc.deliveryType,
+					Processor:    bp,
 				})
 			}
 			test(t, ctx, producer, consumerFunc, tc.expectedRecordsCount)

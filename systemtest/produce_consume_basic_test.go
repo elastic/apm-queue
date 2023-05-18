@@ -63,16 +63,16 @@ func TestProduceConsumeSingleTopic(t *testing.T) {
 				expectedRecordsCount: events,
 				records:              &records,
 				producer: newKafkaProducer(t, kafka.ProducerConfig{
-					Logger:      logger,
-					Encoder:     json.JSON{},
-					TopicRouter: topicRouter,
-					Sync:        sync,
+					CommonConfig: kafka.CommonConfig{Logger: logger},
+					Encoder:      json.JSON{},
+					TopicRouter:  topicRouter,
+					Sync:         sync,
 				}),
 				consumer: newKafkaConsumer(t, kafka.ConsumerConfig{
-					Logger:  logger,
-					Decoder: json.JSON{},
-					Topics:  topics,
-					GroupID: t.Name(),
+					CommonConfig: kafka.CommonConfig{Logger: logger},
+					Decoder:      json.JSON{},
+					Topics:       topics,
+					GroupID:      t.Name(),
 					Processor: assertBatchFunc(t, consumerAssertions{
 						records:   &records,
 						processor: model.TransactionProcessor,
@@ -92,15 +92,15 @@ func TestProduceConsumeSingleTopic(t *testing.T) {
 				events:  events,
 				records: &records,
 				producer: newPubSubLiteProducer(t, pubsublite.ProducerConfig{
-					Logger:      logger,
-					Encoder:     json.JSON{},
-					TopicRouter: topicRouter,
-					Sync:        sync,
+					CommonConfig: pubsublite.CommonConfig{Logger: logger},
+					Encoder:      json.JSON{},
+					TopicRouter:  topicRouter,
+					Sync:         sync,
 				}),
 				consumer: newPubSubLiteConsumer(ctx, t, pubsublite.ConsumerConfig{
-					Logger:  logger,
-					Decoder: json.JSON{},
-					Topics:  topics,
+					CommonConfig: pubsublite.CommonConfig{Logger: logger},
+					Decoder:      json.JSON{},
+					Topics:       topics,
 					Processor: assertBatchFunc(t, consumerAssertions{
 						records:   &records,
 						processor: model.TransactionProcessor,
@@ -144,16 +144,16 @@ func TestProduceConsumeMultipleTopics(t *testing.T) {
 				records:              &records,
 				timeout:              timeout,
 				producer: newKafkaProducer(t, kafka.ProducerConfig{
-					Logger:      logger,
-					Encoder:     json.JSON{},
-					TopicRouter: topicRouter,
-					Sync:        sync,
+					CommonConfig: kafka.CommonConfig{Logger: logger},
+					Encoder:      json.JSON{},
+					TopicRouter:  topicRouter,
+					Sync:         sync,
 				}),
 				consumer: newKafkaConsumer(t, kafka.ConsumerConfig{
-					Logger:  logger,
-					Decoder: json.JSON{},
-					Topics:  topics,
-					GroupID: t.Name(),
+					CommonConfig: kafka.CommonConfig{Logger: logger},
+					Decoder:      json.JSON{},
+					Topics:       topics,
+					GroupID:      t.Name(),
 					Processor: assertBatchFunc(t, consumerAssertions{
 						records:   &records,
 						processor: model.TransactionProcessor,
@@ -174,15 +174,15 @@ func TestProduceConsumeMultipleTopics(t *testing.T) {
 				records:              &records,
 				timeout:              timeout,
 				producer: newPubSubLiteProducer(t, pubsublite.ProducerConfig{
-					Logger:      logger,
-					Encoder:     json.JSON{},
-					TopicRouter: topicRouter,
-					Sync:        sync,
+					CommonConfig: pubsublite.CommonConfig{Logger: logger},
+					Encoder:      json.JSON{},
+					TopicRouter:  topicRouter,
+					Sync:         sync,
 				}),
 				consumer: newPubSubLiteConsumer(ctx, t, pubsublite.ConsumerConfig{
-					Logger:  logger,
-					Decoder: json.JSON{},
-					Topics:  topics,
+					CommonConfig: pubsublite.CommonConfig{Logger: logger},
+					Decoder:      json.JSON{},
+					Topics:       topics,
 					Processor: assertBatchFunc(t, consumerAssertions{
 						records:   &records,
 						processor: model.TransactionProcessor,
@@ -321,10 +321,10 @@ func TestShutdown(t *testing.T) {
 			consumerF := func() (apmqueue.Consumer, chan struct{}) {
 				received := make(chan struct{})
 				return newKafkaConsumer(t, kafka.ConsumerConfig{
-					Logger:  logger,
-					Decoder: codec,
-					Topics:  topics,
-					GroupID: "groupid",
+					CommonConfig: kafka.CommonConfig{Logger: logger},
+					Decoder:      codec,
+					Topics:       topics,
+					GroupID:      "groupid",
 					Processor: model.ProcessBatchFunc(func(ctx context.Context, b *model.Batch) error {
 						close(received)
 						return nil
@@ -334,10 +334,10 @@ func TestShutdown(t *testing.T) {
 
 			producerF := func() apmqueue.Producer {
 				return newKafkaProducer(t, kafka.ProducerConfig{
-					Logger:      logger,
-					Encoder:     codec,
-					TopicRouter: topicRouter,
-					Sync:        true,
+					CommonConfig: kafka.CommonConfig{Logger: logger},
+					Encoder:      codec,
+					TopicRouter:  topicRouter,
+					Sync:         true,
 				})
 			}
 			return consumerF, producerF
@@ -368,9 +368,9 @@ func TestShutdown(t *testing.T) {
 			consumerF := func() (apmqueue.Consumer, chan struct{}) {
 				received := make(chan struct{})
 				return newPubSubLiteConsumer(context.Background(), t, pubsublite.ConsumerConfig{
-					Logger:  logger,
-					Decoder: codec,
-					Topics:  topics,
+					CommonConfig: pubsublite.CommonConfig{Logger: logger},
+					Decoder:      codec,
+					Topics:       topics,
 					Processor: model.ProcessBatchFunc(func(ctx context.Context, b *model.Batch) error {
 						close(received)
 						return nil
@@ -380,10 +380,10 @@ func TestShutdown(t *testing.T) {
 			}
 			producerF := func() apmqueue.Producer {
 				return newPubSubLiteProducer(t, pubsublite.ProducerConfig{
-					Logger:      logger,
-					Encoder:     codec,
-					TopicRouter: topicRouter,
-					Sync:        true,
+					CommonConfig: pubsublite.CommonConfig{Logger: logger},
+					Encoder:      codec,
+					TopicRouter:  topicRouter,
+					Sync:         true,
 				})
 			}
 			return consumerF, producerF
