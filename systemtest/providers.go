@@ -22,7 +22,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"go.uber.org/zap/zaptest"
@@ -81,9 +80,15 @@ type providerF func(testing.TB, ...option) (apmqueue.Producer, apmqueue.Consumer
 
 func forEachProvider(t *testing.T, f func(*testing.T, providerF)) {
 	t.Run("Kafka", func(t *testing.T) {
+		if skipKafka {
+			t.SkipNow()
+		}
 		f(t, kafkaTypes)
 	})
 	t.Run("PubSubLite", func(t *testing.T) {
+		if skipPubsublite {
+			t.SkipNow()
+		}
 		f(t, pubSubTypes)
 	})
 }
@@ -117,8 +122,7 @@ func kafkaTypes(t testing.TB, opts ...option) (apmqueue.Producer, apmqueue.Consu
 
 	logger := cfg.loggerF(t)
 	topics, topicRouter := cfg.topicsF(t)
-
-	require.NoError(t, ProvisionKafka(ctx, newLocalKafkaConfig(topics...)))
+	CreateKafkaTopics(ctx, t, topics...)
 
 	producer := newKafkaProducer(t, kafka.ProducerConfig{
 		CommonConfig: kafka.CommonConfig{Logger: logger},
@@ -156,8 +160,7 @@ func pubSubTypes(t testing.TB, opts ...option) (apmqueue.Producer, apmqueue.Cons
 			Topic: topic,
 		}
 	}
-
-	require.NoError(t, ProvisionPubSubLite(ctx, newPubSubLiteConfig(topics...)))
+	CreatePubsubTopics(ctx, t, topics...)
 
 	producer := newPubSubLiteProducer(t, pubsublite.ProducerConfig{
 		CommonConfig: pubsublite.CommonConfig{Logger: logger},
