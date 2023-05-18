@@ -25,13 +25,11 @@ import (
 
 	"cloud.google.com/go/pubsub"
 	"cloud.google.com/go/pubsublite/pscompat"
-	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	semconv "go.opentelemetry.io/otel/semconv/v1.17.0"
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
-	"google.golang.org/api/option"
 
 	"github.com/elastic/apm-data/model"
 	apmqueue "github.com/elastic/apm-queue"
@@ -47,42 +45,26 @@ type Encoder interface {
 
 // ProducerConfig for the PubSub Lite producer.
 type ProducerConfig struct {
-	// Region is the GCP region for the producer.
-	Region string
-	// Project is the GCP project for the producer.
-	Project string
+	CommonConfig
 	// Encoder holds an encoding.Encoder for encoding events.
 	Encoder Encoder
-	// Logger for the producer.
-	Logger *zap.Logger
 	// TopicRouter returns the topic where an event should be produced.
 	TopicRouter apmqueue.TopicRouter
 	// Sync can be used to indicate whether production should be synchronous.
 	// Due to the mechanics of pubsub lite publishing, producing synchronously
 	// will yield poor performance unless the model.Batch are large enough to
 	// trigger immediate flush after processing a single batch.
-	Sync       bool
-	ClientOpts []option.ClientOption
-
-	// TracerProvider allows specifying a custom otel tracer provider.
-	// Defaults to the global one.
-	TracerProvider trace.TracerProvider
+	Sync bool
 }
 
 // Validate ensures the configuration is valid, otherwise, returns an error.
 func (cfg ProducerConfig) Validate() error {
 	var errs []error
-	if cfg.Project == "" {
-		errs = append(errs, errors.New("pubsublite: project must be set"))
-	}
-	if cfg.Region == "" {
-		errs = append(errs, errors.New("pubsublite: region must be set"))
+	if err := cfg.CommonConfig.Validate(); err != nil {
+		errs = append(errs, err)
 	}
 	if cfg.Encoder == nil {
 		errs = append(errs, errors.New("pubsublite: encoder must be set"))
-	}
-	if cfg.Logger == nil {
-		errs = append(errs, errors.New("pubsublite: logger must be set"))
 	}
 	if cfg.TopicRouter == nil {
 		errs = append(errs, errors.New("pubsublite: topic router must be set"))
@@ -117,24 +99,17 @@ func NewProducer(cfg ProducerConfig) (*Producer, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("pubsublite: invalid producer config: %w", err)
 	}
-
-	tracerProvider := cfg.TracerProvider
-	if tracerProvider == nil {
-		tracerProvider = otel.GetTracerProvider()
-	}
-
 	p := &Producer{
 		cfg:    cfg,
 		closed: make(chan struct{}),
 		// NOTE(marclop) should the channel size be dynamic? 1000 is an arbitrary
 		// number, but it must be greater than 0, so async produces don't block.
 		responses: make(chan []resTopic, 1000),
-		tracer:    tracerProvider.Tracer("pubsublite"),
+		tracer:    cfg.tracerProvider().Tracer("pubsublite"),
 
 		project: cfg.Project,
 		region:  cfg.Region,
 	}
-
 	if !cfg.Sync {
 		// If producing is async, start a goroutine that blocks until the
 		// all messages have been produced. This happens in the ProcessBatch
@@ -147,7 +122,6 @@ func NewProducer(cfg ProducerConfig) (*Producer, error) {
 			return nil
 		})
 	}
-
 	return p, nil
 }
 
@@ -213,8 +187,8 @@ func (p *Producer) ProcessBatch(ctx context.Context, batch *model.Batch) error {
 			// This is accurates as of pubsublite@v1.7.0
 			response: telemetry.Publisher(ctx, p.tracer, &msg, publisher.Publish, []attribute.KeyValue{
 				semconv.MessagingDestinationNameKey.String(string(topic)),
-				semconv.CloudRegion(p.region),
-				semconv.CloudAccountID(p.project),
+				semconv.CloudRegion(p.cfg.Region),
+				semconv.CloudAccountID(p.cfg.Project),
 			}),
 			topic: topic,
 		})
@@ -262,7 +236,7 @@ func newPublisher(ctx context.Context, cfg ProducerConfig, topic apmqueue.Topic)
 	}
 	return pscompat.NewPublisherClientWithSettings(ctx,
 		formatTopic(cfg.Project, cfg.Region, topic),
-		settings, cfg.ClientOpts...,
+		settings, cfg.ClientOptions...,
 	)
 }
 
