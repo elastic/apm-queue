@@ -39,29 +39,25 @@ func TestProduceConsumeSingleTopic(t *testing.T) {
 	events := 100
 	timeout := 60 * time.Second
 
-	forEachProvider(func(name string, pf providerF) {
-		t.Run(name, func(t *testing.T) {
-			runAsyncAndSync(func(name string, isSync bool) {
-				t.Run(name, func(t *testing.T) {
-					var records atomic.Int64
-					processor := assertBatchFunc(t, consumerAssertions{
-						records:   &records,
-						processor: model.TransactionProcessor,
-					})
-					producer, consumer := pf(t, withProcessor(processor), withSync(isSync))
+	forEachProvider(t, func(t *testing.T, pf providerF) {
+		runAsyncAndSync(t, func(t *testing.T, isSync bool) {
+			var records atomic.Int64
+			processor := assertBatchFunc(t, consumerAssertions{
+				records:   &records,
+				processor: model.TransactionProcessor,
+			})
+			producer, consumer := pf(t, withProcessor(processor), withSync(isSync))
 
-					ctx, cancel := context.WithTimeout(context.Background(), timeout)
-					defer cancel()
+			ctx, cancel := context.WithTimeout(context.Background(), timeout)
+			defer cancel()
 
-					testProduceConsume(ctx, t, produceConsumeCfg{
-						events:               events,
-						expectedRecordsCount: events,
-						records:              &records,
-						producer:             producer,
-						consumer:             consumer,
-						timeout:              timeout,
-					})
-				})
+			testProduceConsume(ctx, t, produceConsumeCfg{
+				events:               events,
+				expectedRecordsCount: events,
+				records:              &records,
+				producer:             producer,
+				consumer:             consumer,
+				timeout:              timeout,
 			})
 		})
 	})
@@ -75,46 +71,42 @@ func TestProduceConsumeMultipleTopics(t *testing.T) {
 	events := 100
 	timeout := 60 * time.Second
 
-	forEachProvider(func(name string, pf providerF) {
-		t.Run(name, func(t *testing.T) {
-			runAsyncAndSync(func(name string, isSync bool) {
-				t.Run(name, func(t *testing.T) {
-					var records atomic.Int64
-					processor := assertBatchFunc(t, consumerAssertions{
-						records:   &records,
-						processor: model.TransactionProcessor,
-					})
-					producer, consumer := pf(t,
-						withProcessor(processor),
-						withSync(isSync),
-						withTopicsGenerator(func(t testing.TB) []apmqueue.Topic {
-							return SuffixTopics(
-								apmqueue.Topic(t.Name()+"Even"),
-								apmqueue.Topic(t.Name()+"Odd"),
-							)
-						}, func(topics []apmqueue.Topic) func(model.APMEvent) apmqueue.Topic {
-							return func(event model.APMEvent) apmqueue.Topic {
-								if event.Event.Duration%2 == 0 {
-									return topics[0]
-								}
-								return topics[1]
-
-							}
-						}),
+	forEachProvider(t, func(t *testing.T, pf providerF) {
+		runAsyncAndSync(t, func(t *testing.T, isSync bool) {
+			var records atomic.Int64
+			processor := assertBatchFunc(t, consumerAssertions{
+				records:   &records,
+				processor: model.TransactionProcessor,
+			})
+			producer, consumer := pf(t,
+				withProcessor(processor),
+				withSync(isSync),
+				withTopicsGenerator(func(t testing.TB) []apmqueue.Topic {
+					return SuffixTopics(
+						apmqueue.Topic(t.Name()+"Even"),
+						apmqueue.Topic(t.Name()+"Odd"),
 					)
+				}, func(topics []apmqueue.Topic) func(model.APMEvent) apmqueue.Topic {
+					return func(event model.APMEvent) apmqueue.Topic {
+						if event.Event.Duration%2 == 0 {
+							return topics[0]
+						}
+						return topics[1]
 
-					ctx, cancel := context.WithTimeout(context.Background(), timeout)
-					defer cancel()
+					}
+				}),
+			)
 
-					testProduceConsume(ctx, t, produceConsumeCfg{
-						events:               events,
-						expectedRecordsCount: events,
-						records:              &records,
-						producer:             producer,
-						consumer:             consumer,
-						timeout:              timeout,
-					})
-				})
+			ctx, cancel := context.WithTimeout(context.Background(), timeout)
+			defer cancel()
+
+			testProduceConsume(ctx, t, produceConsumeCfg{
+				events:               events,
+				expectedRecordsCount: events,
+				records:              &records,
+				producer:             producer,
+				consumer:             consumer,
+				timeout:              timeout,
 			})
 		})
 	})
@@ -186,70 +178,66 @@ func assertBatchFunc(t testing.TB, assertions consumerAssertions) model.BatchPro
 }
 
 func TestShutdown(t *testing.T) {
-	forEachProvider(func(name string, pf providerF) {
-		t.Run(name, func(t *testing.T) {
-			runAsyncAndSync(func(name string, isSync bool) {
+	forEachProvider(t, func(t *testing.T, pf providerF) {
+		runAsyncAndSync(t, func(t *testing.T, isSync bool) {
+			type stopFunc func(context.CancelFunc, apmqueue.Consumer)
+
+			for name, stop := range map[string]stopFunc{
+				"ctx":   func(cancel context.CancelFunc, _ apmqueue.Consumer) { cancel() },
+				"close": func(_ context.CancelFunc, c apmqueue.Consumer) { assert.NoError(t, c.Close()) },
+			} {
 				t.Run(name, func(t *testing.T) {
-					type stopFunc func(context.CancelFunc, apmqueue.Consumer)
+					received := make(chan struct{})
+					processor := model.ProcessBatchFunc(func(ctx context.Context, b *model.Batch) error {
+						close(received)
+						return nil
+					})
+					producer, consumer := pf(t, withProcessor(processor), withSync(isSync))
 
-					for name, stop := range map[string]stopFunc{
-						"ctx":   func(cancel context.CancelFunc, _ apmqueue.Consumer) { cancel() },
-						"close": func(_ context.CancelFunc, c apmqueue.Consumer) { assert.NoError(t, c.Close()) },
-					} {
-						t.Run(name, func(t *testing.T) {
-							received := make(chan struct{})
-							processor := model.ProcessBatchFunc(func(ctx context.Context, b *model.Batch) error {
-								close(received)
-								return nil
-							})
-							producer, consumer := pf(t, withProcessor(processor), withSync(isSync))
+					assert.NoError(t, producer.ProcessBatch(context.Background(), &model.Batch{
+						model.APMEvent{Transaction: &model.Transaction{ID: "1"}},
+					}))
+					assert.NoError(t, producer.Close())
 
-							assert.NoError(t, producer.ProcessBatch(context.Background(), &model.Batch{
-								model.APMEvent{Transaction: &model.Transaction{ID: "1"}},
-							}))
-							assert.NoError(t, producer.Close())
+					closeCh := make(chan struct{})
+					ctx, cancel := context.WithCancel(context.Background())
 
-							closeCh := make(chan struct{})
-							ctx, cancel := context.WithCancel(context.Background())
+					// cleanup
+					defer func() {
+						cancel()
+						consumer.Close()
+					}()
 
-							// cleanup
-							defer func() {
-								cancel()
-								consumer.Close()
-							}()
+					go func() {
+						// TODO this is failing
+						//assert.Equal(t, expectedErr, consumer.Run(ctx))
+						consumer.Run(ctx)
+						close(closeCh)
+					}()
+					select {
+					case <-received:
+					case <-time.After(120 * time.Second):
+						t.Error("timed out while waiting to receive an event")
+					}
 
-							go func() {
-								// TODO this is failing
-								//assert.Equal(t, expectedErr, consumer.Run(ctx))
-								consumer.Run(ctx)
-								close(closeCh)
-							}()
-							select {
-							case <-received:
-							case <-time.After(120 * time.Second):
-								t.Error("timed out while waiting to receive an event")
-							}
+					stopCh := make(chan struct{})
+					go func() {
+						stop(cancel, consumer)
+						close(stopCh)
+					}()
+					select {
+					case <-stopCh:
+					case <-time.After(120 * time.Second):
+						t.Error("timed out while stopping consumer")
+					}
 
-							stopCh := make(chan struct{})
-							go func() {
-								stop(cancel, consumer)
-								close(stopCh)
-							}()
-							select {
-							case <-stopCh:
-							case <-time.After(120 * time.Second):
-								t.Error("timed out while stopping consumer")
-							}
-
-							select {
-							case <-closeCh:
-							case <-time.After(120 * time.Second):
-								t.Error("timed out while waiting for consumer to exit")
-							}
-						})
+					select {
+					case <-closeCh:
+					case <-time.After(120 * time.Second):
+						t.Error("timed out while waiting for consumer to exit")
 					}
 				})
-			})
+			}
 		})
 	})
 }

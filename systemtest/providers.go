@@ -75,19 +75,31 @@ type universalEncoderDecoder interface {
 
 type providerF func(testing.TB, ...option) (apmqueue.Producer, apmqueue.Consumer)
 
-func forEachProvider(f func(string, providerF)) {
-	f("Kafka", kafkaTypes)
-	f("PubSubLite", pubSubTypes)
+func forEachProvider(t *testing.T, f func(*testing.T, providerF)) {
+	t.Run("Kafka", func(t *testing.T) {
+		f(t, kafkaTypes)
+	})
+	t.Run("PubSubLite", func(t *testing.T) {
+		f(t, pubSubTypes)
+	})
 }
 
-func forEachDeliveryType(f func(string, apmqueue.DeliveryType)) {
-	f("ALOD", apmqueue.AtLeastOnceDeliveryType)
-	f("AMOD", apmqueue.AtMostOnceDeliveryType)
+func forEachDeliveryType(t *testing.T, f func(*testing.T, apmqueue.DeliveryType)) {
+	t.Run("ALOD", func(t *testing.T) {
+		f(t, apmqueue.AtLeastOnceDeliveryType)
+	})
+	t.Run("AMOD", func(t *testing.T) {
+		f(t, apmqueue.AtMostOnceDeliveryType)
+	})
 }
 
-func runAsyncAndSync(f func(string, bool)) {
-	f("sync", true)
-	f("async", false)
+func runAsyncAndSync(t *testing.T, f func(*testing.T, bool)) {
+	t.Run("sync", func(t *testing.T) {
+		f(t, true)
+	})
+	t.Run("async", func(t *testing.T) {
+		f(t, false)
+	})
 }
 
 func kafkaTypes(t testing.TB, opts ...option) (apmqueue.Producer, apmqueue.Consumer) {
