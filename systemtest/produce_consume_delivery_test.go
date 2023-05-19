@@ -124,7 +124,7 @@ func TestConsumerDelivery(t *testing.T) {
 				},
 			}
 			for name, tc := range cases {
-				t.Run("Kafka/"+name, func(t *testing.T) {
+				t.Run(name, func(t *testing.T) {
 					failRecord := make(chan struct{})
 					processRecord := make(chan struct{})
 					defer close(failRecord)
