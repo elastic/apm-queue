@@ -211,6 +211,13 @@ func TestShutdown(t *testing.T) {
 
 							closeCh := make(chan struct{})
 							ctx, cancel := context.WithCancel(context.Background())
+
+							// cleanup
+							defer func() {
+								cancel()
+								consumer.Close()
+							}()
+
 							go func() {
 								// TODO this is failing
 								//assert.Equal(t, expectedErr, consumer.Run(ctx))
@@ -223,7 +230,16 @@ func TestShutdown(t *testing.T) {
 								t.Error("timed out while waiting to receive an event")
 							}
 
-							stop(cancel, consumer)
+							stopCh := make(chan struct{})
+							go func() {
+								stop(cancel, consumer)
+								close(stopCh)
+							}()
+							select {
+							case <-stopCh:
+							case <-time.After(120 * time.Second):
+								t.Error("timed out while stopping consumer")
+							}
 
 							select {
 							case <-closeCh:
