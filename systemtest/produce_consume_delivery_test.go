@@ -126,10 +126,6 @@ func TestConsumerDelivery(t *testing.T) {
 				}
 				for name, tc := range cases {
 					t.Run("Kafka/"+name, func(t *testing.T) {
-						timeout := 90 * time.Second
-						ctx, cancel := context.WithTimeout(context.Background(), timeout)
-						defer cancel()
-
 						failRecord := make(chan struct{})
 						processRecord := make(chan struct{})
 						defer close(failRecord)
@@ -153,7 +149,7 @@ func TestConsumerDelivery(t *testing.T) {
 							return nil
 						})
 
-						producer, consumer := pf(ctx, t,
+						producer, consumer := pf(t,
 							withProcessor(processor),
 							withSync(isSync),
 							withDeliveryType(tc.deliveryType),
@@ -164,7 +160,7 @@ func TestConsumerDelivery(t *testing.T) {
 						)
 
 						// Context used for the consumer
-						ctx, cancel = context.WithCancel(context.Background())
+						ctx, cancel := context.WithCancel(context.Background())
 						defer cancel()
 
 						batch := make(model.Batch, 0, tc.initialRecords)
@@ -211,7 +207,7 @@ func TestConsumerDelivery(t *testing.T) {
 						ctx, cancel = context.WithCancel(context.Background())
 						defer cancel()
 						// Produce tc.lastRecords.
-						producer, consumer = pf(ctx, t,
+						producer, consumer = pf(t,
 							withProcessor(processor),
 							withSync(isSync),
 							withDeliveryType(tc.deliveryType),
@@ -262,5 +258,5 @@ func TestConsumerDelivery(t *testing.T) {
 				}
 			})
 		})
-	})	
+	})
 }

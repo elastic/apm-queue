@@ -43,15 +43,15 @@ func TestProduceConsumeSingleTopic(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			runAsyncAndSync(func(name string, isSync bool) {
 				t.Run(name, func(t *testing.T) {
-					ctx, cancel := context.WithTimeout(context.Background(), timeout)
-					defer cancel()
-
 					var records atomic.Int64
 					processor := assertBatchFunc(t, consumerAssertions{
 						records:   &records,
 						processor: model.TransactionProcessor,
 					})
-					producer, consumer := pf(ctx, t, withProcessor(processor), withSync(isSync))
+					producer, consumer := pf(t, withProcessor(processor), withSync(isSync))
+
+					ctx, cancel := context.WithTimeout(context.Background(), timeout)
+					defer cancel()
 
 					testProduceConsume(ctx, t, produceConsumeCfg{
 						events:               events,
@@ -79,15 +79,12 @@ func TestProduceConsumeMultipleTopics(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			runAsyncAndSync(func(name string, isSync bool) {
 				t.Run(name, func(t *testing.T) {
-					ctx, cancel := context.WithTimeout(context.Background(), timeout)
-					defer cancel()
-
 					var records atomic.Int64
 					processor := assertBatchFunc(t, consumerAssertions{
 						records:   &records,
 						processor: model.TransactionProcessor,
 					})
-					producer, consumer := pf(ctx, t,
+					producer, consumer := pf(t,
 						withProcessor(processor),
 						withSync(isSync),
 						withTopicsGenerator(func(t testing.TB) []apmqueue.Topic {
@@ -105,6 +102,9 @@ func TestProduceConsumeMultipleTopics(t *testing.T) {
 							}
 						}),
 					)
+
+					ctx, cancel := context.WithTimeout(context.Background(), timeout)
+					defer cancel()
 
 					testProduceConsume(ctx, t, produceConsumeCfg{
 						events:               events,
@@ -202,7 +202,7 @@ func TestShutdown(t *testing.T) {
 								close(received)
 								return nil
 							})
-							producer, consumer := pf(context.Background(), t, withProcessor(processor), withSync(isSync))
+							producer, consumer := pf(t, withProcessor(processor), withSync(isSync))
 
 							assert.NoError(t, producer.ProcessBatch(context.Background(), &model.Batch{
 								model.APMEvent{Transaction: &model.Transaction{ID: "1"}},

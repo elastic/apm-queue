@@ -20,6 +20,7 @@ package systemtest
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
@@ -40,6 +41,10 @@ type config struct {
 	loggerF        func(testing.TB) *zap.Logger
 	topicsF        func(testing.TB) ([]apmqueue.Topic, func(model.APMEvent) apmqueue.Topic)
 }
+
+const (
+	defaultProvisionTimeout = 90 * time.Second
+)
 
 var (
 	defaultCfg = config{
@@ -68,7 +73,7 @@ type universalEncoderDecoder interface {
 	pubsublite.Decoder
 }
 
-type providerF func(context.Context, testing.TB, ...option) (apmqueue.Producer, apmqueue.Consumer)
+type providerF func(testing.TB, ...option) (apmqueue.Producer, apmqueue.Consumer)
 
 func forEachProvider(f func(string, providerF)) {
 	f("Kafka", kafkaTypes)
@@ -85,7 +90,10 @@ func runAsyncAndSync(f func(string, bool)) {
 	f("async", false)
 }
 
-func kafkaTypes(ctx context.Context, t testing.TB, opts ...option) (apmqueue.Producer, apmqueue.Consumer) {
+func kafkaTypes(t testing.TB, opts ...option) (apmqueue.Producer, apmqueue.Consumer) {
+	ctx, cancel := context.WithTimeout(context.Background(), defaultProvisionTimeout)
+	defer cancel()
+
 	cfg := defaultCfg
 	for _, opt := range opts {
 		opt(&cfg)
@@ -114,7 +122,10 @@ func kafkaTypes(ctx context.Context, t testing.TB, opts ...option) (apmqueue.Pro
 	return producer, consumer
 }
 
-func pubSubTypes(ctx context.Context, t testing.TB, opts ...option) (apmqueue.Producer, apmqueue.Consumer) {
+func pubSubTypes(t testing.TB, opts ...option) (apmqueue.Producer, apmqueue.Consumer) {
+	ctx, cancel := context.WithTimeout(context.Background(), defaultProvisionTimeout)
+	defer cancel()
+
 	cfg := defaultCfg
 	for _, opt := range opts {
 		opt(&cfg)
@@ -131,7 +142,7 @@ func pubSubTypes(ctx context.Context, t testing.TB, opts ...option) (apmqueue.Pr
 		TopicRouter:  topicRouter,
 		Sync:         cfg.sync,
 	})
-	consumer := newPubSubLiteConsumer(ctx, t, pubsublite.ConsumerConfig{
+	consumer := newPubSubLiteConsumer(context.Background(), t, pubsublite.ConsumerConfig{
 		CommonConfig: pubsublite.CommonConfig{Logger: logger},
 		Decoder:      cfg.codec,
 		Topics:       topics,

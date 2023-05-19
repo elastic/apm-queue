@@ -49,21 +49,21 @@ func TestProducerGracefulShutdown(t *testing.T) {
 				t.Run(name, func(t *testing.T) {
 					runAsyncAndSync(func(name string, isSync bool) {
 						t.Run(name, func(t *testing.T) {
-							ctx, cancel := context.WithTimeout(context.Background(), timeout)
-							defer cancel()
-
 							var processed atomic.Int64
 							processor := model.ProcessBatchFunc(func(ctx context.Context, b *model.Batch) error {
 								processed.Add(1)
 								return nil
 							})
 
-							producer, consumer := pf(ctx, t, withProcessor(processor), withSync(isSync), withDeliveryType(dt))
+							producer, consumer := pf(t, withProcessor(processor), withSync(isSync), withDeliveryType(dt))
 
 							var wg sync.WaitGroup
 							wg.Add(2)
 							wait := make(chan struct{})
 							signal := make(chan struct{})
+							ctx, cancel := context.WithTimeout(context.Background(), timeout)
+							defer cancel()
+
 							go func() {
 								defer wg.Done()
 								assert.NoError(t, producer.ProcessBatch(ctx, &model.Batch{
@@ -99,9 +99,6 @@ func TestConsumerGracefulShutdown(t *testing.T) {
 				t.Run(name, func(t *testing.T) {
 					runAsyncAndSync(func(name string, isSync bool) {
 						t.Run(name, func(t *testing.T) {
-							ctx, cancel := context.WithTimeout(context.Background(), timeout)
-							defer cancel()
-
 							records := 2
 							var processed atomic.Int32
 							var errored atomic.Int32
@@ -117,9 +114,9 @@ func TestConsumerGracefulShutdown(t *testing.T) {
 								return nil
 							})
 
-							producer, consumer := pf(ctx, t, withProcessor(processor), withSync(isSync), withDeliveryType(dt))
+							producer, consumer := pf(t, withProcessor(processor), withSync(isSync), withDeliveryType(dt))
 
-							ctx, cancel = context.WithTimeout(context.Background(), timeout)
+							ctx, cancel := context.WithTimeout(context.Background(), timeout)
 							defer cancel()
 
 							assert.NoError(t, producer.ProcessBatch(ctx, &model.Batch{

@@ -49,9 +49,6 @@ func TestProduceConsumeDelivery(t *testing.T) {
 							replay := 1
 							expectedRecordsCount := 199
 
-							ctx, cancel := context.WithTimeout(context.Background(), timeout)
-							defer cancel()
-
 							var records atomic.Int64
 							var once sync.Once
 							processor := model.ProcessBatchFunc(func(ctx context.Context, b *model.Batch) error {
@@ -68,7 +65,7 @@ func TestProduceConsumeDelivery(t *testing.T) {
 								}).ProcessBatch(ctx, b)
 							})
 
-							producer, consumer := pf(ctx, t,
+							producer, consumer := pf(t,
 								withProcessor(processor),
 								withSync(isSync),
 								withDeliveryType(dt),
@@ -77,7 +74,7 @@ func TestProduceConsumeDelivery(t *testing.T) {
 								}),
 							)
 
-							ctx, cancel = context.WithTimeout(context.Background(), timeout)
+							ctx, cancel := context.WithTimeout(context.Background(), timeout)
 							defer cancel()
 							testProduceConsume(ctx, t, produceConsumeCfg{
 								events:               events,
@@ -106,16 +103,17 @@ func TestProduceConsumeDeliveryGuarantees(t *testing.T) {
 							timeout := 90 * time.Second
 							expectedRecordsCount := 1
 
-							ctx, cancel := context.WithTimeout(context.Background(), timeout)
-							defer cancel()
-
 							var errRecords atomic.Int64
 							errProcessor := model.ProcessBatchFunc(func(_ context.Context, b *model.Batch) error {
 								errRecords.Add(int64(len(*b)))
 								return errors.New("first consumer processor error")
 							})
 
-							producer, errConsumer := pf(ctx, t, withProcessor(errProcessor), withSync(isSync), withDeliveryType(dt))
+							producer, errConsumer := pf(t, withProcessor(errProcessor), withSync(isSync), withDeliveryType(dt))
+
+							ctx, cancel := context.WithTimeout(context.Background(), timeout)
+							defer cancel()
+
 							go errConsumer.Run(ctx)
 
 							batch := model.Batch{model.APMEvent{
@@ -143,16 +141,13 @@ func TestProduceConsumeDeliveryGuarantees(t *testing.T) {
 							cancel()
 							assert.NoError(t, errConsumer.Close())
 
-							ctx, cancel = context.WithTimeout(context.Background(), timeout)
-							defer cancel()
-
 							var successRecords atomic.Int64
 							successProcessor := model.ProcessBatchFunc(func(_ context.Context, b *model.Batch) error {
 								successRecords.Add(int64(len(*b)))
 								return nil
 							})
 
-							producer, successConsumer := pf(ctx, t,
+							producer, successConsumer := pf(t,
 								withProcessor(successProcessor),
 								withSync(isSync),
 								withDeliveryType(dt),
@@ -161,13 +156,17 @@ func TestProduceConsumeDeliveryGuarantees(t *testing.T) {
 								}),
 							)
 							assert.NoError(t, producer.Close())
+
+							ctx, cancel = context.WithTimeout(context.Background(), timeout)
+							defer cancel()
+
 							go successConsumer.Run(ctx)
 
 							assert.Eventually(t, func() bool {
 								return successRecords.Load() == int64(expectedRecordsCount) // Assertion
 							},
-								60*time.Second,     // Timeout
-								1*time.Second, // Poll
+								60*time.Second, // Timeout
+								1*time.Second,  // Poll
 								"expected records (%d) records do not match consumed records (%v)", // ErrMessage
 								expectedRecordsCount,
 								successRecords,
