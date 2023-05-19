@@ -41,7 +41,7 @@ func TestProduceConsumeSingleTopic(t *testing.T) {
 
 	forEachProvider(func(name string, pf providerF) {
 		t.Run(name, func(t *testing.T) {
-			runAsyncAndSync(func(name string, sync bool) {
+			runAsyncAndSync(func(name string, isSync bool) {
 				t.Run(name, func(t *testing.T) {
 					ctx, cancel := context.WithTimeout(context.Background(), timeout)
 					defer cancel()
@@ -51,7 +51,7 @@ func TestProduceConsumeSingleTopic(t *testing.T) {
 						records:   &records,
 						processor: model.TransactionProcessor,
 					})
-					producer, consumer := pf(ctx, t, withProcessor(processor), withSync(sync))
+					producer, consumer := pf(ctx, t, withProcessor(processor), withSync(isSync))
 
 					testProduceConsume(ctx, t, produceConsumeCfg{
 						events:               events,
@@ -77,7 +77,7 @@ func TestProduceConsumeMultipleTopics(t *testing.T) {
 
 	forEachProvider(func(name string, pf providerF) {
 		t.Run(name, func(t *testing.T) {
-			runAsyncAndSync(func(name string, sync bool) {
+			runAsyncAndSync(func(name string, isSync bool) {
 				t.Run(name, func(t *testing.T) {
 					ctx, cancel := context.WithTimeout(context.Background(), timeout)
 					defer cancel()
@@ -89,7 +89,7 @@ func TestProduceConsumeMultipleTopics(t *testing.T) {
 					})
 					producer, consumer := pf(ctx, t,
 						withProcessor(processor),
-						withSync(sync),
+						withSync(isSync),
 						withTopicsGenerator(func(t testing.TB) []apmqueue.Topic {
 							return SuffixTopics(
 								apmqueue.Topic(t.Name()+"Even"),
@@ -188,7 +188,7 @@ func assertBatchFunc(t testing.TB, assertions consumerAssertions) model.BatchPro
 func TestShutdown(t *testing.T) {
 	forEachProvider(func(name string, pf providerF) {
 		t.Run(name, func(t *testing.T) {
-			runAsyncAndSync(func(name string, sync bool) {
+			runAsyncAndSync(func(name string, isSync bool) {
 				t.Run(name, func(t *testing.T) {
 					type stopFunc func(context.CancelFunc, apmqueue.Consumer)
 
@@ -202,7 +202,7 @@ func TestShutdown(t *testing.T) {
 								close(received)
 								return nil
 							})
-							producer, consumer := pf(context.Background(), t, withProcessor(processor), withSync(sync))
+							producer, consumer := pf(context.Background(), t, withProcessor(processor), withSync(isSync))
 
 							assert.NoError(t, producer.ProcessBatch(context.Background(), &model.Batch{
 								model.APMEvent{Transaction: &model.Transaction{ID: "1"}},

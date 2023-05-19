@@ -32,11 +32,13 @@ import (
 )
 
 type config struct {
-	processor model.BatchProcessor
-	sync      bool
-	codec     universalEncoderDecoder
-	loggerF   func(testing.TB) *zap.Logger
-	topicsF   func(testing.TB) ([]apmqueue.Topic, func(model.APMEvent) apmqueue.Topic)
+	processor      model.BatchProcessor
+	sync           bool
+	dt             apmqueue.DeliveryType
+	codec          universalEncoderDecoder
+	maxPollRecords int
+	loggerF        func(testing.TB) *zap.Logger
+	topicsF        func(testing.TB) ([]apmqueue.Topic, func(model.APMEvent) apmqueue.Topic)
 }
 
 var (
@@ -73,6 +75,11 @@ func forEachProvider(f func(string, providerF)) {
 	f("PubSubLite", pubSubTypes)
 }
 
+func forEachDeliveryType(f func(string, apmqueue.DeliveryType)) {
+	f("ALOD", apmqueue.AtLeastOnceDeliveryType)
+	f("AMOD", apmqueue.AtMostOnceDeliveryType)
+}
+
 func runAsyncAndSync(f func(string, bool)) {
 	f("sync", true)
 	f("async", false)
@@ -101,6 +108,7 @@ func kafkaTypes(ctx context.Context, t testing.TB, opts ...option) (apmqueue.Pro
 		Topics:       topics,
 		GroupID:      t.Name(),
 		Processor:    cfg.processor,
+		Delivery:     cfg.dt,
 	})
 
 	return producer, consumer
@@ -128,6 +136,7 @@ func pubSubTypes(ctx context.Context, t testing.TB, opts ...option) (apmqueue.Pr
 		Decoder:      cfg.codec,
 		Topics:       topics,
 		Processor:    cfg.processor,
+		Delivery:     cfg.dt,
 	})
 
 	return producer, consumer
@@ -142,6 +151,24 @@ func withProcessor(p model.BatchProcessor) option {
 func withSync(sync bool) option {
 	return func(c *config) {
 		c.sync = sync
+	}
+}
+
+func withDeliveryType(dt apmqueue.DeliveryType) option {
+	return func(c *config) {
+		c.dt = dt
+	}
+}
+
+func withMaxPollRecords(max int) option {
+	return func(c *config) {
+		c.maxPollRecords = max
+	}
+}
+
+func withLogger(f func(testing.TB) *zap.Logger) option {
+	return func(c *config) {
+		c.loggerF = f
 	}
 }
 
