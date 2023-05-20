@@ -81,7 +81,6 @@ func TestProduceConsumeDelivery(t *testing.T) {
 func TestProduceConsumeDeliveryGuarantees(t *testing.T) {
 	forEachProvider(t, func(t *testing.T, pf providerF) {
 		forEachDeliveryType(t, func(t *testing.T, dt apmqueue.DeliveryType) {
-			expectedRecordsCount := 1
 			topic := SuffixTopics(apmqueue.Topic(t.Name()))[0]
 
 			var errRecords atomic.Int64
@@ -147,6 +146,13 @@ func TestProduceConsumeDeliveryGuarantees(t *testing.T) {
 			defer cancel()
 
 			go successConsumer.Run(ctx)
+
+			var expectedRecordsCount int64
+			if dt == apmqueue.AtMostOnceDeliveryType {
+				expectedRecordsCount = 0
+			} else {
+				expectedRecordsCount = 1
+			}
 
 			assert.Eventually(t, func() bool {
 				return successRecords.Load() == int64(expectedRecordsCount) // Assertion
