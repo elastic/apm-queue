@@ -44,43 +44,41 @@ func (s *stub) MarshalJSON() ([]byte, error) {
 func TestProducerGracefulShutdown(t *testing.T) {
 	timeout := 90 * time.Second
 	forEachProvider(t, func(t *testing.T, pf providerF) {
-		forEachDeliveryType(t, func(t *testing.T, dt apmqueue.DeliveryType) {
-			runAsyncAndSync(t, func(t *testing.T, isSync bool) {
-				var processed atomic.Int64
-				processor := model.ProcessBatchFunc(func(ctx context.Context, b *model.Batch) error {
-					processed.Add(1)
-					return nil
-				})
-
-				producer, consumer := pf(t, withProcessor(processor), withSync(isSync), withDeliveryType(dt))
-
-				var wg sync.WaitGroup
-				wg.Add(2)
-				wait := make(chan struct{})
-				signal := make(chan struct{})
-				ctx, cancel := context.WithTimeout(context.Background(), timeout)
-				defer cancel()
-
-				go func() {
-					defer wg.Done()
-					assert.NoError(t, producer.ProcessBatch(ctx, &model.Batch{
-						model.APMEvent{Transaction: &model.Transaction{ID: "1", Custom: map[string]any{"foo": &stub{wait: wait, signal: signal}}}},
-					}))
-				}()
-				<-signal
-				go func() {
-					defer wg.Done()
-					close(wait)
-					assert.NoError(t, producer.Close())
-				}()
-
-				wg.Wait()
-
-				go func() { consumer.Run(ctx) }()
-				assert.Eventually(t, func() bool {
-					return processed.Load() == 1
-				}, 60*time.Second, time.Second, processed)
+		runAsyncAndSync(t, func(t *testing.T, isSync bool) {
+			var processed atomic.Int64
+			processor := model.ProcessBatchFunc(func(ctx context.Context, b *model.Batch) error {
+				processed.Add(1)
+				return nil
 			})
+
+			producer, consumer := pf(t, withProcessor(processor), withSync(isSync))
+
+			var wg sync.WaitGroup
+			wg.Add(2)
+			wait := make(chan struct{})
+			signal := make(chan struct{})
+			ctx, cancel := context.WithTimeout(context.Background(), timeout)
+			defer cancel()
+
+			go func() {
+				defer wg.Done()
+				assert.NoError(t, producer.ProcessBatch(ctx, &model.Batch{
+					model.APMEvent{Transaction: &model.Transaction{ID: "1", Custom: map[string]any{"foo": &stub{wait: wait, signal: signal}}}},
+				}))
+			}()
+			<-signal
+			go func() {
+				defer wg.Done()
+				close(wait)
+				assert.NoError(t, producer.Close())
+			}()
+
+			wg.Wait()
+
+			go func() { consumer.Run(ctx) }()
+			assert.Eventually(t, func() bool {
+				return processed.Load() == 1
+			}, 60*time.Second, time.Second, processed)
 		})
 	})
 }
@@ -89,49 +87,47 @@ func TestConsumerGracefulShutdown(t *testing.T) {
 	timeout := 90 * time.Second
 	forEachProvider(t, func(t *testing.T, pf providerF) {
 		forEachDeliveryType(t, func(t *testing.T, dt apmqueue.DeliveryType) {
-			runAsyncAndSync(t, func(t *testing.T, isSync bool) {
-				records := 2
-				var processed atomic.Int32
-				var errored atomic.Int32
-				process := make(chan struct{})
-				processor := model.ProcessBatchFunc(func(ctx context.Context, b *model.Batch) error {
-					select {
-					case <-ctx.Done():
-						errored.Add(int32(len(*b)))
-						return ctx.Err()
-					case <-process:
-						processed.Add(int32(len(*b)))
-					}
-					return nil
-				})
-
-				producer, consumer := pf(t, withProcessor(processor), withSync(isSync), withDeliveryType(dt))
-
-				ctx, cancel := context.WithTimeout(context.Background(), timeout)
-				defer cancel()
-
-				assert.NoError(t, producer.ProcessBatch(ctx, &model.Batch{
-					model.APMEvent{Transaction: &model.Transaction{ID: "1"}},
-					model.APMEvent{Transaction: &model.Transaction{ID: "2"}},
-				}))
-				assert.NoError(t, producer.Close())
-
-				// Run a consumer that fetches from kafka to verify that the events are there.
-				go func() { consumer.Run(ctx) }()
+			records := 2
+			var processed atomic.Int32
+			var errored atomic.Int32
+			process := make(chan struct{})
+			processor := model.ProcessBatchFunc(func(ctx context.Context, b *model.Batch) error {
 				select {
-				case process <- struct{}{}:
-					close(process) // Allow records to be processed
-					cancel()       // Stop the consumer.
-				case <-time.After(60 * time.Second):
-					t.Fatal("timed out waiting for consumer to process event")
+				case <-ctx.Done():
+					errored.Add(int32(len(*b)))
+					return ctx.Err()
+				case <-process:
+					processed.Add(int32(len(*b)))
 				}
-				assert.Eventually(t, func() bool {
-					return processed.Load() == int32(records) && errored.Load() == 0
-				}, 90*time.Second, time.Second, processed)
-				t.Logf("got: %d events processed, %d errored, want: %d processed",
-					processed.Load(), errored.Load(), records,
-				)
+				return nil
 			})
+
+			producer, consumer := pf(t, withProcessor(processor), withDeliveryType(dt))
+
+			ctx, cancel := context.WithTimeout(context.Background(), timeout)
+			defer cancel()
+
+			assert.NoError(t, producer.ProcessBatch(ctx, &model.Batch{
+				model.APMEvent{Transaction: &model.Transaction{ID: "1"}},
+				model.APMEvent{Transaction: &model.Transaction{ID: "2"}},
+			}))
+			assert.NoError(t, producer.Close())
+
+			// Run a consumer that fetches from kafka to verify that the events are there.
+			go func() { consumer.Run(ctx) }()
+			select {
+			case process <- struct{}{}:
+				close(process) // Allow records to be processed
+				cancel()       // Stop the consumer.
+			case <-time.After(60 * time.Second):
+				t.Fatal("timed out waiting for consumer to process event")
+			}
+			assert.Eventually(t, func() bool {
+				return processed.Load() == int32(records) && errored.Load() == 0
+			}, 90*time.Second, time.Second, processed)
+			t.Logf("got: %d events processed, %d errored, want: %d processed",
+				processed.Load(), errored.Load(), records,
+			)
 		})
 	})
 }

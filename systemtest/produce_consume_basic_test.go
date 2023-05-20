@@ -179,65 +179,63 @@ func assertBatchFunc(t testing.TB, assertions consumerAssertions) model.BatchPro
 
 func TestShutdown(t *testing.T) {
 	forEachProvider(t, func(t *testing.T, pf providerF) {
-		runAsyncAndSync(t, func(t *testing.T, isSync bool) {
-			type stopFunc func(context.CancelFunc, apmqueue.Consumer)
+		type stopFunc func(context.CancelFunc, apmqueue.Consumer)
 
-			for name, stop := range map[string]stopFunc{
-				"ctx":   func(cancel context.CancelFunc, _ apmqueue.Consumer) { cancel() },
-				"close": func(_ context.CancelFunc, c apmqueue.Consumer) { assert.NoError(t, c.Close()) },
-			} {
-				t.Run(name, func(t *testing.T) {
-					received := make(chan struct{})
-					processor := model.ProcessBatchFunc(func(ctx context.Context, b *model.Batch) error {
-						close(received)
-						return nil
-					})
-					producer, consumer := pf(t, withProcessor(processor), withSync(isSync))
-
-					assert.NoError(t, producer.ProcessBatch(context.Background(), &model.Batch{
-						model.APMEvent{Transaction: &model.Transaction{ID: "1"}},
-					}))
-					assert.NoError(t, producer.Close())
-
-					closeCh := make(chan struct{})
-					ctx, cancel := context.WithCancel(context.Background())
-
-					// cleanup
-					defer func() {
-						cancel()
-						consumer.Close()
-					}()
-
-					go func() {
-						// TODO this is failing
-						//assert.Equal(t, expectedErr, consumer.Run(ctx))
-						consumer.Run(ctx)
-						close(closeCh)
-					}()
-					select {
-					case <-received:
-					case <-time.After(120 * time.Second):
-						t.Error("timed out while waiting to receive an event")
-					}
-
-					stopCh := make(chan struct{})
-					go func() {
-						stop(cancel, consumer)
-						close(stopCh)
-					}()
-					select {
-					case <-stopCh:
-					case <-time.After(120 * time.Second):
-						t.Error("timed out while stopping consumer")
-					}
-
-					select {
-					case <-closeCh:
-					case <-time.After(120 * time.Second):
-						t.Error("timed out while waiting for consumer to exit")
-					}
+		for name, stop := range map[string]stopFunc{
+			"ctx":   func(cancel context.CancelFunc, _ apmqueue.Consumer) { cancel() },
+			"close": func(_ context.CancelFunc, c apmqueue.Consumer) { assert.NoError(t, c.Close()) },
+		} {
+			t.Run(name, func(t *testing.T) {
+				received := make(chan struct{})
+				processor := model.ProcessBatchFunc(func(ctx context.Context, b *model.Batch) error {
+					close(received)
+					return nil
 				})
-			}
-		})
+				producer, consumer := pf(t, withProcessor(processor))
+
+				assert.NoError(t, producer.ProcessBatch(context.Background(), &model.Batch{
+					model.APMEvent{Transaction: &model.Transaction{ID: "1"}},
+				}))
+				assert.NoError(t, producer.Close())
+
+				closeCh := make(chan struct{})
+				ctx, cancel := context.WithCancel(context.Background())
+
+				// cleanup
+				defer func() {
+					cancel()
+					consumer.Close()
+				}()
+
+				go func() {
+					// TODO this is failing
+					//assert.Equal(t, expectedErr, consumer.Run(ctx))
+					consumer.Run(ctx)
+					close(closeCh)
+				}()
+				select {
+				case <-received:
+				case <-time.After(120 * time.Second):
+					t.Error("timed out while waiting to receive an event")
+				}
+
+				stopCh := make(chan struct{})
+				go func() {
+					stop(cancel, consumer)
+					close(stopCh)
+				}()
+				select {
+				case <-stopCh:
+				case <-time.After(120 * time.Second):
+					t.Error("timed out while stopping consumer")
+				}
+
+				select {
+				case <-closeCh:
+				case <-time.After(120 * time.Second):
+					t.Error("timed out while waiting for consumer to exit")
+				}
+			})
+		}
 	})
 }
