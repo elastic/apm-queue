@@ -231,7 +231,7 @@ func TestConsumerDelivery(t *testing.T) {
 					select {
 					case <-waitCh2:
 					case <-time.After(defaultConsumerExitTimeout):
-						t.Error("timed out waiting for consumer to edit")
+						t.Error("timed out waiting for consumer to exit")
 					}
 				}()
 
