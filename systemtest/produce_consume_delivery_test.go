@@ -161,16 +161,16 @@ func TestConsumerDelivery(t *testing.T) {
 					withMaxPollRecords(tc.maxPollRecords),
 				)
 
-				// Context used for the consumer
-				ctx, cancel := context.WithCancel(context.Background())
-				defer cancel()
-
 				batch := make(model.Batch, 0, tc.initialRecords)
 				for i := 0; i < int(tc.initialRecords); i++ {
 					batch = append(batch, model.APMEvent{Transaction: &model.Transaction{ID: strconv.Itoa(i)}})
 				}
-				require.NoError(t, producer.ProcessBatch(ctx, &batch))
+				require.NoError(t, producer.ProcessBatch(context.Background(), &batch))
 				require.NoError(t, producer.Close())
+
+				// Context used for the consumer
+				ctx, cancel := context.WithCancel(context.Background())
+				defer cancel()
 
 				waitCh := make(chan struct{})
 				go func() {
@@ -205,9 +205,6 @@ func TestConsumerDelivery(t *testing.T) {
 				}, defaultConsumerWaitTimeout, time.Second)
 
 				// Start a new consumer in the background and then produce
-				ctx, cancel = context.WithCancel(context.Background())
-				defer cancel()
-				// Produce tc.lastRecords.
 				producer, consumer = pf(t,
 					withProcessor(processor),
 					withDeliveryType(tc.deliveryType),
@@ -220,13 +217,16 @@ func TestConsumerDelivery(t *testing.T) {
 					withMaxPollRecords(tc.lastRecords),
 				)
 
+				// Produce tc.lastRecords.
 				batch = make(model.Batch, 0, tc.lastRecords)
 				for i := 0; i < int(tc.lastRecords); i++ {
 					batch = append(batch, model.APMEvent{Transaction: &model.Transaction{ID: strconv.Itoa(i)}})
 				}
-				producer.ProcessBatch(ctx, &batch)
+				producer.ProcessBatch(context.Background(), &batch)
 				require.NoError(t, producer.Close())
 
+				ctx, cancel = context.WithCancel(context.Background())
+				defer cancel()
 				waitCh2 := make(chan struct{})
 				go func() {
 					consumer.Run(ctx)

@@ -87,7 +87,6 @@ func TestProduceConsumeDelivery(t *testing.T) {
 func TestProduceConsumeDeliveryGuarantees(t *testing.T) {
 	forEachProvider(t, func(t *testing.T, pf providerF) {
 		forEachDeliveryType(t, func(t *testing.T, dt apmqueue.DeliveryType) {
-			timeout := 90 * time.Second
 			expectedRecordsCount := 1
 			topic := SuffixTopics(apmqueue.Topic(t.Name()))[0]
 
@@ -105,7 +104,7 @@ func TestProduceConsumeDeliveryGuarantees(t *testing.T) {
 				}),
 			)
 
-			ctx, cancel := context.WithTimeout(context.Background(), timeout)
+			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
 			go errConsumer.Run(ctx)
@@ -120,7 +119,7 @@ func TestProduceConsumeDeliveryGuarantees(t *testing.T) {
 				},
 			}}
 			// Produce record and close the producer.
-			assert.NoError(t, producer.ProcessBatch(ctx, &batch))
+			assert.NoError(t, producer.ProcessBatch(context.Background(), &batch))
 			assert.NoError(t, producer.Close())
 
 			assert.Eventually(t, func() bool {
@@ -153,7 +152,7 @@ func TestProduceConsumeDeliveryGuarantees(t *testing.T) {
 			)
 			assert.NoError(t, producer.Close())
 
-			ctx, cancel = context.WithTimeout(context.Background(), timeout)
+			ctx, cancel = context.WithCancel(context.Background())
 			defer cancel()
 
 			go successConsumer.Run(ctx)

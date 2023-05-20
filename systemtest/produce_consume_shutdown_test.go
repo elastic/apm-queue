@@ -42,7 +42,6 @@ func (s *stub) MarshalJSON() ([]byte, error) {
 }
 
 func TestProducerGracefulShutdown(t *testing.T) {
-	timeout := 90 * time.Second
 	forEachProvider(t, func(t *testing.T, pf providerF) {
 		runAsyncAndSync(t, func(t *testing.T, isSync bool) {
 			var processed atomic.Int64
@@ -57,12 +56,10 @@ func TestProducerGracefulShutdown(t *testing.T) {
 			wg.Add(2)
 			wait := make(chan struct{})
 			signal := make(chan struct{})
-			ctx, cancel := context.WithTimeout(context.Background(), timeout)
-			defer cancel()
 
 			go func() {
 				defer wg.Done()
-				assert.NoError(t, producer.ProcessBatch(ctx, &model.Batch{
+				assert.NoError(t, producer.ProcessBatch(context.Background(), &model.Batch{
 					model.APMEvent{Transaction: &model.Transaction{ID: "1", Custom: map[string]any{"foo": &stub{wait: wait, signal: signal}}}},
 				}))
 			}()
@@ -75,6 +72,9 @@ func TestProducerGracefulShutdown(t *testing.T) {
 
 			wg.Wait()
 
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
 			go func() { consumer.Run(ctx) }()
 			assert.Eventually(t, func() bool {
 				return processed.Load() == 1
@@ -84,7 +84,6 @@ func TestProducerGracefulShutdown(t *testing.T) {
 }
 
 func TestConsumerGracefulShutdown(t *testing.T) {
-	timeout := 90 * time.Second
 	forEachProvider(t, func(t *testing.T, pf providerF) {
 		forEachDeliveryType(t, func(t *testing.T, dt apmqueue.DeliveryType) {
 			records := 2
@@ -104,14 +103,14 @@ func TestConsumerGracefulShutdown(t *testing.T) {
 
 			producer, consumer := pf(t, withProcessor(processor), withDeliveryType(dt))
 
-			ctx, cancel := context.WithTimeout(context.Background(), timeout)
-			defer cancel()
-
-			assert.NoError(t, producer.ProcessBatch(ctx, &model.Batch{
+			assert.NoError(t, producer.ProcessBatch(context.Background(), &model.Batch{
 				model.APMEvent{Transaction: &model.Transaction{ID: "1"}},
 				model.APMEvent{Transaction: &model.Transaction{ID: "2"}},
 			}))
 			assert.NoError(t, producer.Close())
+
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
 
 			// Run a consumer that fetches from kafka to verify that the events are there.
 			go func() { consumer.Run(ctx) }()
