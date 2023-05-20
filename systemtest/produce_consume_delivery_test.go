@@ -27,7 +27,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/zap"
 
 	"github.com/elastic/apm-data/model"
 	apmqueue "github.com/elastic/apm-queue"
@@ -152,9 +151,6 @@ func TestConsumerDelivery(t *testing.T) {
 				producer, consumer := pf(t,
 					withProcessor(processor),
 					withDeliveryType(tc.deliveryType),
-					withLogger(func(t testing.TB) *zap.Logger {
-						return zap.NewNop()
-					}),
 					withTopic(func(testing.TB) apmqueue.Topic {
 						return topic
 					}),
@@ -208,9 +204,6 @@ func TestConsumerDelivery(t *testing.T) {
 				producer, consumer = pf(t,
 					withProcessor(processor),
 					withDeliveryType(tc.deliveryType),
-					withLogger(func(t testing.TB) *zap.Logger {
-						return zap.NewNop()
-					}),
 					withTopic(func(t testing.TB) apmqueue.Topic {
 						return topic
 					}),

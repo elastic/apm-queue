@@ -27,9 +27,6 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
-	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
-	"go.uber.org/zap/zaptest"
 
 	"github.com/elastic/apm-data/model"
 	apmqueue "github.com/elastic/apm-queue"
@@ -64,9 +61,6 @@ func TestProduceConsumeDelivery(t *testing.T) {
 			producer, consumer := pf(t,
 				withProcessor(processor),
 				withDeliveryType(dt),
-				withLogger(func(t testing.TB) *zap.Logger {
-					return zaptest.NewLogger(t, zaptest.Level(zapcore.InfoLevel))
-				}),
 			)
 
 			ctx, cancel := context.WithTimeout(context.Background(), timeout)
@@ -145,9 +139,6 @@ func TestProduceConsumeDeliveryGuarantees(t *testing.T) {
 				withDeliveryType(dt),
 				withTopic(func(testing.TB) apmqueue.Topic {
 					return topic
-				}),
-				withLogger(func(t testing.TB) *zap.Logger {
-					return zaptest.NewLogger(t, zaptest.Level(zapcore.InfoLevel))
 				}),
 			)
 			assert.NoError(t, producer.Close())

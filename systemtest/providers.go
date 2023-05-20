@@ -24,6 +24,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+	"go.uber.org/zap/zaptest"
 
 	"github.com/elastic/apm-data/model"
 	apmqueue "github.com/elastic/apm-queue"
@@ -53,7 +55,7 @@ var (
 		codec: json.JSON{},
 		sync:  true,
 		loggerF: func(t testing.TB) *zap.Logger {
-			return NoLevelLogger(t, zap.ErrorLevel)
+			return zaptest.NewLogger(t, zaptest.Level(zapcore.ErrorLevel))
 		},
 		topicsF: func(t testing.TB) ([]apmqueue.Topic, func(model.APMEvent) apmqueue.Topic) {
 			topics := SuffixTopics(apmqueue.Topic(t.Name()))
