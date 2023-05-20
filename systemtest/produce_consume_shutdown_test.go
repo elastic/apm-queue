@@ -41,7 +41,7 @@ func (s *stub) MarshalJSON() ([]byte, error) {
 	return []byte("null"), nil
 }
 
-func TestProducerGracefulShutdown(t *testing.T) {
+func TestGracefulShutdownProducer(t *testing.T) {
 	forEachProvider(t, func(t *testing.T, pf providerF) {
 		runAsyncAndSync(t, func(t *testing.T, isSync bool) {
 			var processed atomic.Int64
@@ -83,7 +83,7 @@ func TestProducerGracefulShutdown(t *testing.T) {
 	})
 }
 
-func TestConsumerGracefulShutdown(t *testing.T) {
+func TestGracefulShutdownConsumer(t *testing.T) {
 	forEachProvider(t, func(t *testing.T, pf providerF) {
 		forEachDeliveryType(t, func(t *testing.T, dt apmqueue.DeliveryType) {
 			records := 2
