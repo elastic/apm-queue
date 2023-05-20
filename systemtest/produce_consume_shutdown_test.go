@@ -78,7 +78,7 @@ func TestProducerGracefulShutdown(t *testing.T) {
 			go func() { consumer.Run(ctx) }()
 			assert.Eventually(t, func() bool {
 				return processed.Load() == 1
-			}, 60*time.Second, time.Second, processed)
+			}, defaultConsumerWaitTimeout, time.Second, processed)
 		})
 	})
 }
@@ -119,12 +119,12 @@ func TestConsumerGracefulShutdown(t *testing.T) {
 			case process <- struct{}{}:
 				close(process) // Allow records to be processed
 				cancel()       // Stop the consumer.
-			case <-time.After(60 * time.Second):
+			case <-time.After(defaultConsumerWaitTimeout):
 				t.Fatal("timed out waiting for consumer to process event")
 			}
 			assert.Eventually(t, func() bool {
 				return processed.Load() == int32(records) && errored.Load() == 0
-			}, 90*time.Second, time.Second, processed)
+			}, defaultConsumerWaitTimeout, time.Second, processed)
 			t.Logf("got: %d events processed, %d errored, want: %d processed",
 				processed.Load(), errored.Load(), records,
 			)

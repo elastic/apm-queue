@@ -180,7 +180,7 @@ func TestConsumerDelivery(t *testing.T) {
 				defer func() {
 					select {
 					case <-waitCh:
-					case <-time.After(60 * time.Second):
+					case <-time.After(defaultConsumerExitTimeout):
 						t.Error("timed out waiting for consumer to exit")
 					}
 				}()
@@ -194,7 +194,7 @@ func TestConsumerDelivery(t *testing.T) {
 				// means that records may be lost before they reach the Processor.
 				select {
 				case failRecord <- struct{}{}:
-				case <-time.After(90 * time.Second):
+				case <-time.After(defaultConsumerWaitTimeout):
 					t.Fatal("timed out waiting for consumer to process event")
 				}
 				cancel()
@@ -202,7 +202,7 @@ func TestConsumerDelivery(t *testing.T) {
 
 				assert.Eventually(t, func() bool {
 					return int(errored.Load()) == tc.maxPollRecords
-				}, 90*time.Second, time.Second)
+				}, defaultConsumerWaitTimeout, time.Second)
 
 				// Start a new consumer in the background and then produce
 				ctx, cancel = context.WithCancel(context.Background())
@@ -237,7 +237,7 @@ func TestConsumerDelivery(t *testing.T) {
 					consumer.Close()
 					select {
 					case <-waitCh2:
-					case <-time.After(60 * time.Second):
+					case <-time.After(defaultConsumerExitTimeout):
 						t.Error("timed out waiting for consumer to edit")
 					}
 				}()
@@ -246,7 +246,7 @@ func TestConsumerDelivery(t *testing.T) {
 				select {
 				case processRecord <- struct{}{}:
 					close(processRecord) // Allow records to be processed
-				case <-time.After(90 * time.Second):
+				case <-time.After(defaultConsumerWaitTimeout):
 					t.Fatal("timed out waiting for consumer to process event")
 				}
 
@@ -254,7 +254,7 @@ func TestConsumerDelivery(t *testing.T) {
 					// Some events may or may not be processed. Assert GE.
 					return processed.Load() >= tc.processed &&
 						errored.Load() == tc.errored
-				}, 90*time.Second, time.Second)
+				}, defaultConsumerWaitTimeout, time.Second)
 				t.Logf("got: %d events errored, %d processed, want: %d errored, %d processed",
 					errored.Load(), processed.Load(), tc.errored, tc.processed,
 				)

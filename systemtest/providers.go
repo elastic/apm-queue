@@ -43,7 +43,9 @@ type config struct {
 }
 
 const (
-	defaultProvisionTimeout = 90 * time.Second
+	defaultProvisionTimeout    = 90 * time.Second
+	defaultConsumerWaitTimeout = 90 * time.Second
+	defaultConsumerExitTimeout = 20 * time.Second
 )
 
 var (

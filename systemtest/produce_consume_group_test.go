@@ -126,8 +126,8 @@ func TestProduceConsumeDeliveryGuarantees(t *testing.T) {
 			assert.Eventually(t, func() bool {
 				return errRecords.Load() == 1 // Expect to receive 1 error.
 			},
-				60*time.Second, // Timeout
-				1*time.Second,  // Poll
+				defaultConsumerWaitTimeout, // Timeout
+				1*time.Second,              // Poll
 				"expected records (%d) records do not match consumed records (%v)", // ErrMessage
 				1,
 				errRecords,
@@ -161,8 +161,8 @@ func TestProduceConsumeDeliveryGuarantees(t *testing.T) {
 			assert.Eventually(t, func() bool {
 				return successRecords.Load() == int64(expectedRecordsCount) // Assertion
 			},
-				60*time.Second, // Timeout
-				1*time.Second,  // Poll
+				defaultConsumerWaitTimeout, // Timeout
+				1*time.Second,              // Poll
 				"expected records (%d) records do not match consumed records (%v)", // ErrMessage
 				expectedRecordsCount,
 				successRecords,
