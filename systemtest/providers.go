@@ -199,6 +199,12 @@ func withLogger(f func(testing.TB) *zap.Logger) option {
 	}
 }
 
+func withEncoderDecoder(u universalEncoderDecoder) option {
+	return func(c *config) {
+		c.codec = u
+	}
+}
+
 func withTopic(topicsGenerator func(testing.TB) apmqueue.Topic) option {
 	return func(c *config) {
 		c.topicsF = func(t testing.TB) ([]apmqueue.Topic, func(model.APMEvent) apmqueue.Topic) {

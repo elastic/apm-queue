@@ -28,17 +28,48 @@ import (
 
 	"github.com/elastic/apm-data/model"
 	apmqueue "github.com/elastic/apm-queue"
+	"github.com/elastic/apm-queue/codec/json"
 )
 
-type stub struct {
-	wait   chan struct{}
-	signal chan struct{}
+type hookedCodec struct {
+	u             universalEncoderDecoder
+	blockEncoding bool
+	blockDecoding bool
+	wait          chan struct{}
+	signal        chan struct{}
 }
 
-func (s *stub) MarshalJSON() ([]byte, error) {
-	close(s.signal)
-	<-s.wait
-	return []byte("null"), nil
+func (s *hookedCodec) Encode(e model.APMEvent) ([]byte, error) {
+	if s.blockEncoding {
+		s.signal <- struct{}{}
+		<-s.wait
+	}
+	return s.u.Encode(e)
+}
+
+func (s *hookedCodec) Decode(b []byte, e *model.APMEvent) error {
+	if s.blockDecoding {
+		s.signal <- struct{}{}
+		<-s.wait
+	}
+	return s.u.Decode(b, e)
+}
+
+func newHookedCodec(t *testing.T, blockEncoding bool, blockDecoding bool) (*hookedCodec, chan struct{}, chan struct{}) {
+	wait := make(chan struct{})
+	signal := make(chan struct{})
+	codec := &hookedCodec{
+		u:             json.JSON{},
+		blockDecoding: blockDecoding,
+		blockEncoding: blockEncoding,
+		wait:          wait,
+		signal:        signal,
+	}
+	t.Cleanup(func() {
+		close(codec.signal)
+		close(codec.wait)
+	})
+	return codec, wait, signal
 }
 
 func TestGracefulShutdownProducer(t *testing.T) {
@@ -50,23 +81,22 @@ func TestGracefulShutdownProducer(t *testing.T) {
 				return nil
 			})
 
-			producer, consumer := pf(t, withProcessor(processor), withSync(isSync))
+			codec, wait, signal := newHookedCodec(t, true, false)
+			producer, consumer := pf(t, withProcessor(processor), withSync(isSync), withEncoderDecoder(codec))
 
 			var wg sync.WaitGroup
 			wg.Add(2)
-			wait := make(chan struct{})
-			signal := make(chan struct{})
 
 			go func() {
 				defer wg.Done()
 				assert.NoError(t, producer.ProcessBatch(context.Background(), &model.Batch{
-					model.APMEvent{Transaction: &model.Transaction{ID: "1", Custom: map[string]any{"foo": &stub{wait: wait, signal: signal}}}},
+					model.APMEvent{Transaction: &model.Transaction{ID: "1"}},
 				}))
 			}()
 			<-signal
 			go func() {
 				defer wg.Done()
-				close(wait)
+				wait <- struct{}{}
 				assert.NoError(t, producer.Close())
 			}()
 
@@ -86,49 +116,33 @@ func TestGracefulShutdownProducer(t *testing.T) {
 func TestGracefulShutdownConsumer(t *testing.T) {
 	forEachProvider(t, func(t *testing.T, pf providerF) {
 		forEachDeliveryType(t, func(t *testing.T, dt apmqueue.DeliveryType) {
-			records := 2
 			var processed atomic.Int32
-			var errored atomic.Int32
-			process := make(chan struct{})
 			processor := model.ProcessBatchFunc(func(ctx context.Context, b *model.Batch) error {
-				select {
-				case <-ctx.Done():
-					errored.Add(int32(len(*b)))
-					return ctx.Err()
-				case <-process:
-					processed.Add(int32(len(*b)))
-				}
+				processed.Add(1)
 				return nil
 			})
 
-			producer, consumer := pf(t, withProcessor(processor), withDeliveryType(dt), withSync(true))
+			codec, wait, signal := newHookedCodec(t, false, true)
+			producer, consumer := pf(t, withProcessor(processor), withDeliveryType(dt), withEncoderDecoder(codec))
 
 			assert.NoError(t, producer.ProcessBatch(context.Background(), &model.Batch{
 				model.APMEvent{Transaction: &model.Transaction{ID: "1"}},
-			}))
-			assert.NoError(t, producer.ProcessBatch(context.Background(), &model.Batch{
-				model.APMEvent{Transaction: &model.Transaction{ID: "2"}},
 			}))
 			assert.NoError(t, producer.Close())
 
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
-			// Run a consumer that fetches from kafka to verify that the events are there.
 			go func() { consumer.Run(ctx) }()
-			select {
-			case process <- struct{}{}:
-				close(process) // Allow records to be processed
-				cancel()       // Stop the consumer.
-			case <-time.After(defaultConsumerWaitTimeout):
-				t.Fatal("timed out waiting for consumer to process event")
-			}
+			go func() {
+				<-signal
+				wait <- struct{}{}
+				cancel()
+				consumer.Close()
+			}()
 			assert.Eventually(t, func() bool {
-				return processed.Load() == int32(records) && errored.Load() == 0
+				return processed.Load() == 1
 			}, defaultConsumerWaitTimeout, time.Second, processed)
-			t.Logf("got: %d events processed, %d errored, want: %d processed",
-				processed.Load(), errored.Load(), records,
-			)
 		})
 	})
 }
