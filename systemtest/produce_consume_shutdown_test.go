@@ -101,10 +101,12 @@ func TestGracefulShutdownConsumer(t *testing.T) {
 				return nil
 			})
 
-			producer, consumer := pf(t, withProcessor(processor), withDeliveryType(dt))
+			producer, consumer := pf(t, withProcessor(processor), withDeliveryType(dt), withSync(true))
 
 			assert.NoError(t, producer.ProcessBatch(context.Background(), &model.Batch{
 				model.APMEvent{Transaction: &model.Transaction{ID: "1"}},
+			}))
+			assert.NoError(t, producer.ProcessBatch(context.Background(), &model.Batch{
 				model.APMEvent{Transaction: &model.Transaction{ID: "2"}},
 			}))
 			assert.NoError(t, producer.Close())
