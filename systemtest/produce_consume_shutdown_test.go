@@ -35,14 +35,12 @@ type hookedCodec struct {
 	u             universalEncoderDecoder
 	blockEncoding bool
 	blockDecoding bool
-	wait          chan struct{}
 	signal        chan struct{}
 }
 
 func (s *hookedCodec) Encode(e model.APMEvent) ([]byte, error) {
 	if s.blockEncoding {
 		s.signal <- struct{}{}
-		<-s.wait
 	}
 	return s.u.Encode(e)
 }
@@ -50,26 +48,22 @@ func (s *hookedCodec) Encode(e model.APMEvent) ([]byte, error) {
 func (s *hookedCodec) Decode(b []byte, e *model.APMEvent) error {
 	if s.blockDecoding {
 		s.signal <- struct{}{}
-		<-s.wait
 	}
 	return s.u.Decode(b, e)
 }
 
-func newHookedCodec(t *testing.T, blockEncoding bool, blockDecoding bool) (*hookedCodec, chan struct{}, chan struct{}) {
-	wait := make(chan struct{})
+func newHookedCodec(t *testing.T, blockEncoding bool, blockDecoding bool) (*hookedCodec, chan struct{}) {
 	signal := make(chan struct{})
 	codec := &hookedCodec{
 		u:             json.JSON{},
 		blockDecoding: blockDecoding,
 		blockEncoding: blockEncoding,
-		wait:          wait,
 		signal:        signal,
 	}
 	t.Cleanup(func() {
 		close(codec.signal)
-		close(codec.wait)
 	})
-	return codec, wait, signal
+	return codec, signal
 }
 
 func TestGracefulShutdownProducer(t *testing.T) {
@@ -81,7 +75,7 @@ func TestGracefulShutdownProducer(t *testing.T) {
 				return nil
 			})
 
-			codec, wait, signal := newHookedCodec(t, true, false)
+			codec, signal := newHookedCodec(t, true, false)
 			producer, consumer := pf(t, withProcessor(processor), withSync(isSync), withEncoderDecoder(codec))
 
 			var wg sync.WaitGroup
@@ -93,10 +87,9 @@ func TestGracefulShutdownProducer(t *testing.T) {
 					model.APMEvent{Transaction: &model.Transaction{ID: "1"}},
 				}))
 			}()
-			<-signal
 			go func() {
 				defer wg.Done()
-				wait <- struct{}{}
+				<-signal
 				assert.NoError(t, producer.Close())
 			}()
 
@@ -122,7 +115,7 @@ func TestGracefulShutdownConsumer(t *testing.T) {
 				return nil
 			})
 
-			codec, wait, signal := newHookedCodec(t, false, true)
+			codec, signal := newHookedCodec(t, false, true)
 			producer, consumer := pf(t, withProcessor(processor), withDeliveryType(dt), withEncoderDecoder(codec))
 
 			assert.NoError(t, producer.ProcessBatch(context.Background(), &model.Batch{
@@ -136,7 +129,6 @@ func TestGracefulShutdownConsumer(t *testing.T) {
 			go func() { consumer.Run(ctx) }()
 			go func() {
 				<-signal
-				wait <- struct{}{}
 				cancel()
 				consumer.Close()
 			}()
