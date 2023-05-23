@@ -19,7 +19,6 @@ package systemtest
 
 import (
 	"context"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -78,22 +77,15 @@ func TestGracefulShutdownProducer(t *testing.T) {
 			codec, signal := newHookedCodec(t, true, false)
 			producer, consumer := pf(t, withProcessor(processor), withSync(isSync), withEncoderDecoder(codec))
 
-			var wg sync.WaitGroup
-			wg.Add(2)
-
 			go func() {
-				defer wg.Done()
 				assert.NoError(t, producer.ProcessBatch(context.Background(), &model.Batch{
 					model.APMEvent{Transaction: &model.Transaction{ID: "1"}},
 				}))
 			}()
-			go func() {
-				defer wg.Done()
-				<-signal
-				assert.NoError(t, producer.Close())
-			}()
 
-			wg.Wait()
+			// wait for events to be encoded and then try to close the producer
+			<-signal
+			assert.NoError(t, producer.Close())
 
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
@@ -127,11 +119,12 @@ func TestGracefulShutdownConsumer(t *testing.T) {
 			defer cancel()
 
 			go func() { consumer.Run(ctx) }()
-			go func() {
-				<-signal
-				cancel()
-				consumer.Close()
-			}()
+
+			// wait for the event to be decoded, cancel the context and close the consumer
+			<-signal
+			cancel()
+			consumer.Close()
+
 			assert.Eventually(t, func() bool {
 				return processed.Load() == 1
 			}, defaultConsumerWaitTimeout, time.Second, processed)
