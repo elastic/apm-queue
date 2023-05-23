@@ -272,14 +272,15 @@ func (c *consumer) processMessage(ctx context.Context, msg *pubsub.Message) {
 				c.failed.Store(msg.ID, attempt)
 				return
 			}
-			partition, offset := partitionOffset(msg.ID)
-			c.logger.Info("processed previously failed event",
-				zap.Int64("offset", offset),
-				zap.Int("partition", partition),
-				zap.Any("headers", msg.Attributes),
-			)
 			msg.Ack()
-			c.failed.Delete(msg.ID)
+			if _, found := c.failed.LoadAndDelete(msg.ID); found {
+				partition, offset := partitionOffset(msg.ID)
+				c.logger.Info("processed previously failed event",
+					zap.Int64("offset", offset),
+					zap.Int("partition", partition),
+					zap.Any("headers", msg.Attributes),
+				)
+			}
 		}()
 	}
 	if err = c.processor.ProcessBatch(ctx, &batch); err != nil {
