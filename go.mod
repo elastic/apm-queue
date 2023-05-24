@@ -6,17 +6,17 @@ require (
 	cloud.google.com/go/pubsub v1.30.1
 	cloud.google.com/go/pubsublite v1.8.1
 	github.com/elastic/apm-data v0.1.1-0.20230517015005-269052c59735
-	github.com/stretchr/testify v1.8.2
+	github.com/stretchr/testify v1.8.3
 	github.com/twmb/franz-go v1.13.3
 	github.com/twmb/franz-go/pkg/kadm v1.8.1
 	github.com/twmb/franz-go/pkg/kfake v0.0.0-20230405224959-0d137e78cd4a
-	github.com/twmb/franz-go/plugin/kotel v1.2.0
+	github.com/twmb/franz-go/plugin/kotel v1.3.0
 	github.com/twmb/franz-go/plugin/kzap v1.1.2
-	go.opentelemetry.io/otel v1.15.1
-	go.opentelemetry.io/otel/metric v0.38.1
-	go.opentelemetry.io/otel/sdk v1.15.1
-	go.opentelemetry.io/otel/sdk/metric v0.38.1
-	go.opentelemetry.io/otel/trace v1.15.1
+	go.opentelemetry.io/otel v1.16.0
+	go.opentelemetry.io/otel/metric v1.16.0
+	go.opentelemetry.io/otel/sdk v1.16.0
+	go.opentelemetry.io/otel/sdk/metric v0.39.0
+	go.opentelemetry.io/otel/trace v1.16.0
 	go.uber.org/zap v1.24.0
 	golang.org/x/sync v0.2.0
 	google.golang.org/api v0.122.0
@@ -53,7 +53,7 @@ require (
 	golang.org/x/crypto v0.7.0 // indirect
 	golang.org/x/net v0.9.0 // indirect
 	golang.org/x/oauth2 v0.7.0 // indirect
-	golang.org/x/sys v0.7.0 // indirect
+	golang.org/x/sys v0.8.0 // indirect
 	golang.org/x/text v0.9.0 // indirect
 	google.golang.org/appengine v1.6.7 // indirect
 	google.golang.org/genproto v0.0.0-20230410155749-daa745c078e1 // indirect
