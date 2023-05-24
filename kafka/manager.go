@@ -153,10 +153,7 @@ func (m *Manager) CreateTopics(ctx context.Context, topics ...apmqueue.Topic) er
 		}
 		logger.Info("created kafka topic", createTopicParamsFields...)
 	}
-	if err := errors.Join(createErrors...); err != nil {
-		return err
-	}
-	return nil
+	return errors.Join(createErrors...)
 }
 
 // DeleteTopics deletes one or more topics.
@@ -196,9 +193,6 @@ func (m *Manager) DeleteTopics(ctx context.Context, topics ...apmqueue.Topic) er
 		}
 		logger.Info("deleted kafka topic")
 	}
-	if err := errors.Join(deleteErrors...); err != nil {
-		return err
-	}
-	return nil
+	return errors.Join(deleteErrors...)
 
 }
