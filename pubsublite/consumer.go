@@ -71,6 +71,15 @@ func (cfg ConsumerConfig) Validate() error {
 		errs = append(errs,
 			errors.New("pubsublite: at least one subscription must be set"),
 		)
+	} else {
+		for _, s := range cfg.Subscriptions {
+			if s.Name == "" {
+				errs = append(errs, errors.New("pubsublite: subscription name must be set"))
+			}
+			if s.Topic == "" {
+				errs = append(errs, errors.New("pubsublite: subscription topic must be set"))
+			}
+		}
 	}
 	if cfg.Decoder == nil {
 		errs = append(errs, errors.New("pubsublite: decoder must be set"))
