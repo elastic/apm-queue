@@ -28,6 +28,7 @@ import (
 	"github.com/twmb/franz-go/pkg/kfake"
 	"github.com/twmb/franz-go/pkg/kmsg"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	semconv "go.opentelemetry.io/otel/semconv/v1.4.0"
@@ -146,6 +147,7 @@ func TestManagerCreateTopics(t *testing.T) {
 	spans := exp.GetSpans()
 	require.Len(t, spans, 1)
 	assert.Equal(t, "CreateTopics", spans[0].Name)
+	assert.Equal(t, codes.Error, spans[0].Status.Code)
 	require.Len(t, spans[0].Events, 1)
 	assert.Equal(t, "exception", spans[0].Events[0].Name)
 	assert.Equal(t, []attribute.KeyValue{
@@ -231,6 +233,7 @@ func TestManagerDeleteTopics(t *testing.T) {
 	spans := exp.GetSpans()
 	require.Len(t, spans, 1)
 	assert.Equal(t, "DeleteTopics", spans[0].Name)
+	assert.Equal(t, codes.Error, spans[0].Status.Code)
 	require.Len(t, spans[0].Events, 1)
 	assert.Equal(t, "exception", spans[0].Events[0].Name)
 	assert.Equal(t, []attribute.KeyValue{

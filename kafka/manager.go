@@ -24,6 +24,7 @@ import (
 
 	"github.com/twmb/franz-go/pkg/kadm"
 	"github.com/twmb/franz-go/pkg/kerr"
+	"go.opentelemetry.io/otel/codes"
 	semconv "go.opentelemetry.io/otel/semconv/v1.4.0"
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
@@ -122,6 +123,8 @@ func (m *Manager) CreateTopics(ctx context.Context, topics ...apmqueue.Topic) er
 		topicNames...,
 	)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "CreateTopics returned an error")
 		return fmt.Errorf("failed to create kafka topics: %w", err)
 	}
 	createTopicParamsFields := []zap.Field{
@@ -140,6 +143,7 @@ func (m *Manager) CreateTopics(ctx context.Context, topics ...apmqueue.Topic) er
 				logger.Debug("kafka topic already exists")
 			} else {
 				span.RecordError(err)
+				span.SetStatus(codes.Error, "failed to create one or more topic")
 				createErrors = append(createErrors,
 					fmt.Errorf(
 						"failed to create topic %q: %w",
@@ -170,6 +174,8 @@ func (m *Manager) DeleteTopics(ctx context.Context, topics ...apmqueue.Topic) er
 	}
 	responses, err := m.client.DeleteTopics(ctx, topicNames...)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "DeleteTopics returned an error")
 		return fmt.Errorf("failed to delete kafka topics: %w", err)
 	}
 	var deleteErrors []error
@@ -180,6 +186,7 @@ func (m *Manager) DeleteTopics(ctx context.Context, topics ...apmqueue.Topic) er
 				logger.Debug("kafka topic does not exist")
 			} else {
 				span.RecordError(err)
+				span.SetStatus(codes.Error, "failed to delete one or more topic")
 				deleteErrors = append(deleteErrors,
 					fmt.Errorf(
 						"failed to delete topic %q: %w",
