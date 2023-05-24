@@ -31,8 +31,6 @@ import (
 	apmqueue "github.com/elastic/apm-queue"
 )
 
-var _ apmqueue.TopicCreator = (*Manager)(nil)
-
 // ManagerConfig holds configuration for managing Kafka topics.
 type ManagerConfig struct {
 	CommonConfig

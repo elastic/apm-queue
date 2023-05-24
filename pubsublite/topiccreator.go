@@ -87,8 +87,6 @@ func (cfg TopicCreatorConfig) Validate() error {
 	return errors.Join(errs...)
 }
 
-var _ apmqueue.TopicCreator = (*TopicCreator)(nil)
-
 // TopicCreator creates GCP Pub/Sub topics.
 type TopicCreator struct {
 	m   *Manager
