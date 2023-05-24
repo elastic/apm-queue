@@ -19,315 +19,115 @@ package systemtest
 
 import (
 	"context"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	"go.uber.org/zap/zapcore"
-	"go.uber.org/zap/zaptest"
 
 	"github.com/elastic/apm-data/model"
 	apmqueue "github.com/elastic/apm-queue"
 	"github.com/elastic/apm-queue/codec/json"
-	"github.com/elastic/apm-queue/kafka"
-	"github.com/elastic/apm-queue/pubsublite"
 )
 
-type stub struct {
-	wait   chan struct{}
-	signal chan struct{}
+type hookedCodec struct {
+	u             universalEncoderDecoder
+	blockEncoding bool
+	blockDecoding bool
+	signal        chan struct{}
 }
 
-func (s *stub) MarshalJSON() ([]byte, error) {
-	close(s.signal)
-	<-s.wait
-	return []byte("null"), nil
-}
-
-func TestProducerGracefulShutdown(t *testing.T) {
-	testCases := map[string]struct {
-		sync    bool
-		timeout time.Duration
-	}{
-		"async": {
-			sync:    false,
-			timeout: 90 * time.Second,
-		},
-		"sync": {
-			sync:    true,
-			timeout: 90 * time.Second,
-		},
+func (s *hookedCodec) Encode(e model.APMEvent) ([]byte, error) {
+	if s.blockEncoding {
+		s.signal <- struct{}{}
 	}
+	return s.u.Encode(e)
+}
 
-	for name, tc := range testCases {
-		t.Run("Kafka/"+name, func(t *testing.T) {
-			logger := zaptest.NewLogger(t, zaptest.Level(zapcore.InfoLevel))
-			codec := json.JSON{}
+func (s *hookedCodec) Decode(b []byte, e *model.APMEvent) error {
+	if s.blockDecoding {
+		s.signal <- struct{}{}
+	}
+	return s.u.Decode(b, e)
+}
+
+func newHookedCodec(t *testing.T, blockEncoding bool, blockDecoding bool) (*hookedCodec, chan struct{}) {
+	signal := make(chan struct{})
+	codec := &hookedCodec{
+		u:             json.JSON{},
+		blockDecoding: blockDecoding,
+		blockEncoding: blockEncoding,
+		signal:        signal,
+	}
+	t.Cleanup(func() {
+		close(codec.signal)
+	})
+	return codec, signal
+}
+
+func TestGracefulShutdownProducer(t *testing.T) {
+	forEachProvider(t, func(t *testing.T, pf providerF) {
+		runAsyncAndSync(t, func(t *testing.T, isSync bool) {
 			var processed atomic.Int64
-			topics := SuffixTopics(apmqueue.Topic(t.Name()))
-			topicRouter := func(event model.APMEvent) apmqueue.Topic {
-				return apmqueue.Topic(topics[0])
-			}
-
-			err := ProvisionKafka(context.Background(),
-				newLocalKafkaConfig(topics...),
-			)
-			require.NoError(t, err)
-
-			producer := newKafkaProducer(t, kafka.ProducerConfig{
-				CommonConfig: kafka.CommonConfig{Logger: logger},
-				Encoder:      codec,
-				TopicRouter:  topicRouter,
-				Sync:         tc.sync,
-			})
-			consumer := newKafkaConsumer(t, kafka.ConsumerConfig{
-				CommonConfig: kafka.CommonConfig{Logger: logger},
-				GroupID:      "group",
-				Topics:       topics,
-				Decoder:      codec,
-				Processor: model.ProcessBatchFunc(func(ctx context.Context, b *model.Batch) error {
-					processed.Add(1)
-					return nil
-				}),
+			processor := model.ProcessBatchFunc(func(ctx context.Context, b *model.Batch) error {
+				processed.Add(1)
+				return nil
 			})
 
-			ctx, cancel := context.WithTimeout(context.Background(), tc.timeout)
-			defer cancel()
+			codec, signal := newHookedCodec(t, true, false)
+			producer, consumer := pf(t, withProcessor(processor), withSync(isSync), withEncoderDecoder(codec))
 
-			var wg sync.WaitGroup
-			wg.Add(2)
-			wait := make(chan struct{})
-			signal := make(chan struct{})
 			go func() {
-				defer wg.Done()
-				assert.NoError(t, producer.ProcessBatch(ctx, &model.Batch{
-					model.APMEvent{Transaction: &model.Transaction{ID: "1", Custom: map[string]any{"foo": &stub{wait: wait, signal: signal}}}},
+				assert.NoError(t, producer.ProcessBatch(context.Background(), &model.Batch{
+					model.APMEvent{Transaction: &model.Transaction{ID: "1"}},
 				}))
 			}()
-			<-signal
-			go func() {
-				defer wg.Done()
-				close(wait)
-				assert.NoError(t, producer.Close())
-			}()
 
-			wg.Wait()
+			// wait for events to be encoded and then try to close the producer
+			<-signal
+			assert.NoError(t, producer.Close())
+
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
 
 			go func() { consumer.Run(ctx) }()
 			assert.Eventually(t, func() bool {
 				return processed.Load() == 1
-			}, 20*time.Second, time.Millisecond, processed)
+			}, defaultConsumerWaitTimeout, time.Second, processed)
 		})
-		t.Run("PubSubLite/"+name, func(t *testing.T) {
-			codec := json.JSON{}
-			logger := zaptest.NewLogger(t, zaptest.Level(zapcore.InfoLevel))
-			var processed atomic.Int64
-			topics := SuffixTopics(apmqueue.Topic(t.Name()))
-			topicRouter := func(event model.APMEvent) apmqueue.Topic {
-				return apmqueue.Topic(topics[0])
-			}
-
-			err := ProvisionPubSubLite(context.Background(),
-				newPubSubLiteConfig(topics...),
-			)
-			require.NoError(t, err)
-
-			ctx, cancel := context.WithTimeout(context.Background(), tc.timeout)
-			defer cancel()
-
-			producer := newPubSubLiteProducer(t, pubsublite.ProducerConfig{
-				CommonConfig: pubsublite.CommonConfig{Logger: logger},
-				Encoder:      codec,
-				TopicRouter:  topicRouter,
-				Sync:         tc.sync,
-			})
-			consumer := newPubSubLiteConsumer(ctx, t, pubsublite.ConsumerConfig{
-				CommonConfig: pubsublite.CommonConfig{Logger: logger},
-				Topics:       topics,
-				Decoder:      codec,
-				Processor: model.ProcessBatchFunc(func(ctx context.Context, b *model.Batch) error {
-					processed.Add(1)
-					return nil
-				}),
-			})
-
-			var wg sync.WaitGroup
-			wg.Add(2)
-			wait := make(chan struct{})
-			signal := make(chan struct{})
-			go func() {
-				defer wg.Done()
-				assert.NoError(t, producer.ProcessBatch(ctx, &model.Batch{
-					model.APMEvent{Transaction: &model.Transaction{ID: "1", Custom: map[string]any{"foo": &stub{wait: wait, signal: signal}}}},
-				}))
-			}()
-			<-signal
-			go func() {
-				defer wg.Done()
-				close(wait)
-				assert.NoError(t, producer.Close())
-			}()
-
-			wg.Wait()
-
-			go func() { consumer.Run(ctx) }()
-			assert.Eventually(t, func() bool {
-				return processed.Load() == 1
-			}, 60*time.Second, time.Millisecond, processed)
-		})
-	}
+	})
 }
 
-func TestConsumerGracefulShutdown(t *testing.T) {
-	testCases := map[string]struct {
-		deliveryType apmqueue.DeliveryType
-		timeout      time.Duration
-	}{
-		"at most once": {
-			deliveryType: apmqueue.AtMostOnceDeliveryType,
-			timeout:      90 * time.Second,
-		},
-		"at least once": {
-			deliveryType: apmqueue.AtLeastOnceDeliveryType,
-			timeout:      90 * time.Second,
-		},
-	}
-
-	for name, tc := range testCases {
-		t.Run("Kafka/"+name, func(t *testing.T) {
-			logger := zaptest.NewLogger(t, zaptest.Level(zapcore.InfoLevel))
-			codec := json.JSON{}
+func TestGracefulShutdownConsumer(t *testing.T) {
+	forEachProvider(t, func(t *testing.T, pf providerF) {
+		forEachDeliveryType(t, func(t *testing.T, dt apmqueue.DeliveryType) {
 			var processed atomic.Int32
-			var errored atomic.Int32
-			process := make(chan struct{})
-			records := 2
-			topics := SuffixTopics(apmqueue.Topic(t.Name()))
-			topicRouter := func(event model.APMEvent) apmqueue.Topic {
-				return apmqueue.Topic(topics[0])
-			}
-
-			err := ProvisionKafka(context.Background(),
-				newLocalKafkaConfig(topics...),
-			)
-			require.NoError(t, err)
-
-			producer := newKafkaProducer(t, kafka.ProducerConfig{
-				CommonConfig: kafka.CommonConfig{Logger: logger},
-				Encoder:      codec,
-				TopicRouter:  topicRouter,
-			})
-			consumer := newKafkaConsumer(t, kafka.ConsumerConfig{
-				CommonConfig:   kafka.CommonConfig{Logger: logger},
-				GroupID:        "group",
-				Delivery:       tc.deliveryType,
-				Topics:         topics,
-				Decoder:        codec,
-				MaxPollRecords: records,
-				Processor: model.ProcessBatchFunc(func(ctx context.Context, b *model.Batch) error {
-					select {
-					case <-ctx.Done():
-						errored.Add(int32(len(*b)))
-						return ctx.Err()
-					case <-process:
-						processed.Add(int32(len(*b)))
-					}
-					return nil
-				}),
+			processor := model.ProcessBatchFunc(func(ctx context.Context, b *model.Batch) error {
+				processed.Add(1)
+				return nil
 			})
 
-			ctx, cancel := context.WithTimeout(context.Background(), tc.timeout)
-			defer cancel()
+			codec, signal := newHookedCodec(t, false, true)
+			producer, consumer := pf(t, withProcessor(processor), withDeliveryType(dt), withEncoderDecoder(codec))
 
-			assert.NoError(t, producer.ProcessBatch(ctx, &model.Batch{
+			assert.NoError(t, producer.ProcessBatch(context.Background(), &model.Batch{
 				model.APMEvent{Transaction: &model.Transaction{ID: "1"}},
-				model.APMEvent{Transaction: &model.Transaction{ID: "2"}},
 			}))
 			assert.NoError(t, producer.Close())
 
-			// Run a consumer that fetches from kafka to verify that the events are there.
-			go func() { consumer.Run(ctx) }()
-			select {
-			case process <- struct{}{}:
-				close(process) // Allow records to be processed
-				cancel()       // Stop the consumer.
-			case <-time.After(5 * time.Second):
-				t.Fatal("timed out waiting for consumer to process event")
-			}
-			assert.Eventually(t, func() bool {
-				return processed.Load() == int32(records) && errored.Load() == 0
-			}, 20*time.Second, time.Millisecond, processed)
-			t.Logf("got: %d events processed, %d errored, want: %d processed",
-				processed.Load(), errored.Load(), records,
-			)
-
-		})
-		t.Run("PubSubLite/"+name, func(t *testing.T) {
-			codec := json.JSON{}
-			logger := zaptest.NewLogger(t, zaptest.Level(zapcore.InfoLevel))
-			var processed atomic.Int32
-			var errored atomic.Int32
-			process := make(chan struct{})
-			records := 2
-			topics := SuffixTopics(apmqueue.Topic(t.Name()))
-			topicRouter := func(event model.APMEvent) apmqueue.Topic {
-				return apmqueue.Topic(topics[0])
-			}
-
-			err := ProvisionPubSubLite(context.Background(),
-				newPubSubLiteConfig(topics...),
-			)
-			require.NoError(t, err)
-
-			ctx, cancel := context.WithTimeout(context.Background(), tc.timeout)
+			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
-			producer := newPubSubLiteProducer(t, pubsublite.ProducerConfig{
-				CommonConfig: pubsublite.CommonConfig{Logger: logger},
-				Encoder:      codec,
-				TopicRouter:  topicRouter,
-				Sync:         true,
-			})
-			consumer := newPubSubLiteConsumer(ctx, t, pubsublite.ConsumerConfig{
-				CommonConfig: pubsublite.CommonConfig{Logger: logger},
-				Topics:       topics,
-				Delivery:     tc.deliveryType,
-				Decoder:      codec,
-				Processor: model.ProcessBatchFunc(func(ctx context.Context, b *model.Batch) error {
-					select {
-					case <-ctx.Done():
-						errored.Add(int32(len(*b)))
-						return ctx.Err()
-					case <-process:
-						processed.Add(int32(len(*b)))
-					}
-					return nil
-				}),
-			})
-
-			assert.NoError(t, producer.ProcessBatch(ctx, &model.Batch{
-				model.APMEvent{Transaction: &model.Transaction{ID: "1"}},
-				model.APMEvent{Transaction: &model.Transaction{ID: "2"}},
-			}))
-			assert.NoError(t, producer.Close())
-
-			// Run a consumer that fetches from kafka to verify that the events are there.
 			go func() { consumer.Run(ctx) }()
-			select {
-			case process <- struct{}{}:
-				close(process) // Allow records to be processed
-				cancel()       // Stop the consumer.
-			case <-time.After(60 * time.Second):
-				t.Fatal("timed out waiting for consumer to process event")
-			}
+
+			// wait for the event to be decoded, cancel the context and close the consumer
+			<-signal
+			cancel()
+			consumer.Close()
+
 			assert.Eventually(t, func() bool {
-				return processed.Load() == int32(records) && errored.Load() == 0
-			}, 60*time.Second, time.Millisecond, processed)
-			t.Logf("got: %d events processed, %d errored, want: %d processed",
-				processed.Load(), errored.Load(), records,
-			)
+				return processed.Load() == 1
+			}, defaultConsumerWaitTimeout, time.Second, processed)
 		})
-	}
+	})
 }
