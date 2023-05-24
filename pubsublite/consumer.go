@@ -21,6 +21,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path"
 	"sync"
 
 	"cloud.google.com/go/pubsub"
@@ -46,8 +47,9 @@ type Decoder interface {
 // ConsumerConfig defines the configuration for the PubSub Lite consumer.
 type ConsumerConfig struct {
 	CommonConfig
-	// Topics holds Pub/Sub Lite topics from which messages will be consumed.
-	Topics []apmqueue.Topic
+	// Subscriptions holds topic subscriptions from which messages
+	// will be consumed.
+	Subscriptions []apmqueue.Subscription
 	// Decoder holds an encoding.Decoder for decoding events.
 	Decoder Decoder
 	// Processor that will be used to process each event individually.
@@ -59,32 +61,25 @@ type ConsumerConfig struct {
 	Delivery apmqueue.DeliveryType
 }
 
-// Subscription represents a PubSub Lite subscription.
-type Subscription struct {
-	// Project where the subscription is located.
-	Project string
-	// Region where the subscription is located.
-	Region string
-	// Name/ID of the subscription.
-	Name string
-}
-
-func (s Subscription) String() string {
-	return fmt.Sprintf("projects/%s/locations/%s/subscriptions/%s",
-		s.Project, s.Region, s.Name,
-	)
-}
-
 // Validate ensures the configuration is valid, otherwise, returns an error.
 func (cfg ConsumerConfig) Validate() error {
 	var errs []error
 	if err := cfg.CommonConfig.Validate(); err != nil {
 		errs = append(errs, err)
 	}
-	if len(cfg.Topics) == 0 {
+	if len(cfg.Subscriptions) == 0 {
 		errs = append(errs,
-			errors.New("pubsublite: at least one topic must be set"),
+			errors.New("pubsublite: at least one subscription must be set"),
 		)
+	} else {
+		for _, s := range cfg.Subscriptions {
+			if s.Name == "" {
+				errs = append(errs, errors.New("pubsublite: subscription name must be set"))
+			}
+			if s.Topic == "" {
+				errs = append(errs, errors.New("pubsublite: subscription topic must be set"))
+			}
+		}
 	}
 	if cfg.Decoder == nil {
 		errs = append(errs, errors.New("pubsublite: decoder must be set"))
@@ -135,16 +130,13 @@ func NewConsumer(ctx context.Context, cfg ConsumerConfig) (*Consumer, error) {
 			return nil // nil is returned to avoid terminating the subscriber.
 		},
 	}
-	consumers := make([]*consumer, 0, len(cfg.Topics))
+	parent := fmt.Sprintf("projects/%s/locations/%s", cfg.Project, cfg.Region)
+	consumers := make([]*consumer, 0, len(cfg.Subscriptions))
 	cfg.Logger = cfg.Logger.Named("pubsublite")
-	for _, topic := range cfg.Topics {
-		subscription := Subscription{
-			Name:    string(topic),
-			Project: cfg.Project,
-			Region:  cfg.Region,
-		}
+	for _, subscription := range cfg.Subscriptions {
+		subscriptionPath := path.Join(parent, "subscriptions", subscription.Name)
 		client, err := pscompat.NewSubscriberClientWithSettings(
-			ctx, subscription.String(), settings, cfg.ClientOptions...,
+			ctx, subscriptionPath, settings, cfg.ClientOptions...,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("pubsublite: failed creating consumer: %w", err)
@@ -155,12 +147,13 @@ func NewConsumer(ctx context.Context, cfg ConsumerConfig) (*Consumer, error) {
 			processor:        cfg.Processor,
 			decoder:          cfg.Decoder,
 			logger: cfg.Logger.With(
-				zap.String("subscription", string(topic)),
+				zap.String("subscription", subscription.Name),
+				zap.String("topic", string(subscription.Topic)),
 				zap.String("region", cfg.Region),
 				zap.String("project", cfg.Project),
 			),
 			telemetryAttributes: []attribute.KeyValue{
-				semconv.MessagingSourceNameKey.String(string(topic)),
+				semconv.MessagingSourceNameKey.String(string(subscription.Topic)),
 				semconv.CloudRegion(cfg.Region),
 				semconv.CloudAccountID(cfg.Project),
 			},

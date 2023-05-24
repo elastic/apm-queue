@@ -149,6 +149,13 @@ func pubSubTypes(t testing.TB, opts ...option) (apmqueue.Producer, apmqueue.Cons
 
 	logger := cfg.loggerF(t)
 	topics, topicRouter := cfg.topicsF(t)
+	subscriptions := make([]apmqueue.Subscription, len(topics))
+	for i, topic := range topics {
+		subscriptions[i] = apmqueue.Subscription{
+			Name:  string(topic),
+			Topic: topic,
+		}
+	}
 
 	require.NoError(t, ProvisionPubSubLite(ctx, newPubSubLiteConfig(topics...)))
 
@@ -159,11 +166,11 @@ func pubSubTypes(t testing.TB, opts ...option) (apmqueue.Producer, apmqueue.Cons
 		Sync:         cfg.sync,
 	})
 	consumer := newPubSubLiteConsumer(context.Background(), t, pubsublite.ConsumerConfig{
-		CommonConfig: pubsublite.CommonConfig{Logger: logger},
-		Decoder:      cfg.codec,
-		Topics:       topics,
-		Processor:    cfg.processor,
-		Delivery:     cfg.dt,
+		CommonConfig:  pubsublite.CommonConfig{Logger: logger},
+		Decoder:       cfg.codec,
+		Subscriptions: subscriptions,
+		Processor:     cfg.processor,
+		Delivery:      cfg.dt,
 	})
 
 	return producer, consumer
