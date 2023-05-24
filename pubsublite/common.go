@@ -70,3 +70,5 @@ func (cfg *CommonConfig) tracerProvider() trace.TracerProvider {
 	}
 	return otel.GetTracerProvider()
 }
+
+// TODO(axw) method for producing common option.ClientOptions, such as otelgrpc interceptors.

@@ -64,6 +64,7 @@ require (
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect
 	github.com/twmb/franz-go v1.13.3 // indirect
+	github.com/twmb/franz-go/pkg/kadm v1.8.1 // indirect
 	github.com/twmb/franz-go/pkg/kmsg v1.5.0 // indirect
 	github.com/twmb/franz-go/plugin/kotel v1.2.0 // indirect
 	github.com/twmb/franz-go/plugin/kzap v1.1.2 // indirect

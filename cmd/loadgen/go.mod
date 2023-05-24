@@ -37,6 +37,7 @@ require (
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/prometheus/procfs v0.9.0 // indirect
 	github.com/twmb/franz-go v1.13.3 // indirect
+	github.com/twmb/franz-go/pkg/kadm v1.8.1 // indirect
 	github.com/twmb/franz-go/pkg/kmsg v1.4.0 // indirect
 	github.com/twmb/franz-go/plugin/kotel v1.2.0 // indirect
 	github.com/twmb/franz-go/plugin/kzap v1.1.2 // indirect

@@ -15,25 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package pubsublite
+package apmqueue
 
-import (
-	"context"
-	"testing"
+import "context"
 
-	"github.com/stretchr/testify/assert"
-)
-
-func TestNewConsumer(t *testing.T) {
-	t.Run("empty config", func(t *testing.T) {
-		_, err := NewConsumer(context.Background(), ConsumerConfig{})
-		assert.Error(t, err)
-	})
-	t.Run("invalid delivery type", func(t *testing.T) {
-		_, err := NewConsumer(context.Background(), ConsumerConfig{
-			Delivery: 100,
-		})
-		assert.Error(t, err)
-		assert.ErrorContains(t, err, "pubsublite: delivery is not valid")
-	})
+// TopicCreator is an interface for creating topics.
+type TopicCreator interface {
+	// CreateTopics creates one or more topics.
+	//
+	// CreateTopics will leave existing topics untouched.
+	CreateTopics(ctx context.Context, topic ...Topic) error
 }
