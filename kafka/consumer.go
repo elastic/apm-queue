@@ -100,6 +100,8 @@ type Consumer struct {
 	client   *kgo.Client
 	cfg      ConsumerConfig
 	consumer *consumer
+	running  chan struct{}
+	closed   chan struct{}
 
 	tracer trace.Tracer
 }
@@ -149,31 +151,44 @@ func NewConsumer(cfg ConsumerConfig) (*Consumer, error) {
 		cfg:      cfg,
 		client:   client,
 		consumer: consumer,
+		closed:   make(chan struct{}),
+		running:  make(chan struct{}),
 		tracer:   cfg.tracerProvider().Tracer("kafka"),
 	}, nil
 }
 
 // Close the consumer, blocking until all partition consumers are stopped.
 func (c *Consumer) Close() error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	// Since we take the full lock when closing, there's no need to explicitly
-	// allow rebalances since polls aren't concurrent with Close().
-	c.client.Close()
-	c.consumer.wg.Wait() // Wait for all the goroutines to exit.
+	select {
+	case <-c.closed:
+	default:
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		c.client.Close()
+		c.consumer.wg.Wait() // Wait for all the goroutines to exit.
+		close(c.closed)
+	}
 	return nil
 }
 
 // Run the consumer until a non recoverable error is found:
-//   - context.Cancelled.
-//   - context.DeadlineExceeded.
-//   - kgo.ErrClientClosed.
 //   - ErrCommitFailed.
 //
 // To shut down the consumer, cancel the context, or call consumer.Close().
+// If called more than once, returns `apmqueue.ErrConsumerAlreadyRunning`.
 func (c *Consumer) Run(ctx context.Context) error {
+	select {
+	case <-c.running:
+		return apmqueue.ErrConsumerAlreadyRunning
+	default:
+		close(c.running)
+	}
 	for {
 		if err := c.fetch(ctx); err != nil {
+			// Return no error if the context is cancelled.
+			if errors.Is(err, context.Canceled) {
+				return nil
+			}
 			return err
 		}
 	}
@@ -182,20 +197,18 @@ func (c *Consumer) Run(ctx context.Context) error {
 // fetch polls the Kafka broker for new records up to cfg.MaxPollRecords.
 // Any errors returned by fetch should be considered fatal.
 func (c *Consumer) fetch(ctx context.Context) error {
-	// We need to grab the lock before pulling records to guarantee no events loss on shutdown.
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
 	fetches := c.client.PollRecords(ctx, c.cfg.MaxPollRecords)
 	defer c.client.AllowRebalance()
 
-	if fetches.IsClientClosed() {
-		return fmt.Errorf("client is closed: %w", context.Canceled)
-	}
-	if errors.Is(fetches.Err0(), context.Canceled) ||
+	if fetches.IsClientClosed() ||
+		errors.Is(fetches.Err0(), context.Canceled) ||
 		errors.Is(fetches.Err0(), context.DeadlineExceeded) {
-		return fmt.Errorf("context done: %w", fetches.Err0())
+		return context.Canceled
 	}
+	// Acquire the lock after checking if the the context is cancelled and/or
+	// the client is closed.
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	switch c.cfg.Delivery {
 	case apmqueue.AtLeastOnceDeliveryType:
 		// Committing the processed records happens on each partition consumer.

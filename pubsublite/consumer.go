@@ -183,7 +183,7 @@ func (c *Consumer) Run(ctx context.Context) error {
 	c.mu.Lock()
 	if c.stopSubscriber != nil {
 		c.mu.Unlock()
-		return errors.New("pubsublite: consumer already started")
+		return apmqueue.ErrConsumerAlreadyRunning
 	}
 	ctx, c.stopSubscriber = context.WithCancel(ctx)
 	c.mu.Unlock()

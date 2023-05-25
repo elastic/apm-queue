@@ -21,9 +21,16 @@ package apmqueue
 
 import (
 	"context"
+	"errors"
 	"strings"
 
 	"github.com/elastic/apm-data/model"
+)
+
+var (
+	// ErrConsumerAlreadyRunning is returned by consumer.Run if it has already
+	// been called.
+	ErrConsumerAlreadyRunning = errors.New("consumer.Run: consumer already running")
 )
 
 const (
@@ -41,7 +48,8 @@ type DeliveryType uint8
 
 // Consumer wraps the implementation details of the consumer implementation.
 type Consumer interface {
-	// Run executes the consumer in a blocking manner.
+	// Run executes the consumer in a blocking manner. Returns
+	// ErrConsumerAlreadyRunning when it has already been called.
 	Run(ctx context.Context) error
 	// Healthy returns an error if the consumer isn't healthy.
 	Healthy(ctx context.Context) error
