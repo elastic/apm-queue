@@ -40,6 +40,7 @@ import (
 	apmqueue "github.com/elastic/apm-queue"
 	"github.com/elastic/apm-queue/codec/json"
 	saslplain "github.com/elastic/apm-queue/kafka/sasl/plain"
+	"github.com/elastic/apm-queue/queuecontext"
 )
 
 func TestNewConsumer(t *testing.T) {
@@ -451,6 +452,64 @@ func TestConsumerGracefulShutdown(t *testing.T) {
 	t.Run("AtMostOnceDelivery", func(t *testing.T) {
 		test(t, apmqueue.AtMostOnceDeliveryType)
 	})
+}
+
+func TestConsumerContextPropagation(t *testing.T) {
+	_, addrs := newClusterWithTopics(t, "topic")
+	commonCfg := CommonConfig{
+		Brokers: addrs,
+		Logger:  zap.NewNop(),
+	}
+	var codec json.JSON
+	processed := make(chan struct{})
+	expectedMeta := map[string]string{"key": "value"}
+	consumer := newConsumer(t, ConsumerConfig{
+		CommonConfig: commonCfg,
+		GroupID:      "ctx_prop",
+		Topics:       []apmqueue.Topic{"topic"},
+		Decoder:      codec,
+		Processor: model.ProcessBatchFunc(func(ctx context.Context, _ *model.Batch) error {
+			select {
+			case <-processed:
+				t.Fatal("should only be called once")
+			default:
+				close(processed)
+			}
+			meta, ok := queuecontext.MetadataFromContext(ctx)
+			assert.True(t, ok)
+			assert.Equal(t, expectedMeta, meta)
+			return nil
+		}),
+	})
+	// Pass an empty context to the consumer.
+	consumerCtx, cancelConsumer := context.WithCancel(context.Background())
+	defer cancelConsumer()
+
+	go func() { consumer.Run(consumerCtx) }()
+	producer := newProducer(t, ProducerConfig{
+		CommonConfig: commonCfg,
+		Sync:         true,
+		Encoder:      codec,
+		TopicRouter: func(model.APMEvent) apmqueue.Topic {
+			return "topic"
+		},
+	})
+	// Enrich the producer's context with metadata.
+	ctx, cancel := context.WithCancel(queuecontext.WithMetadata(
+		context.Background(), expectedMeta,
+	))
+	defer cancel()
+
+	producer.ProcessBatch(ctx, &model.Batch{
+		{}, // Empty record.
+	})
+	assert.NoError(t, producer.Close())
+
+	select {
+	case <-processed:
+	case <-time.After(time.Second):
+		t.Fatal("timed out while waiting for record to be consumed")
+	}
 }
 
 func TestMultipleConsumers(t *testing.T) {

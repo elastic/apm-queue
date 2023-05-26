@@ -352,7 +352,10 @@ func (pc partitionConsumer) consume(ctx context.Context, topic string, partition
 				// NOTE(marclop) The decoding has failed, a DLQ may be helpful.
 				continue
 			}
-			ctx := queuecontext.WithMetadata(ctx, meta)
+			// NOTE(marclop) Using the kgo.Client context may result in records
+			// not being processed by the configured process if the client is
+			// closed while some records are processed.
+			ctx := queuecontext.WithMetadata(combineContexts(ctx, msg.Context), meta)
 			batch := model.Batch{event}
 			// If a record can't be processed, no retries are attempted and it
 			// may be lost. https://github.com/elastic/apm-queue/issues/118.
@@ -385,4 +388,20 @@ func (pc partitionConsumer) consume(ctx context.Context, topic string, partition
 			}
 		}
 	}
+}
+
+// combineContexts combines a new context with the lifetime of the first
+// ctx, but which returns the values of the second ctx.
+func combineContexts(deadlineCtx, ctx context.Context) context.Context {
+	return &combinedCtx{Context: deadlineCtx, valueCtx: ctx}
+}
+
+type combinedCtx struct {
+	context.Context
+	valueCtx context.Context
+}
+
+// Value returns c.valueCtx.Value(key).
+func (c *combinedCtx) Value(key interface{}) interface{} {
+	return c.valueCtx.Value(key)
 }
