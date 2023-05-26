@@ -51,6 +51,9 @@ type Manager struct {
 
 // NewManager returns a new Manager with the given config.
 func NewManager(cfg ManagerConfig) (*Manager, error) {
+	if err := cfg.CommonConfig.setFromEnv(); err != nil {
+		return nil, fmt.Errorf("pubsublite: failed to set config from environment: %w", err)
+	}
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("pubsublite: invalid manager config: %w", err)
 	}
