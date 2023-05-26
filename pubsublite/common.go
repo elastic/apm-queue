@@ -75,12 +75,12 @@ func (cfg *CommonConfig) Validate() error {
 // If $GOOGLE_APPLICATION_CREDENTIALS is set, the file to which it points will
 // be read and parsed as JSON (assuming service account), and its `project_id`
 // property will be used for the Project property if it is not already set.
-func (c *CommonConfig) setFromEnv() error {
-	if c.Project != "" {
+func (cfg *CommonConfig) setFromEnv() error {
+	if cfg.Project != "" {
 		return nil
 	}
 
-	logger := c.Logger
+	logger := cfg.Logger
 	if logger == nil {
 		logger = zap.NewNop()
 	}
@@ -104,8 +104,8 @@ func (c *CommonConfig) setFromEnv() error {
 	if err := json.NewDecoder(credentialsFile).Decode(&config); err != nil {
 		return fmt.Errorf("failed to parse $%s: %w", credentialsEnvVar, err)
 	}
-	c.Project = config.ProjectID
-	logger.Info("set project ID from $"+credentialsEnvVar, zap.String("project", c.Project))
+	cfg.Project = config.ProjectID
+	logger.Info("set project ID from $"+credentialsEnvVar, zap.String("project", cfg.Project))
 	return nil
 }
 
