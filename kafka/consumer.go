@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 
 	"github.com/twmb/franz-go/pkg/kgo"
 	"go.opentelemetry.io/otel/trace"
@@ -100,8 +101,8 @@ type Consumer struct {
 	client   *kgo.Client
 	cfg      ConsumerConfig
 	consumer *consumer
-	running  chan struct{}
-	closed   chan struct{}
+	running  atomic.Bool
+	closed   atomic.Bool
 
 	tracer trace.Tracer
 }
@@ -151,23 +152,19 @@ func NewConsumer(cfg ConsumerConfig) (*Consumer, error) {
 		cfg:      cfg,
 		client:   client,
 		consumer: consumer,
-		closed:   make(chan struct{}),
-		running:  make(chan struct{}),
 		tracer:   cfg.tracerProvider().Tracer("kafka"),
 	}, nil
 }
 
 // Close the consumer, blocking until all partition consumers are stopped.
 func (c *Consumer) Close() error {
-	select {
-	case <-c.closed:
-	default:
-		c.mu.Lock()
-		defer c.mu.Unlock()
-		c.client.Close()
-		c.consumer.wg.Wait() // Wait for all the goroutines to exit.
-		close(c.closed)
+	if !c.closed.CompareAndSwap(false, true) {
+		return nil
 	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.client.Close()
+	c.consumer.wg.Wait() // Wait for all the goroutines to exit.
 	return nil
 }
 
@@ -177,11 +174,8 @@ func (c *Consumer) Close() error {
 // To shut down the consumer, cancel the context, or call consumer.Close().
 // If called more than once, returns `apmqueue.ErrConsumerAlreadyRunning`.
 func (c *Consumer) Run(ctx context.Context) error {
-	select {
-	case <-c.running:
+	if !c.running.CompareAndSwap(false, true) {
 		return apmqueue.ErrConsumerAlreadyRunning
-	default:
-		close(c.running)
 	}
 	for {
 		if err := c.fetch(ctx); err != nil {
