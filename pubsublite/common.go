@@ -56,7 +56,7 @@ type CommonConfig struct {
 }
 
 // Validate ensures the configuration is valid, otherwise, returns an error.
-func (cfg CommonConfig) Validate() error {
+func (cfg *CommonConfig) Validate() error {
 	var errs []error
 	if cfg.Project == "" {
 		errs = append(errs, errors.New("pubsublite: project must be set"))
