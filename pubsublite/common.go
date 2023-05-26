@@ -18,7 +18,10 @@
 package pubsublite
 
 import (
+	"encoding/json"
 	"errors"
+	"fmt"
+	"os"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/trace"
@@ -30,6 +33,9 @@ import (
 // and managers.
 type CommonConfig struct {
 	// Project is the GCP project.
+	//
+	// NewManager, NewProducer, and NewConsumer will set Project from
+	// $GOOGLE_APPLICATION_CREDENTIALS it is not explicitly specified.
 	Project string
 
 	// Region is the GCP region.
@@ -62,6 +68,45 @@ func (cfg CommonConfig) Validate() error {
 		errs = append(errs, errors.New("pubsublite: logger must be set"))
 	}
 	return errors.Join(errs...)
+}
+
+// setFromEnv sets unspecified config from environment variables.
+//
+// If $GOOGLE_APPLICATION_CREDENTIALS is set, the file to which it points will
+// be read and parsed as JSON (assuming service account), and its `project_id`
+// property will be used for the Project property if it is not already set.
+func (c *CommonConfig) setFromEnv() error {
+	if c.Project != "" {
+		return nil
+	}
+
+	logger := c.Logger
+	if logger == nil {
+		logger = zap.NewNop()
+	}
+
+	const credentialsEnvVar = "GOOGLE_APPLICATION_CREDENTIALS"
+	credentialsPath := os.Getenv(credentialsEnvVar)
+	if credentialsPath == "" {
+		logger.Debug("$" + credentialsEnvVar + " not set, cannot set default project ID")
+		return nil
+	}
+
+	credentialsFile, err := os.Open(credentialsPath)
+	if err != nil {
+		return fmt.Errorf("failed to read $%s: %w", credentialsEnvVar, err)
+	}
+	defer credentialsFile.Close()
+
+	var config struct {
+		ProjectID string `json:"project_id"`
+	}
+	if err := json.NewDecoder(credentialsFile).Decode(&config); err != nil {
+		return fmt.Errorf("failed to parse $%s: %w", credentialsEnvVar, err)
+	}
+	c.Project = config.ProjectID
+	logger.Info("set project ID from $"+credentialsEnvVar, zap.String("project", c.Project))
+	return nil
 }
 
 func (cfg *CommonConfig) tracerProvider() trace.TracerProvider {
