@@ -93,4 +93,16 @@ func TestCommonConfig(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, []byte("\x00kafka_username\x00kafka_password"), message)
 	})
+
+	t.Run("saslaws_from_environment", func(t *testing.T) {
+		t.Setenv("AWS_ACCESS_KEY_ID", "id")
+		t.Setenv("AWS_SECRET_ACCESS_KEY", "secret")
+		cfg := CommonConfig{
+			Brokers: []string{"broker"},
+			Logger:  zap.NewNop(),
+		}
+		require.NoError(t, cfg.finalize())
+		assert.NotNil(t, cfg.SASL)
+		assert.Equal(t, "AWS_MSK_IAM", cfg.SASL.Name())
+	})
 }
