@@ -73,10 +73,12 @@ type ConsumerConfig struct {
 	Processor model.BatchProcessor
 }
 
-// Validate ensures the configuration is valid, otherwise, returns an error.
-func (cfg ConsumerConfig) Validate() error {
+// finalize ensures the configuration is valid, setting default values from
+// environment variables as described in doc comments, returning an error if
+// any configuration is invalid.
+func (cfg *ConsumerConfig) finalize() error {
 	var errs []error
-	if err := cfg.CommonConfig.Validate(); err != nil {
+	if err := cfg.CommonConfig.finalize(); err != nil {
 		errs = append(errs, err)
 	}
 	if len(cfg.Topics) == 0 {
@@ -110,7 +112,7 @@ type Consumer struct {
 // NewConsumer creates a new instance of a Consumer. The consumer will read from
 // each partition concurrently by using a dedicated goroutine per partition.
 func NewConsumer(cfg ConsumerConfig) (*Consumer, error) {
-	if err := cfg.Validate(); err != nil {
+	if err := cfg.finalize(); err != nil {
 		return nil, fmt.Errorf("kafka: invalid consumer config: %w", err)
 	}
 	consumer := &consumer{
