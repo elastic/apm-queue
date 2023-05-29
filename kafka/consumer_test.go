@@ -405,7 +405,7 @@ func TestConsumerGracefulShutdown(t *testing.T) {
 				Brokers: brokers,
 				Logger:  zaptest.NewLogger(t, zaptest.Level(zapcore.DebugLevel)),
 			},
-			GroupID:        "group",
+			GroupID:        t.Name(),
 			Topics:         []apmqueue.Topic{"topic"},
 			Decoder:        codec,
 			MaxPollRecords: records,
@@ -421,26 +421,47 @@ func TestConsumerGracefulShutdown(t *testing.T) {
 				return nil
 			}),
 		})
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		var consumerErr error
+		consumerDone := make(chan struct{})
+		go func() {
+			defer close(consumerDone)
+			consumerErr = consumer.Run(ctx)
+		}()
 
 		b, err := codec.Encode(model.APMEvent{Transaction: &model.Transaction{ID: "1"}})
 		require.NoError(t, err)
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
 		for i := 0; i < records; i++ {
 			produceRecord(ctx, t, client, &kgo.Record{Topic: "topic", Value: b})
 		}
-
-		go func() { consumer.Run(ctx) }()
 		select {
 		case process <- struct{}{}:
 			close(process) // Allow records to be processed
-			assert.NoError(t, consumer.Close())
 		case <-time.After(time.Second):
 			t.Fatal("timed out waiting for consumer to process event")
 		}
-		assert.Eventually(t, func() bool {
-			return processed.Load() == int32(records) && errored.Load() == 0
-		}, 6*time.Second, time.Millisecond)
+		assert.NoError(t, consumer.Close())
+
+		select {
+		case <-consumerDone:
+		case <-time.After(time.Second):
+			t.Fatal("timed out waiting for consumer to exit")
+		}
+
+		// Assert the consumer error.
+		switch dt {
+		case apmqueue.AtMostOnceDeliveryType:
+			if consumerErr != nil {
+				assert.Equal(t, ErrCommitFailed, consumerErr)
+			}
+			assert.Equal(t, int32(records), processed.Load())
+		case apmqueue.AtLeastOnceDeliveryType:
+			assert.NoError(t, consumerErr)
+			assert.Equal(t, int32(records), processed.Load())
+		}
+		assert.Zero(t, errored.Load())
+
 		t.Logf("got: %d events processed, %d errored, want: %d processed",
 			processed.Load(), errored.Load(), records,
 		)
