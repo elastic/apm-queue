@@ -39,7 +39,6 @@ import (
 	"github.com/elastic/apm-data/model"
 	apmqueue "github.com/elastic/apm-queue"
 	"github.com/elastic/apm-queue/codec/json"
-	saslplain "github.com/elastic/apm-queue/kafka/sasl/plain"
 )
 
 func TestNewConsumer(t *testing.T) {
@@ -70,7 +69,6 @@ func TestNewConsumer(t *testing.T) {
 					Logger:   zap.NewNop(),
 					ClientID: "clientid",
 					Version:  "1.0",
-					SASL:     saslplain.New(saslplain.Plain{}),
 					TLS:      &tls.Config{},
 				},
 				GroupID:   "groupid",

@@ -28,13 +28,13 @@ import (
 
 	"github.com/twmb/franz-go/pkg/kgo"
 	"github.com/twmb/franz-go/pkg/sasl"
+	"github.com/twmb/franz-go/pkg/sasl/aws"
+	"github.com/twmb/franz-go/pkg/sasl/plain"
 	"github.com/twmb/franz-go/plugin/kotel"
 	"github.com/twmb/franz-go/plugin/kzap"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
-
-	saslplain "github.com/elastic/apm-queue/kafka/sasl/plain"
 )
 
 // SASLMechanism type alias to sasl.Mechanism
@@ -59,8 +59,12 @@ type CommonConfig struct {
 
 	// SASL configures the kgo.Client to use SASL authorization.
 	//
-	// If SASL is unspecified, but $KAFKA_USERNAME and $KAFKA_PASSWORD
-	// are specified, then SASL/PLAIN will be configured accordingly.
+	// If SASL is unspecified, then it may be derived from environment
+	// variables as follows:
+	//  - if $KAFKA_USERNAME and $KAFKA_PASSWORD are both specified, then
+	//    SASL/PLAIN will be configured
+	//  - if $AWS_ACCESS_KEY_ID and $AWS_SECRET_ACCESS_KEY are specified,
+	//    then SASL/AWS_MSK_IAM wil be configured
 	SASL SASLMechanism
 
 	// TLS configures the kgo.Client to use TLS for authentication.
@@ -108,11 +112,23 @@ func (cfg *CommonConfig) finalize() error {
 	}
 	if cfg.SASL == nil {
 		// SASL not specified, default to SASL/PLAIN if username and password
-		// environment variables are specified.
-		username := os.Getenv("KAFKA_USERNAME")
-		password := os.Getenv("KAFKA_PASSWORD")
-		if username != "" && password != "" {
-			cfg.SASL = saslplain.New(saslplain.Plain{User: username, Pass: password})
+		// environment variables are specified, or SASL/AWS_MSK_IAM if AWS
+		// credential environment variables are specified.
+		plainAuth := plain.Auth{
+			User: os.Getenv("KAFKA_USERNAME"),
+			Pass: os.Getenv("KAFKA_PASSWORD"),
+		}
+		if plainAuth != (plain.Auth{}) {
+			cfg.SASL = plainAuth.AsMechanism()
+		} else {
+			awsAuth := aws.Auth{
+				AccessKey:    os.Getenv("AWS_ACCESS_KEY_ID"),
+				SecretKey:    os.Getenv("AWS_SECRET_ACCESS_KEY"),
+				SessionToken: os.Getenv("AWS_SESSION_TOKEN"),
+			}
+			if awsAuth.AccessKey != "" && awsAuth.SecretKey != "" {
+				cfg.SASL = awsAuth.AsManagedStreamingIAMMechanism()
+			}
 		}
 	}
 	return errors.Join(errs...)
