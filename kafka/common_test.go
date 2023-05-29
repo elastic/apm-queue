@@ -21,6 +21,7 @@ import (
 	"context"
 	"crypto/tls"
 	"net"
+	"os"
 	"strings"
 	"testing"
 
@@ -28,6 +29,12 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 )
+
+func init() {
+	// Set plaintext as the default for all tests.
+	// Individual tests may clear this.
+	os.Setenv("KAFKA_PLAINTEXT", "true")
+}
 
 func TestCommonConfig(t *testing.T) {
 	assertValid := func(t *testing.T, expected, in CommonConfig) {
@@ -104,5 +111,45 @@ func TestCommonConfig(t *testing.T) {
 		require.NoError(t, cfg.finalize())
 		assert.NotNil(t, cfg.SASL)
 		assert.Equal(t, "AWS_MSK_IAM", cfg.SASL.Name())
+	})
+
+	t.Run("tls_from_environment", func(t *testing.T) {
+		// We set KAFKA_PLAINTEXT=true for all tests,
+		// clear it out for this test.
+		t.Setenv("KAFKA_PLAINTEXT", "")
+
+		t.Run("plaintext", func(t *testing.T) {
+			t.Setenv("KAFKA_PLAINTEXT", "true")
+			assertValid(t, CommonConfig{
+				Brokers: []string{"broker"},
+				Logger:  zap.NewNop(),
+			}, CommonConfig{
+				Brokers: []string{"broker"},
+				Logger:  zap.NewNop(),
+			})
+		})
+
+		t.Run("tls_default", func(t *testing.T) {
+			assertValid(t, CommonConfig{
+				Brokers: []string{"broker"},
+				Logger:  zap.NewNop(),
+				TLS:     &tls.Config{},
+			}, CommonConfig{
+				Brokers: []string{"broker"},
+				Logger:  zap.NewNop(),
+			})
+		})
+
+		t.Run("tls_insecure", func(t *testing.T) {
+			t.Setenv("KAFKA_TLS_INSECURE", "true")
+			assertValid(t, CommonConfig{
+				Brokers: []string{"broker"},
+				Logger:  zap.NewNop(),
+				TLS:     &tls.Config{InsecureSkipVerify: true},
+			}, CommonConfig{
+				Brokers: []string{"broker"},
+				Logger:  zap.NewNop(),
+			})
+		})
 	})
 }
