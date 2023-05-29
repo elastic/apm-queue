@@ -162,6 +162,7 @@ func (cfg *CommonConfig) newClient(additionalOpts ...kgo.Opt) (*kgo.Client, erro
 	if cfg.SASL != nil {
 		opts = append(opts, kgo.SASL(cfg.SASL))
 	}
+	opts = append(opts, additionalOpts...)
 	if !cfg.DisableTelemetry {
 		kotelService := kotel.NewKotel(
 			kotel.WithTracer(kotel.NewTracer(kotel.TracerProvider(cfg.tracerProvider()))),
@@ -169,7 +170,6 @@ func (cfg *CommonConfig) newClient(additionalOpts ...kgo.Opt) (*kgo.Client, erro
 		)
 		opts = append(opts, kgo.WithHooks(kotelService.Hooks()...))
 	}
-	opts = append(opts, additionalOpts...)
 	client, err := kgo.NewClient(opts...)
 	if err != nil {
 		return nil, fmt.Errorf("kafka: failed creating kafka client: %w", err)
