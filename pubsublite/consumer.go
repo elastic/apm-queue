@@ -109,6 +109,9 @@ type Consumer struct {
 
 // NewConsumer creates a new consumer instance for a single subscription.
 func NewConsumer(ctx context.Context, cfg ConsumerConfig) (*Consumer, error) {
+	if err := cfg.CommonConfig.setFromEnv(); err != nil {
+		return nil, fmt.Errorf("pubsublite: failed to set config from environment: %w", err)
+	}
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("pubsublite: invalid consumer config: %w", err)
 	}
@@ -183,7 +186,7 @@ func (c *Consumer) Run(ctx context.Context) error {
 	c.mu.Lock()
 	if c.stopSubscriber != nil {
 		c.mu.Unlock()
-		return errors.New("pubsublite: consumer already started")
+		return apmqueue.ErrConsumerAlreadyRunning
 	}
 	ctx, c.stopSubscriber = context.WithCancel(ctx)
 	c.mu.Unlock()

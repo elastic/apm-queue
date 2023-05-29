@@ -50,10 +50,12 @@ type ManagerConfig struct {
 	TopicConfigs map[string]string
 }
 
-// Validate checks that cfg is valid, and returns an error otherwise.
-func (cfg ManagerConfig) Validate() error {
+// finalize ensures the configuration is valid, setting default values from
+// environment variables as described in doc comments, returning an error if
+// any configuration is invalid.
+func (cfg *ManagerConfig) finalize() error {
 	var errs []error
-	if err := cfg.CommonConfig.Validate(); err != nil {
+	if err := cfg.CommonConfig.finalize(); err != nil {
 		errs = append(errs, err)
 	}
 	if cfg.PartitionCount == 0 {
@@ -72,7 +74,7 @@ type Manager struct {
 
 // NewManager returns a new Manager with the given config.
 func NewManager(cfg ManagerConfig) (*Manager, error) {
-	if err := cfg.Validate(); err != nil {
+	if err := cfg.finalize(); err != nil {
 		return nil, fmt.Errorf("kafka: invalid manager config: %w", err)
 	}
 	var topicConfigs map[string]*string

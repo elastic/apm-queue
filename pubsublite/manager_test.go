@@ -20,6 +20,8 @@ package pubsublite
 import (
 	"context"
 	"net"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -56,6 +58,37 @@ func TestNewManager(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, manager)
 	require.NoError(t, manager.Close())
+}
+
+func TestNewManagerDefaultProject(t *testing.T) {
+	tempdir := t.TempDir()
+	credentialsPath := filepath.Join(tempdir, "credentials.json")
+	t.Setenv("GOOGLE_APPLICATION_CREDENTIALS", credentialsPath)
+
+	_, err := NewManager(ManagerConfig{})
+	require.Error(t, err)
+	assert.EqualError(t, err,
+		"pubsublite: failed to set config from environment: failed to read $GOOGLE_APPLICATION_CREDENTIALS: "+
+			"open "+credentialsPath+": no such file or directory",
+	)
+
+	err = os.WriteFile(credentialsPath, []byte("jason"), 0644)
+	require.NoError(t, err)
+	_, err = NewManager(ManagerConfig{})
+	require.Error(t, err)
+	assert.EqualError(t, err,
+		"pubsublite: failed to set config from environment: failed to parse $GOOGLE_APPLICATION_CREDENTIALS: "+
+			"invalid character 'j' looking for beginning of value",
+	)
+
+	err = os.WriteFile(credentialsPath, []byte(`{"project_id":"default_project_id"}`), 0644)
+	require.NoError(t, err)
+	_, err = NewManager(ManagerConfig{})
+	require.Error(t, err)
+	assert.EqualError(t, err, "pubsublite: invalid manager config: "+strings.Join([]string{
+		"pubsublite: region must be set",
+		"pubsublite: logger must be set",
+	}, "\n"))
 }
 
 func TestManagerCreateReservation(t *testing.T) {

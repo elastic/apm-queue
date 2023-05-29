@@ -79,10 +79,12 @@ type ProducerConfig struct {
 	CompressionCodec []CompressionCodec
 }
 
-// Validate checks that cfg is valid, and returns an error otherwise.
-func (cfg ProducerConfig) Validate() error {
+// finalize ensures the configuration is valid, setting default values from
+// environment variables as described in doc comments, returning an error if
+// any configuration is invalid.
+func (cfg ProducerConfig) finalize() error {
 	var errs []error
-	if err := cfg.CommonConfig.Validate(); err != nil {
+	if err := cfg.CommonConfig.finalize(); err != nil {
 		errs = append(errs, err)
 	}
 	if cfg.Encoder == nil {
@@ -105,7 +107,7 @@ type Producer struct {
 
 // NewProducer returns a new Producer with the given config.
 func NewProducer(cfg ProducerConfig) (*Producer, error) {
-	if err := cfg.Validate(); err != nil {
+	if err := cfg.finalize(); err != nil {
 		return nil, fmt.Errorf("kafka: invalid producer config: %w", err)
 	}
 	var opts []kgo.Opt

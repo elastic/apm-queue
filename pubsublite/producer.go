@@ -93,6 +93,9 @@ type Producer struct {
 
 // NewProducer creates a new PubSub Lite producer for a single project.
 func NewProducer(cfg ProducerConfig) (*Producer, error) {
+	if err := cfg.CommonConfig.setFromEnv(); err != nil {
+		return nil, fmt.Errorf("pubsublite: failed to set config from environment: %w", err)
+	}
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("pubsublite: invalid producer config: %w", err)
 	}

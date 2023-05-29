@@ -18,7 +18,10 @@
 package pubsublite
 
 import (
+	"encoding/json"
 	"errors"
+	"fmt"
+	"os"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/trace"
@@ -30,6 +33,9 @@ import (
 // and managers.
 type CommonConfig struct {
 	// Project is the GCP project.
+	//
+	// NewManager, NewProducer, and NewConsumer will set Project from
+	// $GOOGLE_APPLICATION_CREDENTIALS it is not explicitly specified.
 	Project string
 
 	// Region is the GCP region.
@@ -50,7 +56,7 @@ type CommonConfig struct {
 }
 
 // Validate ensures the configuration is valid, otherwise, returns an error.
-func (cfg CommonConfig) Validate() error {
+func (cfg *CommonConfig) Validate() error {
 	var errs []error
 	if cfg.Project == "" {
 		errs = append(errs, errors.New("pubsublite: project must be set"))
@@ -62,6 +68,45 @@ func (cfg CommonConfig) Validate() error {
 		errs = append(errs, errors.New("pubsublite: logger must be set"))
 	}
 	return errors.Join(errs...)
+}
+
+// setFromEnv sets unspecified config from environment variables.
+//
+// If $GOOGLE_APPLICATION_CREDENTIALS is set, the file to which it points will
+// be read and parsed as JSON (assuming service account), and its `project_id`
+// property will be used for the Project property if it is not already set.
+func (cfg *CommonConfig) setFromEnv() error {
+	if cfg.Project != "" {
+		return nil
+	}
+
+	logger := cfg.Logger
+	if logger == nil {
+		logger = zap.NewNop()
+	}
+
+	const credentialsEnvVar = "GOOGLE_APPLICATION_CREDENTIALS"
+	credentialsPath := os.Getenv(credentialsEnvVar)
+	if credentialsPath == "" {
+		logger.Debug("$" + credentialsEnvVar + " not set, cannot set default project ID")
+		return nil
+	}
+
+	credentialsFile, err := os.Open(credentialsPath)
+	if err != nil {
+		return fmt.Errorf("failed to read $%s: %w", credentialsEnvVar, err)
+	}
+	defer credentialsFile.Close()
+
+	var config struct {
+		ProjectID string `json:"project_id"`
+	}
+	if err := json.NewDecoder(credentialsFile).Decode(&config); err != nil {
+		return fmt.Errorf("failed to parse $%s: %w", credentialsEnvVar, err)
+	}
+	cfg.Project = config.ProjectID
+	logger.Info("set project ID from $"+credentialsEnvVar, zap.String("project", cfg.Project))
+	return nil
 }
 
 func (cfg *CommonConfig) tracerProvider() trace.TracerProvider {
