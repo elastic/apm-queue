@@ -434,7 +434,7 @@ func TestConsumerGracefulShutdown(t *testing.T) {
 		select {
 		case process <- struct{}{}:
 			close(process) // Allow records to be processed
-			cancel()       // Stop the consumer.
+			assert.NoError(t, consumer.Close())
 		case <-time.After(time.Second):
 			t.Fatal("timed out waiting for consumer to process event")
 		}
