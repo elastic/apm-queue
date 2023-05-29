@@ -165,9 +165,9 @@ func (c *Consumer) Close() error {
 	if !c.closed.CompareAndSwap(false, true) {
 		return nil
 	}
+	c.client.Close()
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.client.Close()
 	c.consumer.wg.Wait() // Wait for all the goroutines to exit.
 	return nil
 }
@@ -198,7 +198,7 @@ func (c *Consumer) fetch(ctx context.Context) error {
 	fetches := c.client.PollRecords(ctx, c.cfg.MaxPollRecords)
 	defer c.client.AllowRebalance()
 
-	if fetches.IsClientClosed() ||
+	if c.closed.Load() || fetches.IsClientClosed() ||
 		errors.Is(fetches.Err0(), context.Canceled) ||
 		errors.Is(fetches.Err0(), context.DeadlineExceeded) {
 		return context.Canceled
