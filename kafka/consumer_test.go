@@ -39,7 +39,6 @@ import (
 	"github.com/elastic/apm-data/model"
 	apmqueue "github.com/elastic/apm-queue"
 	"github.com/elastic/apm-queue/codec/json"
-	saslplain "github.com/elastic/apm-queue/kafka/sasl/plain"
 	"github.com/elastic/apm-queue/queuecontext"
 )
 
@@ -71,7 +70,6 @@ func TestNewConsumer(t *testing.T) {
 					Logger:   zap.NewNop(),
 					ClientID: "clientid",
 					Version:  "1.0",
-					SASL:     saslplain.New(saslplain.Plain{}),
 					TLS:      &tls.Config{},
 				},
 				GroupID:   "groupid",
@@ -337,7 +335,9 @@ func TestConsumerDelivery(t *testing.T) {
 			consumer := newConsumer(t, cfg)
 			go func() {
 				err := consumer.Run(ctx)
-				assert.Error(t, err)
+				if err != nil {
+					assert.Equal(t, ErrCommitFailed, err)
+				}
 			}()
 
 			// Wait until the batch processor function is called.
@@ -370,7 +370,7 @@ func TestConsumerDelivery(t *testing.T) {
 			cfg.Logger = baseLogger.Named("2")
 			consumer = newConsumer(t, cfg)
 			go func() {
-				assert.ErrorIs(t, consumer.Run(ctx), context.Canceled)
+				assert.NoError(t, consumer.Run(ctx))
 			}()
 			// Wait for the first record to be consumed before running any assertion.
 			select {
@@ -540,7 +540,7 @@ func TestMultipleConsumers(t *testing.T) {
 	for i := 0; i < consumers; i++ {
 		go func() {
 			consumer := newConsumer(t, cfg)
-			assert.ErrorIs(t, consumer.Run(ctx), context.Canceled)
+			assert.NoError(t, consumer.Run(ctx))
 		}()
 	}
 
@@ -593,7 +593,7 @@ func TestMultipleConsumerGroups(t *testing.T) {
 		})
 		consumer := newConsumer(t, cfg)
 		go func() {
-			assert.ErrorIs(t, consumer.Run(ctx), context.Canceled)
+			assert.NoError(t, consumer.Run(ctx))
 		}()
 	}
 
@@ -616,24 +616,53 @@ func TestMultipleConsumerGroups(t *testing.T) {
 }
 
 func TestConsumerRunError(t *testing.T) {
-	consumer := newConsumer(t, ConsumerConfig{
-		CommonConfig: CommonConfig{
-			Brokers: []string{"localhost:9092"},
-			Logger:  zap.NewNop(),
-		},
-		Topics:    []apmqueue.Topic{"topic"},
-		GroupID:   "groupid",
-		Decoder:   json.JSON{},
-		Processor: model.ProcessBatchFunc(func(context.Context, *model.Batch) error { return nil }),
+	newConsumer := func(t testing.TB, ready chan struct{}) (*Consumer, *kgo.Client) {
+		client, addr := newClusterWithTopics(t, "topic")
+		consumer := newConsumer(t, ConsumerConfig{
+			CommonConfig: CommonConfig{
+				Brokers: addr,
+				Logger:  zaptest.NewLogger(t),
+			},
+			Topics:  []apmqueue.Topic{"topic"},
+			GroupID: "groupid",
+			Decoder: json.JSON{},
+			Processor: model.ProcessBatchFunc(func(context.Context, *model.Batch) error {
+				select {
+				case <-ready:
+				default:
+					close(ready)
+				}
+				return nil
+			}),
+		})
+		return consumer, client
+	}
+	t.Run("context.Cancelled", func(t *testing.T) {
+		consumer, _ := newConsumer(t, nil)
+		// ctx canceled
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		require.NoError(t, consumer.Run(ctx))
+		// Returns an error after the consumer has been run.
+		require.Error(t, consumer.Run(context.Background()))
 	})
-
-	// ctx canceled
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	require.Error(t, consumer.Run(ctx))
-
-	consumer.Close()
-	require.Error(t, consumer.Run(context.Background()))
+	t.Run("consumer.Close()", func(t *testing.T) {
+		ready := make(chan struct{})
+		consumer, client := newConsumer(t, ready)
+		go func() {
+			require.NoError(t, consumer.Run(context.Background()))
+		}()
+		produceRecord(context.Background(), t, client, &kgo.Record{
+			Topic: "topic", Value: []byte("{}"),
+		})
+		select {
+		case <-ready:
+			consumer.Close()
+		case <-time.After(time.Second):
+		}
+		// Returns an error after the consumer has been run.
+		require.Error(t, consumer.Run(context.Background()))
+	})
 }
 
 func newConsumer(t testing.TB, cfg ConsumerConfig) *Consumer {

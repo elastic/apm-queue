@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 
 	"github.com/twmb/franz-go/pkg/kgo"
 	"go.opentelemetry.io/otel/trace"
@@ -72,10 +73,12 @@ type ConsumerConfig struct {
 	Processor model.BatchProcessor
 }
 
-// Validate ensures the configuration is valid, otherwise, returns an error.
-func (cfg ConsumerConfig) Validate() error {
+// finalize ensures the configuration is valid, setting default values from
+// environment variables as described in doc comments, returning an error if
+// any configuration is invalid.
+func (cfg *ConsumerConfig) finalize() error {
 	var errs []error
-	if err := cfg.CommonConfig.Validate(); err != nil {
+	if err := cfg.CommonConfig.finalize(); err != nil {
 		errs = append(errs, err)
 	}
 	if len(cfg.Topics) == 0 {
@@ -100,6 +103,8 @@ type Consumer struct {
 	client   *kgo.Client
 	cfg      ConsumerConfig
 	consumer *consumer
+	running  atomic.Bool
+	closed   atomic.Bool
 
 	tracer trace.Tracer
 }
@@ -107,7 +112,7 @@ type Consumer struct {
 // NewConsumer creates a new instance of a Consumer. The consumer will read from
 // each partition concurrently by using a dedicated goroutine per partition.
 func NewConsumer(cfg ConsumerConfig) (*Consumer, error) {
-	if err := cfg.Validate(); err != nil {
+	if err := cfg.finalize(); err != nil {
 		return nil, fmt.Errorf("kafka: invalid consumer config: %w", err)
 	}
 	consumer := &consumer{
@@ -157,25 +162,31 @@ func NewConsumer(cfg ConsumerConfig) (*Consumer, error) {
 
 // Close the consumer, blocking until all partition consumers are stopped.
 func (c *Consumer) Close() error {
+	if !c.closed.CompareAndSwap(false, true) {
+		return nil
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	// Since we take the full lock when closing, there's no need to explicitly
-	// allow rebalances since polls aren't concurrent with Close().
 	c.client.Close()
 	c.consumer.wg.Wait() // Wait for all the goroutines to exit.
 	return nil
 }
 
 // Run the consumer until a non recoverable error is found:
-//   - context.Cancelled.
-//   - context.DeadlineExceeded.
-//   - kgo.ErrClientClosed.
 //   - ErrCommitFailed.
 //
 // To shut down the consumer, cancel the context, or call consumer.Close().
+// If called more than once, returns `apmqueue.ErrConsumerAlreadyRunning`.
 func (c *Consumer) Run(ctx context.Context) error {
+	if !c.running.CompareAndSwap(false, true) {
+		return apmqueue.ErrConsumerAlreadyRunning
+	}
 	for {
 		if err := c.fetch(ctx); err != nil {
+			// Return no error if the context is cancelled.
+			if errors.Is(err, context.Canceled) {
+				return nil
+			}
 			return err
 		}
 	}
@@ -184,20 +195,18 @@ func (c *Consumer) Run(ctx context.Context) error {
 // fetch polls the Kafka broker for new records up to cfg.MaxPollRecords.
 // Any errors returned by fetch should be considered fatal.
 func (c *Consumer) fetch(ctx context.Context) error {
-	// We need to grab the lock before pulling records to guarantee no events loss on shutdown.
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
 	fetches := c.client.PollRecords(ctx, c.cfg.MaxPollRecords)
 	defer c.client.AllowRebalance()
 
-	if fetches.IsClientClosed() {
-		return fmt.Errorf("client is closed: %w", context.Canceled)
-	}
-	if errors.Is(fetches.Err0(), context.Canceled) ||
+	if fetches.IsClientClosed() ||
+		errors.Is(fetches.Err0(), context.Canceled) ||
 		errors.Is(fetches.Err0(), context.DeadlineExceeded) {
-		return fmt.Errorf("context done: %w", fetches.Err0())
+		return context.Canceled
 	}
+	// Acquire the lock after checking if the the context is cancelled and/or
+	// the client is closed.
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	switch c.cfg.Delivery {
 	case apmqueue.AtLeastOnceDeliveryType:
 		// Committing the processed records happens on each partition consumer.

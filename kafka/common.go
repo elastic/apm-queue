@@ -23,9 +23,13 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"os"
+	"strings"
 
 	"github.com/twmb/franz-go/pkg/kgo"
 	"github.com/twmb/franz-go/pkg/sasl"
+	"github.com/twmb/franz-go/pkg/sasl/aws"
+	"github.com/twmb/franz-go/pkg/sasl/plain"
 	"github.com/twmb/franz-go/plugin/kotel"
 	"github.com/twmb/franz-go/plugin/kzap"
 	"go.opentelemetry.io/otel"
@@ -40,6 +44,9 @@ type SASLMechanism = sasl.Mechanism
 // and managers.
 type CommonConfig struct {
 	// Brokers is the list of kafka brokers used to seed the Kafka client.
+	//
+	// If Brokers is unspecified, but $KAFKA_BROKERS is specified, it will
+	// be parsed as a comma-separated list of broker addresses and used.
 	Brokers []string
 
 	// ClientID to use when connecting to Kafka. This is used for logging
@@ -51,6 +58,13 @@ type CommonConfig struct {
 	Version string
 
 	// SASL configures the kgo.Client to use SASL authorization.
+	//
+	// If SASL is unspecified, then it may be derived from environment
+	// variables as follows:
+	//  - if $KAFKA_USERNAME and $KAFKA_PASSWORD are both specified, then
+	//    SASL/PLAIN will be configured
+	//  - if $AWS_ACCESS_KEY_ID and $AWS_SECRET_ACCESS_KEY are specified,
+	//    then SASL/AWS_MSK_IAM wil be configured
 	SASL SASLMechanism
 
 	// TLS configures the kgo.Client to use TLS for authentication.
@@ -78,17 +92,44 @@ type CommonConfig struct {
 	TracerProvider trace.TracerProvider
 }
 
-// Validate ensures the configuration is valid, otherwise, returns an error.
-func (cfg CommonConfig) Validate() error {
+// finalize ensures the configuration is valid, setting default values from
+// environment variables as described in doc comments, returning an error if
+// any configuration is invalid.
+func (cfg *CommonConfig) finalize() error {
 	var errs []error
 	if len(cfg.Brokers) == 0 {
-		errs = append(errs, errors.New("kafka: at least one broker must be set"))
+		if v := os.Getenv("KAFKA_BROKERS"); v != "" {
+			cfg.Brokers = strings.Split(v, ",")
+		} else {
+			errs = append(errs, errors.New("kafka: at least one broker must be set"))
+		}
 	}
 	if cfg.Logger == nil {
 		errs = append(errs, errors.New("kafka: logger must be set"))
 	}
 	if cfg.TLS != nil && cfg.Dialer != nil {
 		errs = append(errs, errors.New("kafka: only one of TLS or Dialer can be set"))
+	}
+	if cfg.SASL == nil {
+		// SASL not specified, default to SASL/PLAIN if username and password
+		// environment variables are specified, or SASL/AWS_MSK_IAM if AWS
+		// credential environment variables are specified.
+		plainAuth := plain.Auth{
+			User: os.Getenv("KAFKA_USERNAME"),
+			Pass: os.Getenv("KAFKA_PASSWORD"),
+		}
+		if plainAuth != (plain.Auth{}) {
+			cfg.SASL = plainAuth.AsMechanism()
+		} else {
+			awsAuth := aws.Auth{
+				AccessKey:    os.Getenv("AWS_ACCESS_KEY_ID"),
+				SecretKey:    os.Getenv("AWS_SECRET_ACCESS_KEY"),
+				SessionToken: os.Getenv("AWS_SESSION_TOKEN"),
+			}
+			if awsAuth.AccessKey != "" && awsAuth.SecretKey != "" {
+				cfg.SASL = awsAuth.AsManagedStreamingIAMMechanism()
+			}
+		}
 	}
 	return errors.Join(errs...)
 }
@@ -102,8 +143,8 @@ func (cfg *CommonConfig) tracerProvider() trace.TracerProvider {
 
 func (cfg *CommonConfig) newClient(additionalOpts ...kgo.Opt) (*kgo.Client, error) {
 	opts := []kgo.Opt{
-		kgo.SeedBrokers(cfg.Brokers...),
 		kgo.WithLogger(kzap.New(cfg.Logger.Named("kafka"))),
+		kgo.SeedBrokers(cfg.Brokers...),
 	}
 	if cfg.ClientID != "" {
 		opts = append(opts, kgo.ClientID(cfg.ClientID))
