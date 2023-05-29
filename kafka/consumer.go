@@ -122,6 +122,8 @@ func NewConsumer(cfg ConsumerConfig) (*Consumer, error) {
 		topics = append(topics, string(t))
 	}
 	opts := []kgo.Opt{
+		// Injects the kgo.Client context as the record.Context.
+		kgo.WithHooks(consumer),
 		kgo.ConsumerGroup(cfg.GroupID),
 		kgo.ConsumeTopics(topics...),
 		// If a rebalance happens while the client is polling, the consumed
@@ -256,13 +258,16 @@ func (c *Consumer) Healthy(ctx context.Context) error {
 // consumer wraps partitionConsumers and exposes the necessary callbacks
 // to use when partitions are reassigned.
 type consumer struct {
-	mu        sync.Mutex
+	mu        sync.RWMutex
 	wg        sync.WaitGroup
 	consumers map[topicPartition]partitionConsumer
 	processor model.BatchProcessor
 	logger    *zap.Logger
 	decoder   Decoder
 	delivery  apmqueue.DeliveryType
+	// ctx contains the `kgo.Client`'s context that is passed to the partition
+	// callbacks. It is only set after partitions are assigned.
+	ctx context.Context
 }
 
 type topicPartition struct {
@@ -276,6 +281,9 @@ type topicPartition struct {
 func (c *consumer) assigned(ctx context.Context, client *kgo.Client, assigned map[string][]int32) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if c.ctx == nil {
+		c.ctx = ctx
+	}
 	for topic, partitions := range assigned {
 		for _, partition := range partitions {
 			c.wg.Add(1)
@@ -312,6 +320,20 @@ func (c *consumer) lost(_ context.Context, _ *kgo.Client, lost map[string][]int3
 			delete(c.consumers, tp)
 			close(pc.records)
 		}
+	}
+}
+
+// Implement the kgo.Hook that allows injecting the kgo.Client context that is
+// received on partition assignment.
+func (c *consumer) OnFetchRecordBuffered(r *kgo.Record) {
+	// Inject the context so records's context have cancellation.
+	if r.Context == nil {
+		c.mu.RLock()
+		defer c.mu.RUnlock()
+		// NOTE(marclop) Using the kgo.Client context may result in records
+		// not being processed by the configured processor if the client is
+		// closed while some records are processed.
+		r.Context = c.ctx
 	}
 }
 
@@ -352,10 +374,7 @@ func (pc partitionConsumer) consume(ctx context.Context, topic string, partition
 				// NOTE(marclop) The decoding has failed, a DLQ may be helpful.
 				continue
 			}
-			// NOTE(marclop) Using the kgo.Client context may result in records
-			// not being processed by the configured process if the client is
-			// closed while some records are processed.
-			ctx := queuecontext.WithMetadata(combineContexts(ctx, msg.Context), meta)
+			ctx := queuecontext.WithMetadata(msg.Context, meta)
 			batch := model.Batch{event}
 			// If a record can't be processed, no retries are attempted and it
 			// may be lost. https://github.com/elastic/apm-queue/issues/118.
@@ -388,20 +407,4 @@ func (pc partitionConsumer) consume(ctx context.Context, topic string, partition
 			}
 		}
 	}
-}
-
-// combineContexts combines a new context with the lifetime of the first
-// ctx, but which returns the values of the second ctx.
-func combineContexts(deadlineCtx, ctx context.Context) context.Context {
-	return &combinedCtx{Context: deadlineCtx, valueCtx: ctx}
-}
-
-type combinedCtx struct {
-	context.Context
-	valueCtx context.Context
-}
-
-// Value returns c.valueCtx.Value(key).
-func (c *combinedCtx) Value(key interface{}) interface{} {
-	return c.valueCtx.Value(key)
 }
