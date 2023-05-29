@@ -69,6 +69,11 @@ type CommonConfig struct {
 
 	// TLS configures the kgo.Client to use TLS for authentication.
 	// This option conflicts with Dialer. Only one can be used.
+	//
+	// If neither TLS nor Dialer are specified, then TLS will be configured
+	// by default unless the environment variable $KAFKA_PLAINTEXT is set to
+	// "true". In case TLS is auto-configured, $KAFKA_TLS_INSECURE may be
+	// set to "true" to disable server certificate and hostname verification.
 	TLS *tls.Config
 
 	// Dialer uses fn to dial addresses, overriding the default dialer that uses a
@@ -107,8 +112,15 @@ func (cfg *CommonConfig) finalize() error {
 	if cfg.Logger == nil {
 		errs = append(errs, errors.New("kafka: logger must be set"))
 	}
-	if cfg.TLS != nil && cfg.Dialer != nil {
+	switch {
+	case cfg.TLS != nil && cfg.Dialer != nil:
 		errs = append(errs, errors.New("kafka: only one of TLS or Dialer can be set"))
+	case cfg.TLS == nil && cfg.Dialer == nil && os.Getenv("KAFKA_PLAINTEXT") != "true":
+		// Auto-configure TLS from environment variables.
+		cfg.TLS = &tls.Config{}
+		if os.Getenv("KAFKA_TLS_INSECURE") == "true" {
+			cfg.TLS.InsecureSkipVerify = true
+		}
 	}
 	if cfg.SASL == nil {
 		// SASL not specified, default to SASL/PLAIN if username and password
