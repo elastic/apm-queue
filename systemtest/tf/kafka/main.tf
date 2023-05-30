@@ -20,21 +20,10 @@ locals {
   wait_timeout = "1800s"
 }
 
-resource "helm_release" "strimzi" {
-  name             = "strimzi"
-  repository       = "https://strimzi.io/charts/"
-  chart            = "strimzi-kafka-operator"
-  namespace        = var.namespace
-  wait             = true
-  create_namespace = true
-}
-
 resource "helm_release" "kafka" {
   name      = "${var.namespace}-kafka"
   namespace = kubernetes_namespace.kafka.metadata.0.name
   chart     = "../../../infra/k8s/kafka"
-
-  depends_on = [helm_release.strimzi]
 
   set {
     name  = "topics"
