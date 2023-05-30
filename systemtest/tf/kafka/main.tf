@@ -1,6 +1,17 @@
 provider "helm" {
   kubernetes {
-    config_path = "~/.kube/config"
+    config_path = var.kube_config_path
+  }
+}
+
+provider "kubernetes" {
+  config_path = var.kube_config_path
+}
+
+# creating namespace here so it is also cleaned up on destroy
+resource "kubernetes_namespace" "kafka" {
+  metadata {
+    name = var.namespace
   }
 }
 
@@ -19,8 +30,8 @@ resource "helm_release" "strimzi" {
 }
 
 resource "helm_release" "kafka" {
-  name      = "kafka"
-  namespace = var.namespace
+  name      = "${var.namespace}-kafka"
+  namespace = kubernetes_namespace.kafka.metadata.0.name
   chart     = "../../../infra/k8s/kafka"
 
   depends_on = [helm_release.strimzi]
@@ -58,6 +69,12 @@ resource "null_resource" "kafka_ready" {
 #
 # Vars
 #
+
+variable "kube_config_path" {
+  default     = "~/.kube/config"
+  type        = string
+  description = "the path of the kube config file"
+}
 
 variable "namespace" {
   default     = "kafka"

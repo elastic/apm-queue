@@ -111,6 +111,7 @@ func ProvisionKafka(ctx context.Context, cfg KafkaConfig) error {
 			cfg.Namespace = "kafka"
 		}
 	}
+	kubeConfigPath := getEnvOrDefault("KUBE_CONFIG_PATH", "~/.kube/config")
 	logger().Infof("provisioning Kafka infrastructure with config: %+v", cfg)
 	tf, err := NewTerraform(ctx, cfg.TFPath)
 	if err != nil {
@@ -131,14 +132,16 @@ func ProvisionKafka(ctx context.Context, cfg KafkaConfig) error {
 	namespaceVar := tfexec.Var(fmt.Sprintf("namespace=%s", cfg.Namespace))
 	nameVar := tfexec.Var(fmt.Sprintf("name=%s", cfg.Name))
 	topicsVar := tfexec.Var(fmt.Sprintf("topics=%s", jsonTopics))
+	kubeConfigPathVar := tfexec.Var(fmt.Sprintf("kube_config_path=%s", kubeConfigPath))
+
 	// Ensure terraform destroy runs once per TF path.
 	RegisterDestroy(cfg.TFPath, func() {
 		logger().Info("destroying provisioned Kafka infrastructure...")
-		if err := tf.Destroy(context.Background(), topicsVar, namespaceVar, nameVar); err != nil {
+		if err := tf.Destroy(context.Background(), topicsVar, namespaceVar, nameVar, kubeConfigPathVar); err != nil {
 			logger().Error(err)
 		}
 	})
-	if err := tf.Apply(ctx, topicsVar, namespaceVar, nameVar); err != nil {
+	if err := tf.Apply(ctx, topicsVar, namespaceVar, nameVar, kubeConfigPathVar); err != nil {
 		return fmt.Errorf("failed to run terraform apply: %w", err)
 	}
 	tfOutput, err := tf.Output(ctx)
@@ -199,10 +202,10 @@ func portforwardKafka(ctx context.Context, ns, name, service, mapping string) er
 		srv.PatchNet(resolver)
 		mockResolver = resolver
 	}
-
+	kubeConfigPath := getEnvOrDefault("KUBE_CONFIG_PATH", "~/.kube/config")
 	stopCh := make(chan struct{})
 	pfReq := portforwarder.Request{
-		KubeCfg:     "~/.kube/config",
+		KubeCfg:     kubeConfigPath,
 		ServiceName: service,
 		Namespace:   ns,
 		PortMapping: mapping,
@@ -250,4 +253,11 @@ func SetKafkaBrokers(brokers ...string) {
 	brokersMu.Lock()
 	defer brokersMu.Unlock()
 	kafkaBrokers = append([]string{}, brokers...)
+}
+
+func getEnvOrDefault(key, fallback string) string {
+	if value, ok := os.LookupEnv(key); ok {
+		return value
+	}
+	return fallback
 }
