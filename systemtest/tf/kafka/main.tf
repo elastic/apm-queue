@@ -21,7 +21,7 @@ locals {
 }
 
 resource "helm_release" "kafka" {
-  name      = "${var.namespace}-kafka"
+  name      = "kafka"
   namespace = kubernetes_namespace.kafka.metadata.0.name
   chart     = "../../../infra/k8s/kafka"
 
