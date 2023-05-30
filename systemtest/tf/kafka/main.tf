@@ -17,7 +17,7 @@ resource "kubernetes_namespace" "kafka" {
 
 locals {
   topics_value = "{${join(",", var.topics)}}"
-  wait_timeout = "240s"
+  wait_timeout = "1800s"
 }
 
 resource "helm_release" "strimzi" {
