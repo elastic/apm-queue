@@ -39,7 +39,14 @@ import (
 func NewTerraform(ctx context.Context, path string) (*tfexec.Terraform, error) {
 	var err error
 	var execPath string
-	if execPath, err = exec.LookPath("terraform"); err != nil {
+	var binaryName = "terraform"
+	// Use the binary "terraform-bin" in a GitHub workflow
+	// Otherwise, reading the output will fail.
+	// Related to https://github.com/hashicorp/setup-terraform/issues/20
+	if _, exists := os.LookupEnv("GITHUB_WORKFLOW"); exists {
+		binaryName = "terraform-bin"
+	}
+	if execPath, err = exec.LookPath(binaryName); err != nil {
 		execPath, err = installTerraform(ctx)
 		if err != nil {
 			return nil, err
