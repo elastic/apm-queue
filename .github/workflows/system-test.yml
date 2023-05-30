@@ -98,7 +98,7 @@ jobs:
         env:
           GOOGLE_REGION: us-central1
           GOOGLE_PROJECT: ${{ steps.gcp-auth.outputs.project_id }}
-          KAFKA_NAMESPACE: apm-queue-system-test-${{ github.run_id }}
+          KAFKA_NAMESPACE: apm-queue-system-test-${{ github.run_id }}-${{ github.run_attempt }}
         run: |
           sudo ln -s $(which node) /usr/bin/node
           go test -v -timeout=60m .
