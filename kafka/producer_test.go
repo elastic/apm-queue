@@ -21,6 +21,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -45,8 +46,53 @@ import (
 )
 
 func TestNewProducer(t *testing.T) {
-	_, err := NewProducer(ProducerConfig{})
-	assert.Error(t, err)
+	t.Run("invalid", func(t *testing.T) {
+		_, err := NewProducer(ProducerConfig{})
+		require.Error(t, err)
+		assert.EqualError(t, err, "kafka: invalid producer config: "+strings.Join([]string{
+			"kafka: at least one broker must be set",
+			"kafka: logger must be set",
+			"kafka: encoder cannot be nil",
+			"kafka: topic router must be set",
+		}, "\n"))
+	})
+
+	validConfig := ProducerConfig{
+		CommonConfig: CommonConfig{
+			Brokers: []string{"broker"},
+			Logger:  zap.NewNop(),
+		},
+		Encoder:     json.JSON{},
+		TopicRouter: func(event model.APMEvent) apmqueue.Topic { return "" },
+	}
+
+	t.Run("valid", func(t *testing.T) {
+		p, err := NewProducer(validConfig)
+		require.NoError(t, err)
+		require.NotNil(t, p)
+	})
+
+	t.Run("compression_from_environment", func(t *testing.T) {
+		t.Setenv("KAFKA_PRODUCER_COMPRESSION_CODEC", "zstd,gzip,none")
+		p, err := NewProducer(validConfig)
+		require.NoError(t, err)
+		require.NotNil(t, p)
+		assert.Equal(t, []CompressionCodec{
+			ZstdCompression(),
+			GzipCompression(),
+			NoCompression(),
+		}, p.cfg.CompressionCodec)
+	})
+
+	t.Run("invalid_compression_from_environment", func(t *testing.T) {
+		t.Setenv("KAFKA_PRODUCER_COMPRESSION_CODEC", "huffman,bson")
+		_, err := NewProducer(validConfig)
+		require.Error(t, err)
+		assert.EqualError(t, err, "kafka: invalid producer config: "+strings.Join([]string{
+			`kafka: unknown codec "huffman"`,
+			`kafka: unknown codec "bson"`,
+		}, "\n"))
+	})
 }
 
 func TestNewProducerBasic(t *testing.T) {
