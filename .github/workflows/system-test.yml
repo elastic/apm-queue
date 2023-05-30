@@ -2,9 +2,6 @@ name: system-test
 
 on:
   pull_request: ~
-  pull_request_target:
-    branches:
-      - main
   push:
     branches:
       - main
@@ -20,9 +17,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
-      - uses: actions/setup-node@v3 # https://github.com/hashicorp/setup-terraform/issues/84
-        with:
-          node-version: 18
       - uses: hashicorp/setup-terraform@v2
         with:
           terraform_version: 1.4.6
@@ -48,51 +42,6 @@ jobs:
         with:
           go-version-file: 'systemtest/go.mod'
           cache-dependency-path: 'systemtest/go.mod'
-      #      - name: Test kafka tf
-#        working-directory: systemtest/tf/kafka
-#        run: >-
-#          terraform init -upgrade &&
-#          TF_VAR_kube_config_path="${KUBE_CONFIG_PATH}"
-#          TF_VAR_namespace='apm-queue-system-tests-${{ github.run_id }}'
-#          TF_VAR_topics='["dummy.abc"]'
-#          terraform apply
-#          -auto-approve
-#
-#      - name: Test kafka tf cleanup
-#        if: always()
-#        working-directory: systemtest/tf/kafka
-#        run: >-
-#          TF_VAR_kube_config_path="${KUBE_CONFIG_PATH}"
-#          TF_VAR_namespace='apm-queue-system-tests-${{ github.run_id }}'
-#          TF_VAR_topics='["dummy.abc"]'
-#          terraform destroy
-#          -auto-approve
-#          -lock-timeout=300s
-#      - name: Test pubsublite tf
-#        working-directory: systemtest/tf/pubsublite
-#        run: >-
-#          terraform init -upgrade &&
-#          TF_VAR_project=elastic-observability
-#          TF_VAR_zone=us-central1-a
-#          TF_VAR_region=us-central1
-#          TF_VAR_suffix=abcd
-#          TF_VAR_topics='["dummy"]'
-#          terraform apply
-#          -auto-approve
-#
-#      - name: Test pubsublite tf cleanup
-#        if: always()
-#        working-directory: systemtest/tf/pubsublite
-#        run: >-
-#          TF_VAR_project=elastic-observability
-#          TF_VAR_zone=us-central1-a
-#          TF_VAR_region=us-central1
-#          TF_VAR_suffix=abcd
-#          TF_VAR_topics='["dummy"]'
-#          terraform destroy
-#          -auto-approve
-#          -lock-timeout=300s
-
       - name: Test
         working-directory: systemtest
         env:
@@ -100,5 +49,4 @@ jobs:
           GOOGLE_PROJECT: ${{ steps.gcp-auth.outputs.project_id }}
           KAFKA_NAMESPACE: apm-queue-system-test-${{ github.run_id }}-${{ github.run_attempt }}
         run: |
-          sudo ln -s $(which node) /usr/bin/node
           go test -v -timeout=60m .
