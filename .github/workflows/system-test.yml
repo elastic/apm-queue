@@ -1,0 +1,105 @@
+name: system-test
+
+on:
+  pull_request: ~
+  pull_request_target:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  run-tests:
+    timeout-minutes: 60
+    permissions:
+      id-token: write
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/setup-node@v3 # https://github.com/hashicorp/setup-terraform/issues/84
+        with:
+          node-version: 18
+      - uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: 1.4.6
+      - uses: hashicorp/vault-action@v2.5.0
+        with:
+          url: ${{ secrets.VAULT_ADDR }}
+          roleId: ${{ secrets.VAULT_ROLE_ID }}
+          secretId: ${{ secrets.VAULT_SECRET_ID }}
+          method: approle
+          secrets: |
+            secret/observability-team/ci/service-account/apm-queue-system-tests credentials | GOOGLE_CREDS ;
+      - id: gcp-auth
+        uses: 'google-github-actions/auth@v1'
+        with:
+          credentials_json: '${{ env.GOOGLE_CREDS }}'
+      - uses: 'google-github-actions/setup-gcloud@v1'
+      - uses: 'google-github-actions/get-gke-credentials@v1'
+        with:
+          project_id: ${{ steps.gcp-auth.outputs.project_id }}
+          cluster_name: 'autopilot-oblt'
+          location: 'us-central1'
+      - uses: actions/setup-go@v4
+        with:
+          go-version-file: 'systemtest/go.mod'
+          cache-dependency-path: 'systemtest/go.mod'
+      #      - name: Test kafka tf
+#        working-directory: systemtest/tf/kafka
+#        run: >-
+#          terraform init -upgrade &&
+#          TF_VAR_kube_config_path="${KUBE_CONFIG_PATH}"
+#          TF_VAR_namespace='apm-queue-system-tests-${{ github.run_id }}'
+#          TF_VAR_topics='["dummy.abc"]'
+#          terraform apply
+#          -auto-approve
+#
+#      - name: Test kafka tf cleanup
+#        if: always()
+#        working-directory: systemtest/tf/kafka
+#        run: >-
+#          TF_VAR_kube_config_path="${KUBE_CONFIG_PATH}"
+#          TF_VAR_namespace='apm-queue-system-tests-${{ github.run_id }}'
+#          TF_VAR_topics='["dummy.abc"]'
+#          terraform destroy
+#          -auto-approve
+#          -lock-timeout=300s
+#      - name: Test pubsublite tf
+#        working-directory: systemtest/tf/pubsublite
+#        run: >-
+#          terraform init -upgrade &&
+#          TF_VAR_project=elastic-observability
+#          TF_VAR_zone=us-central1-a
+#          TF_VAR_region=us-central1
+#          TF_VAR_suffix=abcd
+#          TF_VAR_topics='["dummy"]'
+#          terraform apply
+#          -auto-approve
+#
+#      - name: Test pubsublite tf cleanup
+#        if: always()
+#        working-directory: systemtest/tf/pubsublite
+#        run: >-
+#          TF_VAR_project=elastic-observability
+#          TF_VAR_zone=us-central1-a
+#          TF_VAR_region=us-central1
+#          TF_VAR_suffix=abcd
+#          TF_VAR_topics='["dummy"]'
+#          terraform destroy
+#          -auto-approve
+#          -lock-timeout=300s
+
+      - name: Test
+        working-directory: systemtest
+        env:
+          GOOGLE_REGION: us-central1
+          GOOGLE_ZONE: us-central1-a
+          GOOGLE_PROJECT: ${{ steps.gcp-auth.outputs.project_id }}
+          KAFKA_NAMESPACE: apm-queue-system-test-${{ github.run_id }}
+        run: |
+          sudo ln -s $(which node) /usr/bin/node
+          go test -v -timeout=60m .
