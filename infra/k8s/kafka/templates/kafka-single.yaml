@@ -30,5 +30,5 @@ spec:
     storage:
       type: ephemeral
   entityOperator:
-    topicOperator: {}
+    topicOperator: {{ .Values.topicOperator | toYaml | nindent 6 }}
     userOperator: {}

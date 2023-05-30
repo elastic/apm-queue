@@ -37,8 +37,23 @@ resource "helm_release" "kafka" {
     name  = "namespace"
     value = var.namespace
   }
-  wait             = true
-  create_namespace = true
+  set {
+    name  = "topicOperator.resources.requests.memory"
+    value = "256Mi"
+  }
+  set {
+    name  = "topicOperator.resources.requests.cpu"
+    value = "100m"
+  }
+  set {
+    name  = "topicOperator.resources.limits.memory"
+    value = "512Mi"
+  }
+  set {
+    name  = "topicOperator.resources.limits.cpu"
+    value = "250m"
+  }
+  wait = true
 }
 
 resource "null_resource" "kafka_ready" {
