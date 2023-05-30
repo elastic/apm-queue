@@ -21,6 +21,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"strings"
 	"sync"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -76,13 +78,22 @@ type ProducerConfig struct {
 
 	// CompressionCodec specifies a list of compression codecs.
 	// See kgo.ProducerBatchCompression for more details.
+	//
+	// If CompressionCodec is empty, then the default will be set
+	// based on $KAFKA_PRODUCER_COMPRESSION_CODEC, which should be
+	// a comma-separated list of codec preferences from the list:
+	//
+	//   [none, gzip, snappy, lz4, zstd]
+	//
+	// If $KAFKA_PRODUCER_COMPRESSION_CODEC is not specified, then
+	// the default behaviour of franz-go is to use [snappy, none].
 	CompressionCodec []CompressionCodec
 }
 
 // finalize ensures the configuration is valid, setting default values from
 // environment variables as described in doc comments, returning an error if
 // any configuration is invalid.
-func (cfg ProducerConfig) finalize() error {
+func (cfg *ProducerConfig) finalize() error {
 	var errs []error
 	if err := cfg.CommonConfig.finalize(); err != nil {
 		errs = append(errs, err)
@@ -92,6 +103,29 @@ func (cfg ProducerConfig) finalize() error {
 	}
 	if cfg.TopicRouter == nil {
 		errs = append(errs, errors.New("kafka: topic router must be set"))
+	}
+	if len(cfg.CompressionCodec) == 0 {
+		if v := os.Getenv("KAFKA_PRODUCER_COMPRESSION_CODEC"); v != "" {
+			names := strings.Split(v, ",")
+			codecs := make([]CompressionCodec, 0, len(names))
+			for _, name := range names {
+				switch name {
+				case "none":
+					codecs = append(codecs, NoCompression())
+				case "gzip":
+					codecs = append(codecs, GzipCompression())
+				case "snappy":
+					codecs = append(codecs, SnappyCompression())
+				case "lz4":
+					codecs = append(codecs, Lz4Compression())
+				case "zstd":
+					codecs = append(codecs, ZstdCompression())
+				default:
+					errs = append(errs, fmt.Errorf("kafka: unknown codec %q", name))
+				}
+			}
+			cfg.CompressionCodec = codecs
+		}
 	}
 	return errors.Join(errs...)
 }
