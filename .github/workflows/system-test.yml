@@ -97,7 +97,6 @@ jobs:
         working-directory: systemtest
         env:
           GOOGLE_REGION: us-central1
-          GOOGLE_ZONE: us-central1-a
           GOOGLE_PROJECT: ${{ steps.gcp-auth.outputs.project_id }}
           KAFKA_NAMESPACE: apm-queue-system-test-${{ github.run_id }}
         run: |
