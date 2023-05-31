@@ -134,14 +134,6 @@ func TestTopicCreatorCreateTopics(t *testing.T) {
 	matchingLogs := observedLogs.FilterFieldKey("topic")
 	assert.Equal(t, []observer.LoggedEntry{{
 		Entry: zapcore.Entry{
-			Level:   zapcore.DebugLevel,
-			Message: "kafka topic already exists",
-		},
-		Context: []zapcore.Field{
-			zap.String("topic", "topic1"),
-		},
-	}, {
-		Entry: zapcore.Entry{
 			Level:   zapcore.InfoLevel,
 			Message: "created kafka topic",
 		},
@@ -158,12 +150,16 @@ func TestTopicCreatorCreateTopics(t *testing.T) {
 	require.Len(t, spans, 1)
 	assert.Equal(t, "CreateTopics", spans[0].Name)
 	assert.Equal(t, codes.Error, spans[0].Status.Code)
-	require.Len(t, spans[0].Events, 1)
-	assert.Equal(t, "exception", spans[0].Events[0].Name)
+	require.Len(t, spans[0].Events, 2)
+	assert.Equal(t, "kafka topic already exists", spans[0].Events[0].Name)
+	assert.Equal(t, []attribute.KeyValue{
+		semconv.MessagingDestinationKey.String("topic1"),
+	}, spans[0].Events[0].Attributes)
+	assert.Equal(t, "exception", spans[0].Events[1].Name)
 	assert.Equal(t, []attribute.KeyValue{
 		semconv.ExceptionTypeKey.String("*kerr.Error"),
 		semconv.ExceptionMessageKey.String(
 			"INVALID_TOPIC_EXCEPTION: The request attempted to perform an operation on an invalid topic.",
 		),
-	}, spans[0].Events[0].Attributes)
+	}, spans[0].Events[1].Attributes)
 }
