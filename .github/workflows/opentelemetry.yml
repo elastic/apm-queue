@@ -5,6 +5,7 @@ on:
   workflow_run:
     workflows:
       - ci
+      - system-test
     types: [completed]
 
 jobs:
