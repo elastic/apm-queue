@@ -48,9 +48,7 @@ type TopicCreatorConfig struct {
 	TopicConfigs map[string]string
 }
 
-// finalize ensures the configuration is valid, setting default values from
-// environment variables as described in doc comments, returning an error if
-// any configuration is invalid.
+// Validate ensures the configuration is valid, returning an error otherwise.
 func (cfg TopicCreatorConfig) Validate() error {
 	var errs []error
 	if cfg.PartitionCount == 0 {
