@@ -134,6 +134,14 @@ func TestTopicCreatorCreateTopics(t *testing.T) {
 	matchingLogs := observedLogs.FilterFieldKey("topic")
 	assert.Equal(t, []observer.LoggedEntry{{
 		Entry: zapcore.Entry{
+			Level:   zapcore.DebugLevel,
+			Message: "kafka topic already exists",
+		},
+		Context: []zapcore.Field{
+			zap.String("topic", "topic1"),
+		},
+	}, {
+		Entry: zapcore.Entry{
 			Level:   zapcore.InfoLevel,
 			Message: "created kafka topic",
 		},

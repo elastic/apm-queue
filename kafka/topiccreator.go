@@ -124,12 +124,15 @@ func (c *TopicCreator) CreateTopics(ctx context.Context, topics ...apmqueue.Topi
 		logger := c.m.cfg.Logger.With(zap.String("topic", response.Topic))
 		if err := response.Err; err != nil {
 			if errors.Is(err, kerr.TopicAlreadyExists) {
+				// NOTE(axw) apmotel currently does nothing with span events,
+				// hence we log as well as create a span event.
+				logger.Debug("kafka topic already exists")
 				span.AddEvent("kafka topic already exists", trace.WithAttributes(
 					semconv.MessagingDestinationKey.String(response.Topic),
 				))
 			} else {
 				span.RecordError(err)
-				span.SetStatus(codes.Error, "failed to create one or more topic")
+				span.SetStatus(codes.Error, err.Error())
 				createErrors = append(createErrors,
 					fmt.Errorf(
 						"failed to create topic %q: %w",
