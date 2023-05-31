@@ -108,7 +108,7 @@ func (c *TopicCreator) CreateTopics(ctx context.Context, topics ...apmqueue.Topi
 	)
 	if err != nil {
 		span.RecordError(err)
-		span.SetStatus(codes.Error, "CreateTopics returned an error")
+		span.SetStatus(codes.Error, err.Error())
 		return fmt.Errorf("failed to create kafka topics: %w", err)
 	}
 	createTopicParamsFields := []zap.Field{
