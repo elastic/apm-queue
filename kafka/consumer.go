@@ -230,7 +230,7 @@ func (c *Consumer) fetch(ctx context.Context) error {
 	// Acquire the lock after checking if the the context is done.
 	// If the lock cannot be acquired, the consumer is closing,
 	// be closing, in which case, return with context.Cancelled.
-	for !c.mu.TryRLock() {
+	if !c.mu.TryRLock() {
 		select {
 		case <-c.closed:
 		case <-ctx.Done():
@@ -351,9 +351,10 @@ func (c *consumer) lost(_ context.Context, _ *kgo.Client, lost map[string][]int3
 	for topic, partitions := range lost {
 		for _, partition := range partitions {
 			tp := topicPartition{topic: topic, partition: partition}
-			pc := c.consumers[tp]
-			delete(c.consumers, tp)
-			close(pc.records)
+			if pc, ok := c.consumers[tp]; ok {
+				delete(c.consumers, tp)
+				close(pc.records)
+			}
 		}
 	}
 }
