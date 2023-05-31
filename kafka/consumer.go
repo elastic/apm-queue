@@ -233,8 +233,9 @@ func (c *Consumer) fetch(ctx context.Context) error {
 	for !c.mu.TryRLock() {
 		select {
 		case <-c.closed:
-			return context.Canceled
+		case <-ctx.Done():
 		}
+		return context.Canceled
 	}
 	defer c.mu.RUnlock()
 	switch c.cfg.Delivery {
