@@ -99,7 +99,7 @@ func (c *TopicCreator) CreateTopics(ctx context.Context, topics ...apmqueue.Topi
 	for i, topic := range topics {
 		topicNames[i] = string(topic)
 	}
-	responses, err := c.m.client.CreateTopics(
+	responses, err := c.m.adminClient.CreateTopics(
 		ctx,
 		int32(c.partitionCount),
 		-1, // default.replication.factor

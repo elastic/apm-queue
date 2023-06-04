@@ -24,7 +24,10 @@ import (
 
 	"github.com/twmb/franz-go/pkg/kadm"
 	"github.com/twmb/franz-go/pkg/kerr"
+	"github.com/twmb/franz-go/pkg/kgo"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/metric"
 	semconv "go.opentelemetry.io/otel/semconv/v1.4.0"
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
@@ -50,9 +53,13 @@ func (cfg *ManagerConfig) finalize() error {
 
 // Manager manages Kafka topics.
 type Manager struct {
-	cfg    ManagerConfig
-	client *kadm.Client
-	tracer trace.Tracer
+	cfg         ManagerConfig
+	client      *kgo.Client
+	adminClient *kadm.Client
+	tracer      trace.Tracer
+
+	metricsRegistration metric.Registration
+	consumerGroupLag    metric.Int64ObservableGauge
 }
 
 // NewManager returns a new Manager with the given config.
@@ -64,18 +71,36 @@ func NewManager(cfg ManagerConfig) (*Manager, error) {
 	if err != nil {
 		return nil, fmt.Errorf("kafka: failed creating kafka client: %w", err)
 	}
-	return &Manager{
-		cfg:    cfg,
-		client: kadm.NewClient(client),
-		tracer: cfg.tracerProvider().Tracer("kafka"),
-	}, nil
+	m := &Manager{
+		cfg:         cfg,
+		client:      client,
+		adminClient: kadm.NewClient(client),
+		tracer:      cfg.tracerProvider().Tracer("kafka"),
+	}
+
+	mp := cfg.meterProvider()
+	meter := mp.Meter("github.com/elastic/apm-queue/kafka")
+	consumerGroupLagMetric, err := meter.Int64ObservableGauge("kafka.consumer_group_lag")
+	if err != nil {
+		return nil, fmt.Errorf("kafka: failed to create consumer_group_lag metric: %w", err)
+	}
+	m.consumerGroupLag = consumerGroupLagMetric
+	metricsRegistration, err := meter.RegisterCallback(m.gatherMetrics,
+		m.consumerGroupLag,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("kafka: failed to register metrics callback: %w", err)
+	}
+	m.metricsRegistration = metricsRegistration
+	return m, nil
 }
 
 // Close closes the manager's resources, including its connections to the
 // Kafka brokers and any associated goroutines.
 func (m *Manager) Close() error {
+	err := m.metricsRegistration.Unregister()
 	m.client.Close()
-	return nil
+	return err
 }
 
 // DeleteTopics deletes one or more topics.
@@ -92,7 +117,7 @@ func (m *Manager) DeleteTopics(ctx context.Context, topics ...apmqueue.Topic) er
 	for i, topic := range topics {
 		topicNames[i] = string(topic)
 	}
-	responses, err := m.client.DeleteTopics(ctx, topicNames...)
+	responses, err := m.adminClient.DeleteTopics(ctx, topicNames...)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "DeleteTopics returned an error")
@@ -119,5 +144,85 @@ func (m *Manager) DeleteTopics(ctx context.Context, topics ...apmqueue.Topic) er
 		logger.Info("deleted kafka topic")
 	}
 	return errors.Join(deleteErrors...)
+}
 
+func (m *Manager) gatherMetrics(ctx context.Context, o metric.Observer) error {
+	ctx, span := m.tracer.Start(ctx, "GatherMetrics")
+	defer span.End()
+
+	// Fetch commits for consumer groups.
+	//
+	// TODO(axw) pass in apmqueue.Subscriptions, map these to consumer group names?
+	groups, err := m.adminClient.DescribeGroups(ctx)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return fmt.Errorf("failed to describe groups: %w", err)
+	}
+	consumerGroups := make([]string, 0, len(groups))
+	for _, group := range groups.Sorted() {
+		if group.ProtocolType != "consumer" {
+			m.cfg.Logger.Debug(
+				"ignoring non-consumer group",
+				zap.String("group", group.Group),
+				zap.String("protocol_type", group.ProtocolType),
+			)
+			continue
+		}
+		consumerGroups = append(consumerGroups, group.Group)
+	}
+	commits := m.adminClient.FetchManyOffsets(ctx, consumerGroups...)
+
+	// Fetch end offsets.
+	var endOffsets kadm.ListedOffsets
+	listPartitions := groups.AssignedPartitions()
+	listPartitions.Merge(commits.CommittedPartitions())
+	if topics := listPartitions.Topics(); len(topics) > 0 {
+		res, err := m.adminClient.ListEndOffsets(ctx, topics...)
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
+			return fmt.Errorf("error fetching end offsets: %w", err)
+		}
+		endOffsets = res
+	}
+
+	// Calculate lag per consumer group.
+	for _, group := range groups {
+		if group.ProtocolType != "consumer" || group.Err != nil {
+			continue
+		}
+		groupLag := kadm.CalculateGroupLag(group, commits[group.Group].Fetched, endOffsets)
+		for topic, partitions := range groupLag {
+			for partition, lag := range partitions {
+				if lag.Err != nil {
+					m.cfg.Logger.Warn(
+						"error getting consumer group lag",
+						zap.String("group", group.Group),
+						zap.String("topic", topic),
+						zap.Int32("partition", partition),
+						zap.Error(lag.Err),
+					)
+					continue
+				}
+				o.ObserveInt64(
+					m.consumerGroupLag, lag.Lag,
+					metric.WithAttributes(
+						attribute.String("group", group.Group),
+						attribute.String("topic", topic),
+						attribute.Int("partition", int(partition)),
+					),
+				)
+			}
+		}
+	}
+	return nil
+}
+
+// Healthy returns an error if the Kafka client fails to reach a discovered broker.
+func (m *Manager) Healthy(ctx context.Context) error {
+	if err := m.client.Ping(ctx); err != nil {
+		return fmt.Errorf("failed to ping kafka brokers: %w", err)
+	}
+	return nil
 }
