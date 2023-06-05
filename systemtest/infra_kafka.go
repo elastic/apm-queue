@@ -31,6 +31,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/elastic/apm-queue/kafka"
@@ -118,14 +119,13 @@ func ProvisionKafka(ctx context.Context) error {
 func CreateKafkaTopics(ctx context.Context, t testing.TB, topics ...apmqueue.Topic) {
 	manager, err := NewKafkaManager(t)
 	require.NoError(t, err)
-	defer manager.Close()
+	t.Cleanup(func() {
+		assert.NoError(t, manager.Close())
+	})
+
 	err = manager.CreateTopics(ctx, topics...)
 	require.NoError(t, err)
-
 	t.Cleanup(func() {
-		manager, err := NewKafkaManager(t)
-		require.NoError(t, err)
-		defer manager.Close()
 		err = manager.DeleteTopics(context.Background(), topics...)
 		require.NoError(t, err)
 	})
