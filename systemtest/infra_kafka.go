@@ -117,6 +117,8 @@ func ProvisionKafka(ctx context.Context) error {
 
 // CreateKafkaTopics interacts with the Kafka broker to create topics,
 // deleting them when the test completes.
+//
+// Topics are created with 1 partition and 1 hour of retention.
 func CreateKafkaTopics(ctx context.Context, t testing.TB, topics ...apmqueue.Topic) {
 	manager, err := NewKafkaManager(t)
 	require.NoError(t, err)
@@ -124,7 +126,15 @@ func CreateKafkaTopics(ctx context.Context, t testing.TB, topics ...apmqueue.Top
 		assert.NoError(t, manager.Close())
 	})
 
-	err = manager.CreateTopics(ctx, topics...)
+	topicCreator, err := manager.NewTopicCreator(kafka.TopicCreatorConfig{
+		PartitionCount: 1,
+		TopicConfigs: map[string]string{
+			"retention.ms": strconv.FormatInt(time.Hour.Milliseconds(), 10),
+		},
+	})
+	require.NoError(t, err)
+
+	err = topicCreator.CreateTopics(ctx, topics...)
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		err = manager.DeleteTopics(context.Background(), topics...)
@@ -181,16 +191,9 @@ func portforwardKafka(t testing.TB) string {
 }
 
 // NewKafkaManager returns a new kafka.Manager for the configured broker.
-//
-// The manager is configured to create topics with 1 partition and to
-// retain messages for 1 hour.
 func NewKafkaManager(t testing.TB) (*kafka.Manager, error) {
 	return kafka.NewManager(kafka.ManagerConfig{
-		CommonConfig:   KafkaCommonConfig(t),
-		PartitionCount: 1,
-		TopicConfigs: map[string]string{
-			"retention.ms": strconv.FormatInt(time.Hour.Milliseconds(), 10),
-		},
+		CommonConfig: KafkaCommonConfig(t),
 	})
 }
 
