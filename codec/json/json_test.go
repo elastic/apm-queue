@@ -55,7 +55,7 @@ func TestJSONMetrics(t *testing.T) {
 			Temporality: metricdata.CumulativeTemporality,
 			IsMonotonic: true,
 			DataPoints: []metricdata.DataPoint[int64]{
-				{Value: 2152},
+				{Value: 2149},
 			},
 		},
 	}, metric, metricdatatest.IgnoreTimestamp())
@@ -76,7 +76,7 @@ func TestJSONMetrics(t *testing.T) {
 			Temporality: metricdata.CumulativeTemporality,
 			IsMonotonic: true,
 			DataPoints: []metricdata.DataPoint[int64]{
-				{Value: 2152},
+				{Value: 2149},
 			},
 		},
 	}, metric, metricdatatest.IgnoreTimestamp())
