@@ -64,6 +64,10 @@ type ConsumerConfig struct {
 	// fetch response to hit the minimum number of required bytes before
 	// returning, overriding the default 5s.
 	MaxPollWait time.Duration
+	// ShutdownGracePeriod defines the maximum amount of time to wait for the
+	// partition consumers to process events before the underlying kgo.Client
+	// is closed, overriding the default 5s.
+	ShutdownGracePeriod time.Duration
 	// Delivery mechanism to use to acknowledge the messages.
 	// AtMostOnceDeliveryType and AtLeastOnceDeliveryType are supported.
 	// If not set, it defaults to apmqueue.AtMostOnceDeliveryType.
@@ -110,6 +114,9 @@ type Consumer struct {
 	running  chan struct{}
 	closed   chan struct{}
 
+	forceClose context.CancelCauseFunc
+	stopPoll   context.CancelFunc
+
 	tracer trace.Tracer
 }
 
@@ -119,12 +126,16 @@ func NewConsumer(cfg ConsumerConfig) (*Consumer, error) {
 	if err := cfg.finalize(); err != nil {
 		return nil, fmt.Errorf("kafka: invalid consumer config: %w", err)
 	}
+	// `forceClose` is called by `Consumer.Close()` if / when the
+	// `cfg.ShutdownGracePeriod` is exceeded.
+	processingCtx, forceClose := context.WithCancelCause(context.Background())
 	consumer := &consumer{
 		consumers: make(map[topicPartition]partitionConsumer),
 		processor: cfg.Processor,
 		logger:    cfg.Logger.Named("partition"),
 		decoder:   cfg.Decoder,
 		delivery:  cfg.Delivery,
+		ctx:       processingCtx,
 	}
 	topics := make([]string, 0, len(cfg.Topics))
 	for _, t := range cfg.Topics {
@@ -152,6 +163,9 @@ func NewConsumer(cfg ConsumerConfig) (*Consumer, error) {
 	if cfg.MaxPollWait > 0 {
 		opts = append(opts, kgo.FetchMaxWait(cfg.MaxPollWait))
 	}
+	if cfg.ShutdownGracePeriod <= 0 {
+		cfg.ShutdownGracePeriod = 5 * time.Second
+	}
 	client, err := cfg.newClient(opts...)
 	if err != nil {
 		return nil, fmt.Errorf("kafka: failed creating kafka consumer: %w", err)
@@ -160,12 +174,14 @@ func NewConsumer(cfg ConsumerConfig) (*Consumer, error) {
 		cfg.MaxPollRecords = 100
 	}
 	return &Consumer{
-		cfg:      cfg,
-		client:   client,
-		consumer: consumer,
-		closed:   make(chan struct{}),
-		running:  make(chan struct{}),
-		tracer:   cfg.tracerProvider().Tracer("kafka"),
+		cfg:        cfg,
+		client:     client,
+		consumer:   consumer,
+		closed:     make(chan struct{}),
+		running:    make(chan struct{}),
+		forceClose: forceClose,
+		stopPoll:   func() {},
+		tracer:     cfg.tracerProvider().Tracer("kafka"),
 	}, nil
 }
 
@@ -177,12 +193,29 @@ func (c *Consumer) Close() error {
 	case <-c.closed:
 	default:
 		close(c.closed)
-		// Close all partition consumers first to ensure that there aren't
-		// any records being processed while the kgo.Client is being closed.
-		// Also ensures that commits can be issued after the records are
-		// processed when AtLeastOnceDelivery is configured.
-		c.consumer.close()
-		c.client.Close()
+		// Cancel the context used in client.PollRecords, triggering graceful
+		// cancellation.
+		c.stopPoll()
+		stopped := make(chan struct{})
+		go func() {
+			defer close(stopped)
+			// Close all partition consumers first to ensure there aren't any
+			// records being processed while the kgo.Client is being closed.
+			// Also ensures that commits can be issued after the records are
+			// processed when AtLeastOnceDelivery is configured.
+			c.consumer.close()
+		}()
+		// Wait for the consumers to process any in-flight records, or cancel
+		// the underlying processing context if they aren't stopped in time.
+		select {
+		case <-time.After(c.cfg.ShutdownGracePeriod): // Timeout
+			c.forceClose(fmt.Errorf(
+				"consumer: close: timeout waiting for consumers to stop (%s)",
+				c.cfg.ShutdownGracePeriod.String(),
+			))
+		case <-stopped: // Stopped within c.cfg.ShutdownGracePeriod.
+		}
+		c.client.Close() // Last, close the `kgo.Client`
 	}
 	c.consumer.wg.Wait() // Wait for consumer goroutines to exit.
 	return nil
@@ -192,8 +225,8 @@ func (c *Consumer) Close() error {
 //   - ErrCommitFailed.
 //
 // To shut down the consumer, call consumer.Close() or cancel the context.
-// It is recommended to call `consumer.Close` to ensure graceful shutdown
-// and avoid any records from being lost (AMOD), or processed twice (ALOD).
+// Calling `consumer.Close` is advisable to ensure graceful shutdown and
+// avoid any records from being lost (AMOD), or processed twice (ALOD).
 //
 // If called more than once, returns `apmqueue.ErrConsumerAlreadyRunning`.
 func (c *Consumer) Run(ctx context.Context) error {
@@ -205,9 +238,14 @@ func (c *Consumer) Run(ctx context.Context) error {
 	default:
 		close(c.running)
 	}
+	// Create a new context from the passed context, used exclusively for
+	// kgo.Client.* calls. c.stopFetch is called by consumer.Close() to
+	// cancel this context as part of the graceful shutdown sequence.
+	var clientCtx context.Context
+	clientCtx, c.stopPoll = context.WithCancel(ctx)
 	c.mu.Unlock()
 	for {
-		if err := c.fetch(ctx); err != nil {
+		if err := c.fetch(ctx, clientCtx); err != nil {
 			if errors.Is(err, context.Canceled) {
 				return nil // Return no error if err == context.Canceled.
 			}
@@ -218,8 +256,8 @@ func (c *Consumer) Run(ctx context.Context) error {
 
 // fetch polls the Kafka broker for new records up to cfg.MaxPollRecords.
 // Any errors returned by fetch should be considered fatal.
-func (c *Consumer) fetch(ctx context.Context) error {
-	fetches := c.client.PollRecords(ctx, c.cfg.MaxPollRecords)
+func (c *Consumer) fetch(ctx, clientCtx context.Context) error {
+	fetches := c.client.PollRecords(clientCtx, c.cfg.MaxPollRecords)
 	defer c.client.AllowRebalance()
 
 	if fetches.IsClientClosed() ||
@@ -227,23 +265,12 @@ func (c *Consumer) fetch(ctx context.Context) error {
 		errors.Is(fetches.Err0(), context.DeadlineExceeded) {
 		return context.Canceled
 	}
-	// Acquire the lock after checking if the the context is done.
-	// If the lock cannot be acquired, the consumer is closing,
-	// be closing, in which case, return with context.Cancelled.
-	if !c.mu.TryRLock() {
-		select {
-		case <-c.closed:
-		case <-ctx.Done():
-		}
-		return context.Canceled
-	}
-	defer c.mu.RUnlock()
 	switch c.cfg.Delivery {
 	case apmqueue.AtLeastOnceDeliveryType:
 		// Committing the processed records happens on each partition consumer.
 	case apmqueue.AtMostOnceDeliveryType:
 		// Commit the fetched record offsets as soon as we've polled them.
-		if err := c.client.CommitUncommittedOffsets(ctx); err != nil {
+		if err := c.client.CommitUncommittedOffsets(clientCtx); err != nil {
 			// NOTE(marclop): If the commit fails with an unrecoverable error,
 			// return it and terminate the consumer. This will avoid potentially
 			// processing records twice, and it's up to the consumer to re-start
@@ -259,22 +286,7 @@ func (c *Consumer) fetch(ctx context.Context) error {
 			zap.Error(err), zap.String("topic", t), zap.Int32("partition", p),
 		)
 	})
-	// Send partition records to be processed by its dedicated goroutine.
-	fetches.EachPartition(func(ftp kgo.FetchTopicPartition) {
-		if len(ftp.Records) == 0 {
-			return
-		}
-		if err := c.consumer.process(ctx, ftp); err != nil {
-			c.cfg.Logger.Warn(
-				"data loss: failed to send records to process after commit",
-				zap.Error(err),
-				zap.String("topic", ftp.Topic),
-				zap.Int32("partition", ftp.Partition),
-				zap.Int64("offset", ftp.HighWatermark),
-				zap.Int("records", len(ftp.Records)),
-			)
-		}
-	})
+	c.consumer.processFetch(ctx, fetches)
 	return nil
 }
 
@@ -297,8 +309,8 @@ type consumer struct {
 	logger    *zap.Logger
 	decoder   Decoder
 	delivery  apmqueue.DeliveryType
-	// ctx contains the `kgo.Client`'s context that is passed to the partition
-	// callbacks. It is only set after partitions are assigned.
+	// ctx contains the graceful cancellation context that is passed to the
+	// partition consumers.
 	ctx context.Context
 }
 
@@ -308,14 +320,10 @@ type topicPartition struct {
 }
 
 // assigned must be set as a kgo.OnPartitionsAssigned callback. Ensuring all
-// assigned partitions to this consumer process received records. The received
-// context is only cancelled after the kgo.client is closed.
-func (c *consumer) assigned(ctx context.Context, client *kgo.Client, assigned map[string][]int32) {
+// assigned partitions to this consumer process received records.
+func (c *consumer) assigned(_ context.Context, client *kgo.Client, assigned map[string][]int32) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.ctx == nil {
-		c.ctx = ctx
-	}
 	for topic, partitions := range assigned {
 		for _, partition := range partitions {
 			c.wg.Add(1)
@@ -329,7 +337,7 @@ func (c *consumer) assigned(ctx context.Context, client *kgo.Client, assigned ma
 			}
 			go func(topic string, partition int32) {
 				defer c.wg.Done()
-				pc.consume(ctx, topic, partition)
+				pc.consume(c.ctx, topic, partition)
 			}(topic, partition)
 			tp := topicPartition{partition: partition, topic: topic}
 			c.consumers[tp] = pc
@@ -361,6 +369,9 @@ func (c *consumer) lost(_ context.Context, _ *kgo.Client, lost map[string][]int3
 
 // close is used on initiate clean shutdown. This call blocks until all the
 // partition consumers have processed their records and stopped.
+//
+// It holds the write lock, which cannot be acquired until the last fetch of
+// records has been sent to all the partition consumers.
 func (c *consumer) close() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -371,29 +382,61 @@ func (c *consumer) close() {
 	c.wg.Wait()
 }
 
-// process sends the received records for a partition to the corresponding
+// processFetch sends the received records for a partition to the corresponding
 // partition consumer. If topic/partition combination can't be found in the
 // consumer map, the consumer has been closed.
-func (c *consumer) process(ctx context.Context, ftp kgo.FetchTopicPartition) error {
+//
+// It holds the consumer read lock, which cannot be acquired if the consumer is
+// closing.
+func (c *consumer) processFetch(ctx context.Context, fetches kgo.Fetches) {
+	if fetches.NumRecords() == 0 {
+		return
+	}
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	tp := topicPartition{topic: ftp.Topic, partition: ftp.Partition}
-	pc, ok := c.consumers[tp]
-	if !ok {
-		// NOTE(marclop) While possible, this is unlikely to happen given the
-		// locking that's in place in the caller.
-		return errors.New("attempted to process records for revoked partition")
-	}
-	select {
-	case pc.records <- ftp.Records:
-	case <-ctx.Done():
+	fetches.EachPartition(func(ftp kgo.FetchTopicPartition) {
+		if len(ftp.Records) == 0 {
+			return
+		}
+		tp := topicPartition{topic: ftp.Topic, partition: ftp.Partition}
+		pc, ok := c.consumers[tp]
+		if !ok {
+			// NOTE(marclop) While possible, this is unlikely to happen given the
+			// locking that's in place in the caller.
+			if c.delivery == apmqueue.AtMostOnceDeliveryType {
+				c.logWarn(errors.New(
+					"attempted to process records for revoked partition",
+				), ftp)
+			}
+			return
+		}
+		var err error
+		select {
+		// Send partition records to be processed by its dedicated goroutine.
+		case pc.records <- ftp.Records:
+			// Success.
+		case <-ctx.Done(): // Consumer.Run(ctx) context.
+			err = ctx.Err()
+		case <-c.ctx.Done(): // Forceful cancellation context.
+			err = c.ctx.Err()
+		}
 		// When using AtMostOnceDelivery, if the context is cancelled between
 		// PollRecords and this line, records will be lost.
 		if c.delivery == apmqueue.AtMostOnceDeliveryType {
-			return ctx.Err()
+			c.logWarn(err, ftp)
 		}
-	}
-	return nil
+	})
+}
+
+func (c *consumer) logWarn(err error, ftp kgo.FetchTopicPartition) {
+	c.logger.Warn(
+		"data loss: failed to send records to process after commit",
+		zap.Error(err),
+		zap.String("topic", ftp.Topic),
+		zap.Int32("partition", ftp.Partition),
+		zap.Int64("offset", ftp.HighWatermark),
+		zap.Int("records", len(ftp.Records)),
+	)
 }
 
 // Implement the kgo.Hook that allows injecting the kgo.Client context that is
@@ -401,8 +444,6 @@ func (c *consumer) process(ctx context.Context, ftp kgo.FetchTopicPartition) err
 func (c *consumer) OnFetchRecordBuffered(r *kgo.Record) {
 	// Inject the context so records's context have cancellation.
 	if r.Context == nil {
-		c.mu.RLock()
-		defer c.mu.RUnlock()
 		// NOTE(marclop) Using the kgo.Client context may result in records
 		// not being processed by the configured processor if the client is
 		// closed while some records are processed.

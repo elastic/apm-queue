@@ -143,7 +143,7 @@ func TestConsumerHealth(t *testing.T) {
 	}
 }
 
-func TestConsumerFetch(t *testing.T) {
+func TestConsumerInstrumentation(t *testing.T) {
 	exp := tracetest.NewInMemoryExporter()
 	tp := sdktrace.NewTracerProvider(
 		sdktrace.WithSyncer(exp),
@@ -154,7 +154,7 @@ func TestConsumerFetch(t *testing.T) {
 	codec := json.JSON{}
 	topics := []apmqueue.Topic{"topic"}
 	client, addrs := newClusterWithTopics(t, topics...)
-
+	processed := make(chan struct{})
 	cfg := ConsumerConfig{
 		CommonConfig: CommonConfig{
 			Brokers:        addrs,
@@ -166,6 +166,7 @@ func TestConsumerFetch(t *testing.T) {
 		Decoder:        codec,
 		MaxPollRecords: 1, // Consume a single record for this test.
 		Processor: model.ProcessBatchFunc(func(_ context.Context, b *model.Batch) error {
+			defer close(processed)
 			assert.Len(t, *b, 1)
 			assert.Equal(t, event, (*b)[0])
 			return nil
@@ -179,9 +180,14 @@ func TestConsumerFetch(t *testing.T) {
 		&kgo.Record{Topic: string(topics[0]), Value: b},
 	)
 	consumer := newConsumer(t, cfg)
-
 	spanCount := len(exp.GetSpans())
-	assert.NoError(t, consumer.fetch(context.Background()))
+	go consumer.Run(context.Background())
+
+	select {
+	case <-processed:
+	case <-time.After(time.Second):
+		t.Fatal("timed out while waiting for record to be processed.")
+	}
 	assert.Len(t, exp.GetSpans(), spanCount+1)
 }
 
@@ -229,9 +235,9 @@ func TestConsumerDelivery(t *testing.T) {
 			maxPollRecords: 2,
 			lastRecords:    10,
 
-			// 30 total - 4 errored.
+			// 30 total - 2 errored - 2 lost.
 			processed: 26,
-			errored:   4, // The first two fetch fails.
+			errored:   2, // The first two fetch fails.
 		},
 		"12_produced_1_poll_AMOD": {
 			deliveryType:   apmqueue.AtMostOnceDeliveryType,
@@ -258,7 +264,7 @@ func TestConsumerDelivery(t *testing.T) {
 			lastRecords:    10,
 
 			processed: 30, // All records are processed.
-			errored:   4,  // The initial batch errors.
+			errored:   2,  // The initial batch errors.
 		},
 		"12_produced_1_poll_ALOD": {
 			deliveryType:   apmqueue.AtLeastOnceDeliveryType,
@@ -347,6 +353,7 @@ func TestConsumerDelivery(t *testing.T) {
 			// means that records may be lost before they reach the Processor.
 			select {
 			case failRecord <- struct{}{}:
+				cancel() // Stop the consumer from returning buffered records.
 				close(failRecord)
 			case <-time.After(time.Second):
 				t.Fatal("timed out waiting for consumer to process event")
