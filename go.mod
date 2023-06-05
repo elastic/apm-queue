@@ -5,7 +5,7 @@ go 1.20
 require (
 	cloud.google.com/go/pubsub v1.31.0
 	cloud.google.com/go/pubsublite v1.8.1
-	github.com/elastic/apm-data v0.1.1-0.20230517015005-269052c59735
+	github.com/elastic/apm-data v0.1.1-0.20230602075939-0ce9b1cbd219
 	github.com/googleapis/gax-go/v2 v2.10.0
 	github.com/stretchr/testify v1.8.4
 	github.com/twmb/franz-go v1.13.4
@@ -49,7 +49,6 @@ require (
 	github.com/pierrec/lz4/v4 v4.1.17 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
-	github.com/rogpeppe/go-internal v1.10.0 // indirect
 	go.elastic.co/fastjson v1.1.0 // indirect
 	go.opencensus.io v0.24.0 // indirect
 	go.uber.org/atomic v1.10.0 // indirect
