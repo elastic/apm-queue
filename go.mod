@@ -3,7 +3,7 @@ module github.com/elastic/apm-queue
 go 1.20
 
 require (
-	cloud.google.com/go/pubsub v1.30.1
+	cloud.google.com/go/pubsub v1.31.0
 	cloud.google.com/go/pubsublite v1.8.1
 	github.com/elastic/apm-data v0.1.1-0.20230517015005-269052c59735
 	github.com/googleapis/gax-go/v2 v2.10.0
@@ -29,10 +29,10 @@ require (
 )
 
 require (
-	cloud.google.com/go v0.110.0 // indirect
+	cloud.google.com/go v0.110.2 // indirect
 	cloud.google.com/go/compute v1.19.3 // indirect
 	cloud.google.com/go/compute/metadata v0.2.3 // indirect
-	cloud.google.com/go/iam v0.13.0 // indirect
+	cloud.google.com/go/iam v1.0.1 // indirect
 	cloud.google.com/go/longrunning v0.4.1 // indirect
 	github.com/benbjohnson/clock v1.1.0 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
