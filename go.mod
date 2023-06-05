@@ -12,7 +12,7 @@ require (
 	github.com/twmb/franz-go/pkg/kadm v1.8.1
 	github.com/twmb/franz-go/pkg/kfake v0.0.0-20230405224959-0d137e78cd4a
 	github.com/twmb/franz-go/pkg/kmsg v1.4.0
-	github.com/twmb/franz-go/plugin/kotel v1.3.0
+	github.com/twmb/franz-go/plugin/kotel v1.4.0
 	github.com/twmb/franz-go/plugin/kzap v1.1.2
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.42.0
 	go.opentelemetry.io/otel v1.16.0
