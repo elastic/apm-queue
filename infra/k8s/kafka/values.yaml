@@ -2,3 +2,5 @@ partitions: 1
 replicas: 1
 cluster: kafka
 namespace: kafka
+
+topicOperator: {}

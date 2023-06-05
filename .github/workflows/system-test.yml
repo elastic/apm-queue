@@ -1,0 +1,66 @@
+name: system-test
+
+on:
+  pull_request_target:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  is-pr-approved:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: elastic/apm-pipeline-library/.github/actions/is-pr-approved@current
+  run-system-tests:
+    needs:
+      - is-pr-approved
+    timeout-minutes: 60
+    permissions:
+      id-token: write
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+      - uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: 1.4.6
+      - uses: hashicorp/vault-action@v2.5.0
+        with:
+          url: ${{ secrets.VAULT_ADDR }}
+          roleId: ${{ secrets.VAULT_ROLE_ID }}
+          secretId: ${{ secrets.VAULT_SECRET_ID }}
+          method: approle
+          secrets: |
+            secret/observability-team/ci/service-account/apm-queue-system-tests credentials | GOOGLE_CREDS ;
+      - id: gcp-auth
+        uses: 'google-github-actions/auth@v1'
+        with:
+          credentials_json: '${{ env.GOOGLE_CREDS }}'
+      - uses: 'google-github-actions/setup-gcloud@v1'
+      - uses: 'google-github-actions/get-gke-credentials@v1'
+        with:
+          project_id: ${{ steps.gcp-auth.outputs.project_id }}
+          cluster_name: 'autopilot-oblt'
+          location: 'us-central1'
+      - uses: actions/setup-go@v4
+        with:
+          go-version-file: 'systemtest/go.mod'
+          cache-dependency-path: 'systemtest/go.mod'
+      - name: Test
+        working-directory: systemtest
+        env:
+          GOOGLE_REGION: us-central1
+          GOOGLE_PROJECT: ${{ steps.gcp-auth.outputs.project_id }}
+          KAFKA_NAMESPACE: apm-queue-system-test-gh-workflow-run-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          go test -v -timeout=60m .

@@ -34,7 +34,7 @@ func testMain(m *testing.M) int {
 	flag.BoolVar(&skipDestroy, "skip-destroy", false, "do not destroy the provisioned infrastructure after the tests finish")
 	flag.Parse()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer cancel()
 	g, ctx := errgroup.WithContext(ctx)
 	g.Go(func() error {
