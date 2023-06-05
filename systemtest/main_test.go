@@ -38,7 +38,7 @@ func testMain(m *testing.M) int {
 	flag.BoolVar(&skipPubsublite, "skip-pubsublite", false, "skip pubsublite tests")
 	flag.Parse()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer cancel()
 	g, ctx := errgroup.WithContext(ctx)
 	if !skipKafka {

@@ -96,6 +96,7 @@ func ProvisionKafka(ctx context.Context) error {
 		"--namespace", kafkaNamespace,
 		"--set", "name="+kafkaClusterName,
 		"--set", "namespace="+kafkaNamespace,
+		"--set", "topicOperator=null",
 		kafkaClusterName, "../infra/k8s/kafka",
 	); err != nil {
 		return fmt.Errorf("failed to create Kafka cluster: %w", err)
@@ -151,7 +152,7 @@ func portforwardKafka(t testing.TB) string {
 	var wg sync.WaitGroup
 	stopCh := make(chan struct{})
 	pfReq := portforwarder.Request{
-		KubeCfg: "~/.kube/config",
+		KubeCfg: getEnvOrDefault("KUBE_CONFIG_PATH", "~/.kube/config"),
 		// NOTE(marclop) this service name assumes we're using the Strimzi operator
 		ServiceName: fmt.Sprintf("%s-kafka-bootstrap", kafkaClusterName),
 		Namespace:   kafkaNamespace,
@@ -220,4 +221,11 @@ func KafkaCommonConfig(t testing.TB) kafka.CommonConfig {
 		}
 	}
 	return commonConfig
+}
+
+func getEnvOrDefault(key, fallback string) string {
+	if value, ok := os.LookupEnv(key); ok {
+		return value
+	}
+	return fallback
 }

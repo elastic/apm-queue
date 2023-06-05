@@ -1,3 +1,5 @@
+GO_TEST_TIMEOUT=60s
+
 .DEFAULT_GOAL := all
 all: test
 
@@ -17,7 +19,7 @@ clean:
 
 .PHONY: test
 test: go.mod
-	go test -v ./...
+	go test -race -v -timeout=$(GO_TEST_TIMEOUT) ./...
 
 MODULE_DEPS=$(sort $(shell go list -deps -tags=darwin,linux,windows -f "{{with .Module}}{{if not .Main}}{{.Path}}{{end}}{{end}}"))
 

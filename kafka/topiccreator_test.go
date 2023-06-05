@@ -25,7 +25,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/twmb/franz-go/pkg/kerr"
-	"github.com/twmb/franz-go/pkg/kfake"
 	"github.com/twmb/franz-go/pkg/kmsg"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -37,16 +36,24 @@ import (
 	"go.uber.org/zap/zaptest/observer"
 )
 
-func TestNewManager(t *testing.T) {
-	_, err := NewManager(ManagerConfig{})
+func TestNewTopicCreator(t *testing.T) {
+	m, err := NewManager(ManagerConfig{
+		CommonConfig: CommonConfig{
+			Brokers: []string{"broker"},
+			Logger:  zap.NewNop(),
+		},
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { m.Close() })
+
+	_, err = m.NewTopicCreator(TopicCreatorConfig{})
 	assert.Error(t, err)
-	assert.EqualError(t, err, "kafka: invalid manager config: "+strings.Join([]string{
-		"kafka: at least one broker must be set",
-		"kafka: logger must be set",
+	assert.EqualError(t, err, "kafka: invalid topic creator config: "+strings.Join([]string{
+		"kafka: partition count must be non-zero",
 	}, "\n"))
 }
 
-func TestManagerDeleteTopics(t *testing.T) {
+func TestTopicCreatorCreateTopics(t *testing.T) {
 	exp := tracetest.NewInMemoryExporter()
 	tp := sdktrace.NewTracerProvider(
 		sdktrace.WithSyncer(exp),
@@ -57,50 +64,78 @@ func TestManagerDeleteTopics(t *testing.T) {
 	core, observedLogs := observer.New(zapcore.DebugLevel)
 	commonConfig.Logger = zap.New(core)
 	commonConfig.TracerProvider = tp
-	m, err := NewManager(ManagerConfig{CommonConfig: commonConfig})
+
+	m, err := NewManager(ManagerConfig{
+		CommonConfig: commonConfig,
+	})
 	require.NoError(t, err)
 	t.Cleanup(func() { m.Close() })
+	c, err := m.NewTopicCreator(TopicCreatorConfig{
+		PartitionCount: 123,
+		TopicConfigs: map[string]string{
+			"retention.ms": "123",
+		},
+	})
+	require.NoError(t, err)
 
-	var deleteTopicsRequest *kmsg.DeleteTopicsRequest
-	cluster.ControlKey(kmsg.DeleteTopics.Int16(), func(req kmsg.Request) (kmsg.Response, error, bool) {
-		deleteTopicsRequest = req.(*kmsg.DeleteTopicsRequest)
-		return &kmsg.DeleteTopicsResponse{
+	var createTopicsRequest *kmsg.CreateTopicsRequest
+	cluster.ControlKey(kmsg.CreateTopics.Int16(), func(req kmsg.Request) (kmsg.Response, error, bool) {
+		createTopicsRequest = req.(*kmsg.CreateTopicsRequest)
+		return &kmsg.CreateTopicsResponse{
 			Version: 7,
-			Topics: []kmsg.DeleteTopicsResponseTopic{{
-				Topic:        kmsg.StringPtr("topic1"),
-				ErrorCode:    kerr.UnknownTopicOrPartition.Code,
-				ErrorMessage: &kerr.UnknownTopicOrPartition.Message,
+			Topics: []kmsg.CreateTopicsResponseTopic{{
+				Topic:        "topic1",
+				ErrorCode:    kerr.TopicAlreadyExists.Code,
+				ErrorMessage: &kerr.TopicAlreadyExists.Message,
 			}, {
-				Topic:        kmsg.StringPtr("topic2"),
+				Topic:        "topic2",
 				ErrorCode:    kerr.InvalidTopicException.Code,
 				ErrorMessage: &kerr.InvalidTopicException.Message,
 			}, {
-				Topic:   kmsg.StringPtr("topic3"),
+				Topic:   "topic3",
 				TopicID: [16]byte{123},
 			}},
 		}, nil, true
 	})
-	err = m.DeleteTopics(context.Background(), "topic1", "topic2", "topic3")
+	err = c.CreateTopics(context.Background(), "topic1", "topic2", "topic3")
 	require.Error(t, err)
 	assert.EqualError(t, err,
-		`failed to delete topic "topic2": `+
+		`failed to create topic "topic2": `+
 			`INVALID_TOPIC_EXCEPTION: The request attempted to perform an operation on an invalid topic.`,
 	)
 
-	require.Len(t, deleteTopicsRequest.Topics, 3)
-	assert.Equal(t, []kmsg.DeleteTopicsRequestTopic{{
-		Topic: kmsg.StringPtr("topic1"),
+	require.Len(t, createTopicsRequest.Topics, 3)
+	assert.Equal(t, []kmsg.CreateTopicsRequestTopic{{
+		Topic:             "topic1",
+		NumPartitions:     123,
+		ReplicationFactor: -1,
+		Configs: []kmsg.CreateTopicsRequestTopicConfig{{
+			Name:  "retention.ms",
+			Value: kmsg.StringPtr("123"),
+		}},
 	}, {
-		Topic: kmsg.StringPtr("topic2"),
+		Topic:             "topic2",
+		NumPartitions:     123,
+		ReplicationFactor: -1,
+		Configs: []kmsg.CreateTopicsRequestTopicConfig{{
+			Name:  "retention.ms",
+			Value: kmsg.StringPtr("123"),
+		}},
 	}, {
-		Topic: kmsg.StringPtr("topic3"),
-	}}, deleteTopicsRequest.Topics)
+		Topic:             "topic3",
+		NumPartitions:     123,
+		ReplicationFactor: -1,
+		Configs: []kmsg.CreateTopicsRequestTopicConfig{{
+			Name:  "retention.ms",
+			Value: kmsg.StringPtr("123"),
+		}},
+	}}, createTopicsRequest.Topics)
 
 	matchingLogs := observedLogs.FilterFieldKey("topic")
 	assert.Equal(t, []observer.LoggedEntry{{
 		Entry: zapcore.Entry{
 			Level:   zapcore.DebugLevel,
-			Message: "kafka topic does not exist",
+			Message: "kafka topic already exists",
 		},
 		Context: []zapcore.Field{
 			zap.String("topic", "topic1"),
@@ -108,33 +143,31 @@ func TestManagerDeleteTopics(t *testing.T) {
 	}, {
 		Entry: zapcore.Entry{
 			Level:   zapcore.InfoLevel,
-			Message: "deleted kafka topic",
+			Message: "created kafka topic",
 		},
 		Context: []zapcore.Field{
 			zap.String("topic", "topic3"),
+			zap.Int("partition_count", 123),
+			zap.Any("topic_configs", map[string]string{
+				"retention.ms": "123",
+			}),
 		},
 	}}, matchingLogs.AllUntimed())
 
 	spans := exp.GetSpans()
 	require.Len(t, spans, 1)
-	assert.Equal(t, "DeleteTopics", spans[0].Name)
+	assert.Equal(t, "CreateTopics", spans[0].Name)
 	assert.Equal(t, codes.Error, spans[0].Status.Code)
-	require.Len(t, spans[0].Events, 1)
-	assert.Equal(t, "exception", spans[0].Events[0].Name)
+	require.Len(t, spans[0].Events, 2)
+	assert.Equal(t, "kafka topic already exists", spans[0].Events[0].Name)
+	assert.Equal(t, []attribute.KeyValue{
+		semconv.MessagingDestinationKey.String("topic1"),
+	}, spans[0].Events[0].Attributes)
+	assert.Equal(t, "exception", spans[0].Events[1].Name)
 	assert.Equal(t, []attribute.KeyValue{
 		semconv.ExceptionTypeKey.String("*kerr.Error"),
 		semconv.ExceptionMessageKey.String(
 			"INVALID_TOPIC_EXCEPTION: The request attempted to perform an operation on an invalid topic.",
 		),
-	}, spans[0].Events[0].Attributes)
-}
-
-func newFakeCluster(t testing.TB) (*kfake.Cluster, CommonConfig) {
-	cluster, err := kfake.NewCluster()
-	require.NoError(t, err)
-	t.Cleanup(cluster.Close)
-	return cluster, CommonConfig{
-		Brokers: cluster.ListenAddrs(),
-		Logger:  zap.NewNop(),
-	}
+	}, spans[0].Events[1].Attributes)
 }
