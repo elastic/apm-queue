@@ -33,8 +33,8 @@ github.com/cncf/xds/go v0.0.0-20211011173535-cb28da3451f1/go.mod h1:eXthEFrGJvWH
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
-github.com/elastic/apm-data v0.1.1-0.20230517015005-269052c59735 h1:+tS4jDIoF0DshzQPHm+eaOEch1EHmuz2oy1o+7n7Jcg=
-github.com/elastic/apm-data v0.1.1-0.20230517015005-269052c59735/go.mod h1:HVLZPFnw6WscifG+uDsqOplKFm0GGbRpTWidXW1ejYc=
+github.com/elastic/apm-data v0.1.1-0.20230602075939-0ce9b1cbd219 h1:z/6GRuEkz8TGM6lS7UD53wM5lkHWMiTjSeShFeuHM6k=
+github.com/elastic/apm-data v0.1.1-0.20230602075939-0ce9b1cbd219/go.mod h1:42hb1SnnkNheG/UfbXiTV75CGxpQ2t2UmWdDkHME1o8=
 github.com/elastic/go-sysinfo v1.7.1 h1:Wx4DSARcKLllpKT2TnFVdSUJOsybqMYCNQZq1/wO+s0=
 github.com/elastic/go-sysinfo v1.7.1/go.mod h1:i1ZYdU10oLNfRzq4vq62BEwD2fH8KaWh6eh0ikPT9F0=
 github.com/elastic/go-windows v1.0.0/go.mod h1:TsU0Nrp7/y3+VwE82FoZF8gC/XFg/Elz6CcloAxnPgU=
