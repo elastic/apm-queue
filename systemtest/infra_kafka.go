@@ -76,21 +76,7 @@ func ProvisionKafka(ctx context.Context) error {
 		}
 	})
 
-	// Install Strimzi using Helm.
-	if err := execCommand(ctx,
-		"helm", "repo", "add", "--force-update", "strimzi", "https://strimzi.io/charts/",
-	); err != nil {
-		return fmt.Errorf("failed to add Strimzi chart repo: %w", err)
-	}
-	if err := execCommand(ctx,
-		"helm", "upgrade", "--install", "--wait",
-		"--create-namespace", "--namespace", kafkaNamespace,
-		"strimzi", "strimzi/strimzi-kafka-operator",
-	); err != nil {
-		return fmt.Errorf("failed to install Strimzi chart: %w", err)
-	}
-
-	// Create Kafka cluster.
+	// Create Kafka cluster. This assumes Strimzi is already installed in the cluster.
 	if err := execCommand(ctx,
 		"helm", "upgrade", "--install", "--wait",
 		"--namespace", kafkaNamespace,
