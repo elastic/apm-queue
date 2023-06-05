@@ -66,7 +66,7 @@ require (
 	github.com/twmb/franz-go v1.13.5 // indirect
 	github.com/twmb/franz-go/pkg/kadm v1.8.1 // indirect
 	github.com/twmb/franz-go/pkg/kmsg v1.5.0 // indirect
-	github.com/twmb/franz-go/plugin/kotel v1.3.0 // indirect
+	github.com/twmb/franz-go/plugin/kotel v1.4.0 // indirect
 	github.com/twmb/franz-go/plugin/kzap v1.1.2 // indirect
 	github.com/zclconf/go-cty v1.13.1 // indirect
 	go.elastic.co/fastjson v1.1.0 // indirect
