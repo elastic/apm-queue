@@ -7,7 +7,7 @@ require (
 	cloud.google.com/go/pubsublite v1.8.1
 	github.com/elastic/apm-data v0.1.1-0.20230517015005-269052c59735
 	github.com/googleapis/gax-go/v2 v2.10.0
-	github.com/stretchr/testify v1.8.3
+	github.com/stretchr/testify v1.8.4
 	github.com/twmb/franz-go v1.13.4
 	github.com/twmb/franz-go/pkg/kadm v1.8.1
 	github.com/twmb/franz-go/pkg/kfake v0.0.0-20230405224959-0d137e78cd4a
