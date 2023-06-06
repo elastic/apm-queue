@@ -33,6 +33,7 @@ import (
 	"github.com/twmb/franz-go/plugin/kotel"
 	"github.com/twmb/franz-go/plugin/kzap"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 )
@@ -95,6 +96,10 @@ type CommonConfig struct {
 	// TracerProvider allows specifying a custom otel tracer provider.
 	// Defaults to the global one.
 	TracerProvider trace.TracerProvider
+
+	// MeterProvider allows specifying a custom otel meter provider.
+	// Defaults to the global one.
+	MeterProvider metric.MeterProvider
 }
 
 // finalize ensures the configuration is valid, setting default values from
@@ -153,6 +158,13 @@ func (cfg *CommonConfig) tracerProvider() trace.TracerProvider {
 	return otel.GetTracerProvider()
 }
 
+func (cfg *CommonConfig) meterProvider() metric.MeterProvider {
+	if cfg.MeterProvider != nil {
+		return cfg.MeterProvider
+	}
+	return otel.GetMeterProvider()
+}
+
 func (cfg *CommonConfig) newClient(additionalOpts ...kgo.Opt) (*kgo.Client, error) {
 	opts := []kgo.Opt{
 		kgo.WithLogger(kzap.New(cfg.Logger.Named("kafka"))),
@@ -178,7 +190,7 @@ func (cfg *CommonConfig) newClient(additionalOpts ...kgo.Opt) (*kgo.Client, erro
 	if !cfg.DisableTelemetry {
 		kotelService := kotel.NewKotel(
 			kotel.WithTracer(kotel.NewTracer(kotel.TracerProvider(cfg.tracerProvider()))),
-			kotel.WithMeter(kotel.NewMeter()),
+			kotel.WithMeter(kotel.NewMeter(kotel.MeterProvider(cfg.meterProvider()))),
 		)
 		opts = append(opts, kgo.WithHooks(kotelService.Hooks()...))
 	}
