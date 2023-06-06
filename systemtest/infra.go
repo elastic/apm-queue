@@ -18,58 +18,14 @@
 package systemtest
 
 import (
-	"context"
 	"fmt"
 	"math/rand"
-	"os"
-	"os/exec"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/hashicorp/hc-install/product"
-	"github.com/hashicorp/hc-install/releases"
-	"github.com/hashicorp/terraform-exec/tfexec"
-
 	apmqueue "github.com/elastic/apm-queue"
 )
-
-// NewTerraform returns a terraform executable for the specified path. It
-// installs the latest version.
-func NewTerraform(ctx context.Context, path string) (*tfexec.Terraform, error) {
-	var err error
-	var execPath string
-	var binaryName = "terraform"
-	// Use the binary "terraform-bin" in a GitHub workflow
-	// Otherwise, reading the output will fail.
-	// Related to https://github.com/hashicorp/setup-terraform/issues/20
-	if _, exists := os.LookupEnv("GITHUB_WORKFLOW"); exists {
-		binaryName = "terraform-bin"
-	}
-	if execPath, err = exec.LookPath(binaryName); err != nil {
-		execPath, err = installTerraform(ctx)
-		if err != nil {
-			return nil, err
-		}
-	}
-	return tfexec.NewTerraform(path, execPath)
-}
-
-var terraformExecOnce sync.Once
-var terraformExec string
-
-func installTerraform(ctx context.Context) (string, error) {
-	var err error
-	terraformExecOnce.Do(func() {
-		installer := &releases.LatestVersion{
-			Product: product.Terraform,
-			Timeout: 5 * time.Minute,
-		}
-		terraformExec, err = installer.Install(ctx)
-		return
-	})
-	return terraformExec, err
-}
 
 var destroyMu sync.Mutex
 var destroyFuncs map[string]func()
@@ -99,14 +55,6 @@ var persistentSuffix string
 func init() {
 	rand.Seed(time.Now().Unix())
 	persistentSuffix = RandomSuffix()
-	googleProject = os.Getenv("GOOGLE_PROJECT")
-	if googleProject == "" {
-		logger().Warn("GOOGLE_PROJECT environment variable not set")
-	}
-	googleRegion = os.Getenv("GOOGLE_REGION")
-	if googleRegion == "" {
-		logger().Warn("GOOGLE_REGION environment variable not set")
-	}
 }
 
 const letterBytes = "abcdefghijklmnopqrstuvwxyz"
@@ -131,4 +79,17 @@ func SuffixTopics(topics ...apmqueue.Topic) []apmqueue.Topic {
 		suffixed[i] = apmqueue.Topic(topic)
 	}
 	return suffixed
+}
+
+// SingleSubscribers returns a single apmqueue.Subscription for each
+// topic, with the subscriber having the same name as the topic.
+func SingleSubscribers(topics ...apmqueue.Topic) []apmqueue.Subscription {
+	out := make([]apmqueue.Subscription, len(topics))
+	for i, topic := range topics {
+		out[i] = apmqueue.Subscription{
+			Name:  string(topic),
+			Topic: topic,
+		}
+	}
+	return out
 }

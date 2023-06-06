@@ -21,238 +21,196 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
-	"encoding/json"
 	"fmt"
-	"io"
-	"log"
 	"net"
 	"os"
-	"path/filepath"
+	"os/exec"
+	"strconv"
+	"strings"
 	"sync"
+	"testing"
+	"time"
 
-	"github.com/foxcpp/go-mockdns"
-	"github.com/hashicorp/terraform-exec/tfexec"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
+	"github.com/elastic/apm-queue/kafka"
 	"github.com/elastic/apm-queue/systemtest/portforwarder"
 
 	apmqueue "github.com/elastic/apm-queue"
 )
 
-const (
-	// KafkaDeploymentTypeKey is the key to access the deployment type from
-	// the Terraform output.
-	KafkaDeploymentTypeKey = "deployment_type"
-	// KafkaBrokersKey is the key to access the list of kafka brokers from the
-	// Terraform output.
-	KafkaBrokersKey = "kafka_brokers"
-)
-
-var brokersMu sync.RWMutex
-var kafkaBrokers = []string{"localhost:9093"}
-
 var (
-	runOnce      sync.Once
-	mockResolver *net.Resolver
+	kafkaBrokers     []string
+	kafkaNamespace   = "kafka"
+	kafkaClusterName = "kafka"
 )
 
-// KafkaConfig for Kafka cluster provisioning with topics.
-type KafkaConfig struct {
-	// TFPath is the path where the terraform files are present.
-	TFPath string
-	// Namespace to pass down as the `namespace` Terraform var.
-	Namespace string
-	// Namespace to pass down as the `name` Terraform var.
-	Name string
-	// Topics to create in the Kafka cluster. It's passed down as the
-	// `topics` Terraform var.
-	Topics []apmqueue.Topic
-	// PortForward. If set to true, it forwards traffic to PortForwardResource
-	// using PortForwardMapping.
-	PortForward bool
-	// PortForwardResource specifies the resource to which the traffic
-	// is forwarded.
-	PortForwardResource string
-	// PortForwardMapping holds the port forward mapping for the specified
-	// resource.
-	PortForwardMapping string
-}
-
-func newLocalKafkaConfig(topics ...apmqueue.Topic) KafkaConfig {
-	return KafkaConfig{
-		Topics:      topics,
-		PortForward: true,
-		TFPath:      filepath.Join("tf", "kafka"),
-	}
-}
-
-// ProvisionKafka provisions a Kafka cluster. The specified terraform path
-// must accept at least these variables:
-// - namespace (string)
-// - name (string)
-// - topics (list(string))
-// The terraform module should output at least these variables:
-// - deployment_type (string)
-// - kafka_brokers (list(string))
+// ProvisionKafka provisions a Kafka cluster in the current Kubernetes
+// context, and configures Kafka clients to communicate with the broker
+// by forwarding the necessary port(s).
 //
-// If `deployment_type` output is "k8s", `kubectl port-forward` will be run
-// targeting the `PortForwardResource` with `PortForwardMapping`.
-func ProvisionKafka(ctx context.Context, cfg KafkaConfig) error {
-	if cfg.Name == "" {
-		if n := os.Getenv("KAFKA_NAME"); n != "" {
-			cfg.Name = n
-		} else {
-			cfg.Name = "kafka"
-		}
+// If KAFKA_BROKERS is set, provisioning is skipped and Kafka clients
+// will be configured to communicate with those brokers.
+func ProvisionKafka(ctx context.Context) error {
+	if brokers := os.Getenv("KAFKA_BROKERS"); brokers != "" {
+		logger().Infof("KAFKA_BROKERS is set (%q), skipping Kafka cluster provisioning", brokers)
+		kafkaBrokers = strings.Split(brokers, ",")
+		return nil
 	}
-	if cfg.Namespace == "" {
-		if n := os.Getenv("KAFKA_NAMESPACE"); n != "" {
-			cfg.Namespace = n
-		} else {
-			cfg.Namespace = "kafka"
-		}
-	}
-	kubeConfigPath := getEnvOrDefault("KUBE_CONFIG_PATH", "~/.kube/config")
-	logger().Infof("provisioning Kafka infrastructure with config: %+v", cfg)
-	tf, err := NewTerraform(ctx, cfg.TFPath)
-	if err != nil {
-		return err
-	}
-	if err := tf.Init(ctx, tfexec.Upgrade(true)); err != nil {
-		return fmt.Errorf("failed to run terraform init: %w", err)
-	}
-	// Create a dummy topic so the infrastructure awaits until all the required
-	// infrastructure is available. It will be destroyed during the first test.
-	if len(cfg.Topics) == 0 {
-		cfg.Topics = append(cfg.Topics, SuffixTopics("dummy")...)
-	}
-	jsonTopics, err := json.Marshal(cfg.Topics)
-	if err != nil {
-		return fmt.Errorf("failed to marshal topics: %w", err)
-	}
-	namespaceVar := tfexec.Var(fmt.Sprintf("namespace=%s", cfg.Namespace))
-	nameVar := tfexec.Var(fmt.Sprintf("name=%s", cfg.Name))
-	topicsVar := tfexec.Var(fmt.Sprintf("topics=%s", jsonTopics))
-	kubeConfigPathVar := tfexec.Var(fmt.Sprintf("kube_config_path=%s", kubeConfigPath))
 
-	// Ensure terraform destroy runs once per TF path.
-	RegisterDestroy(cfg.TFPath, func() {
+	if v := os.Getenv("KAFKA_NAME"); v != "" {
+		kafkaClusterName = v
+	}
+	if v := os.Getenv("KAFKA_NAMESPACE"); v != "" {
+		kafkaNamespace = v
+	}
+
+	logger().Infof("provisioning Kafka cluster %q in namespace %q", kafkaClusterName, kafkaNamespace)
+	RegisterDestroy("strimzi", func() {
 		logger().Info("destroying provisioned Kafka infrastructure...")
-		if err := tf.Destroy(context.Background(), topicsVar, namespaceVar, nameVar, kubeConfigPathVar); err != nil {
-			logger().Error(err)
+		if err := execCommand(context.Background(),
+			"kubectl", "delete", "--ignore-not-found", "namespace", kafkaNamespace,
+		); err != nil {
+			logger().Errorf("error deleting Kafka namespace %q: %w", kafkaNamespace, err)
 		}
 	})
-	if err := tf.Apply(ctx, topicsVar, namespaceVar, nameVar, kubeConfigPathVar); err != nil {
-		return fmt.Errorf("failed to run terraform apply: %w", err)
+
+	// Create Kafka cluster. This assumes Strimzi is already installed in the cluster.
+	if err := execCommand(ctx,
+		"helm", "upgrade", "--install", "--wait",
+		"--create-namespace",
+		"--namespace", kafkaNamespace,
+		"--set", "name="+kafkaClusterName,
+		"--set", "namespace="+kafkaNamespace,
+		"--set", "topicOperator=null",
+		kafkaClusterName, "../infra/k8s/kafka",
+	); err != nil {
+		return fmt.Errorf("failed to create Kafka cluster: %w", err)
 	}
-	tfOutput, err := tf.Output(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to run terraform output: %w", err)
+	logger().Info("waiting for Kafka cluster to be ready...")
+	if err := execCommand(ctx,
+		"kubectl", "--namespace", kafkaNamespace,
+		"wait", "--timeout=240s",
+		"--for=condition=Ready=True",
+		"kafka", kafkaClusterName,
+	); err != nil {
+		return fmt.Errorf("error waiting for Kafka broker to be provisioned by Strimzi: %w", err)
 	}
-	if raw, ok := tfOutput[KafkaBrokersKey]; ok {
-		var brokers []string
-		if err := json.Unmarshal(raw.Value, &brokers); err != nil {
-			return fmt.Errorf("failed to unmarshal brokers: %w", err)
-		}
-		if len(brokers) > 0 {
-			SetKafkaBrokers(brokers...)
-		}
-	}
-	dt := string(bytes.TrimSpace(tfOutput[KafkaDeploymentTypeKey].Value))
-	// If PortForward is set to true, and the deployment_type is k8s, start
-	// forwarding traffic to/from kafka to localhost.
-	if cfg.PortForward && dt == `"k8s"` {
-		var err error
-		runOnce.Do(func() {
-			// NOTE(marclop) These assume terraform uses the strimzi operator.
-			if cfg.PortForwardResource == "" {
-				cfg.PortForwardResource = fmt.Sprintf("%s-kafka-bootstrap", cfg.Name)
-			}
-			if cfg.PortForwardMapping == "" {
-				cfg.PortForwardMapping = "9093:9093"
-			}
-			err = portforwardKafka(
-				ctx,
-				cfg.Namespace,
-				cfg.Name,
-				cfg.PortForwardResource,
-				cfg.PortForwardMapping,
-			)
-		})
-		if err != nil {
-			return fmt.Errorf("failed to run port forward: %w", err)
-		}
-	}
+
 	logger().Info("Kafka infastructure fully provisioned!")
 	return nil
 }
 
-func portforwardKafka(ctx context.Context, ns, name, service, mapping string) error {
-	// Patch zone for Kafka client calls to be correctly resolved.
-	srv, err := mockdns.NewServerWithLogger(map[string]mockdns.Zone{
-		// NOTE(marclop) Assumes terraform uses the strimzi operator.
-		fmt.Sprintf("%s-kafka-0.%s-kafka-brokers.%s.svc.", name, name, ns): {
-			A: []string{"127.0.0.1"},
-		},
-	}, log.New(io.Discard, "", 0), false)
-	if err != nil {
-		return err
-	}
-	if mockResolver == nil {
-		resolver := new(net.Resolver)
-		srv.PatchNet(resolver)
-		mockResolver = resolver
-	}
-	kubeConfigPath := getEnvOrDefault("KUBE_CONFIG_PATH", "~/.kube/config")
-	stopCh := make(chan struct{})
-	pfReq := portforwarder.Request{
-		KubeCfg:     kubeConfigPath,
-		ServiceName: service,
-		Namespace:   ns,
-		PortMapping: mapping,
-	}
-	pf, err := pfReq.New(context.Background(), stopCh)
-	if err != nil {
-		return err
-	}
-	go func() {
-		if err := pf.ForwardPorts(); err != nil {
-			logger().Fatalf("port forward terminated unexpectedly: %v", err)
-		}
-	}()
-
-	RegisterDestroy(ns+service+mapping, func() {
-		srv.Close()
-		close(stopCh)
+// CreateKafkaTopics interacts with the Kafka broker to create topics,
+// deleting them when the test completes.
+//
+// Topics are created with 1 partition and 1 hour of retention.
+func CreateKafkaTopics(ctx context.Context, t testing.TB, topics ...apmqueue.Topic) {
+	manager, err := NewKafkaManager(t)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		assert.NoError(t, manager.Close())
 	})
 
-	// wait for port forward to be ready
-	select {
-	case <-ctx.Done():
-		return fmt.Errorf("failed while waiting for port forward to be ready: %w", err)
-	case <-pf.Ready:
+	topicCreator, err := manager.NewTopicCreator(kafka.TopicCreatorConfig{
+		PartitionCount: 1,
+		TopicConfigs: map[string]string{
+			"retention.ms": strconv.FormatInt(time.Hour.Milliseconds(), 10),
+		},
+	})
+	require.NoError(t, err)
+
+	err = topicCreator.CreateTopics(ctx, topics...)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		err = manager.DeleteTopics(context.Background(), topics...)
+		require.NoError(t, err)
+	})
+}
+
+func execCommand(ctx context.Context, command string, args ...string) error {
+	var buf bytes.Buffer
+	cmd := exec.CommandContext(ctx, command, args...)
+	cmd.Stdout = &buf
+	cmd.Stderr = &buf
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf(
+			"%s command failed: %w (%s)",
+			command, err, strings.TrimSpace(buf.String()),
+		)
 	}
 	return nil
 }
 
-func newKafkaTLSDialer() *tls.Dialer {
-	return &tls.Dialer{
-		NetDialer: &net.Dialer{Resolver: mockResolver},
-		Config:    &tls.Config{InsecureSkipVerify: true},
+// portforwardKafka forwards an ephemeral port to the Kafka broker running
+// in Kubernetes, and returns the localhost address.
+func portforwardKafka(t testing.TB) string {
+	var wg sync.WaitGroup
+	stopCh := make(chan struct{})
+	pfReq := portforwarder.Request{
+		KubeCfg: getEnvOrDefault("KUBE_CONFIG_PATH", "~/.kube/config"),
+		// NOTE(marclop) this service name assumes we're using the Strimzi operator
+		ServiceName: fmt.Sprintf("%s-kafka-bootstrap", kafkaClusterName),
+		Namespace:   kafkaNamespace,
+		PortMapping: "0:9093",
 	}
+	pf, err := pfReq.New(context.Background(), stopCh)
+	require.NoError(t, err)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		if err := pf.ForwardPorts(); err != nil {
+			t.Fatalf("port forwarder terminated unexpectedly: %v", err)
+		}
+	}()
+	t.Cleanup(func() {
+		close(stopCh)
+		wg.Wait()
+	})
+
+	// wait for port forward to be ready
+	<-pf.Ready
+	ports, err := pf.GetPorts()
+	require.NoError(t, err)
+	fmt.Println(ports[0])
+	return fmt.Sprintf("127.0.0.1:%d", ports[0].Local)
 }
 
-// KafkaBrokers returns the Kafka brokers to use for tests.
-func KafkaBrokers() []string {
-	brokersMu.RLock()
-	defer brokersMu.RUnlock()
-	return append([]string{}, kafkaBrokers...)
+// NewKafkaManager returns a new kafka.Manager for the configured broker.
+func NewKafkaManager(t testing.TB) (*kafka.Manager, error) {
+	return kafka.NewManager(kafka.ManagerConfig{
+		CommonConfig: KafkaCommonConfig(t),
+	})
 }
 
-// SetKafkaBrokers sets the kafka brokers.
-func SetKafkaBrokers(brokers ...string) {
-	brokersMu.Lock()
-	defer brokersMu.Unlock()
-	kafkaBrokers = append([]string{}, brokers...)
+// KafkaCommonConfig returns a kafka.CommonConfig suitable for connecting to
+// the configured Kafka broker in tests.
+//
+// When Kafka is running in Kubernetes, this will take care of forwarding the
+// necessary port(s) to connect to the broker, and clean up on test completion.
+func KafkaCommonConfig(t testing.TB) kafka.CommonConfig {
+	commonConfig := kafka.CommonConfig{
+		Brokers: append([]string{}, kafkaBrokers...),
+		Logger:  logger().Desugar().Named("kafka"),
+	}
+	if len(commonConfig.Brokers) == 0 {
+		brokerAddress := portforwardKafka(t)
+		tlsDialer := &tls.Dialer{
+			// running locally, should be fast
+			NetDialer: &net.Dialer{Timeout: time.Second},
+			Config:    &tls.Config{InsecureSkipVerify: true},
+		}
+		commonConfig.Brokers = []string{brokerAddress}
+		commonConfig.Dialer = func(ctx context.Context, network, addr string) (net.Conn, error) {
+			// The advertised broker address is only reachable within
+			// the Kubernetes cluster; replace it with the localhost
+			// port-forwarded address.
+			addr = brokerAddress
+			return tlsDialer.DialContext(ctx, network, addr)
+		}
+	}
+	return commonConfig
 }
 
 func getEnvOrDefault(key, fallback string) string {

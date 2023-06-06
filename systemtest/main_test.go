@@ -29,26 +29,34 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
+var skipKafka, skipPubsublite bool
+
 func testMain(m *testing.M) int {
 	var skipDestroy bool
 	flag.BoolVar(&skipDestroy, "skip-destroy", false, "do not destroy the provisioned infrastructure after the tests finish")
+	flag.BoolVar(&skipKafka, "skip-kafka", false, "skip kafka tests")
+	flag.BoolVar(&skipPubsublite, "skip-pubsublite", false, "skip pubsublite tests")
 	flag.Parse()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer cancel()
 	g, ctx := errgroup.WithContext(ctx)
-	g.Go(func() error {
-		if err := ProvisionKafka(ctx, newLocalKafkaConfig()); err != nil {
-			return fmt.Errorf("failed to provision kafka: %w", err)
-		}
-		return nil
-	})
-	g.Go(func() error {
-		if err := ProvisionPubSubLite(ctx, newPubSubLiteConfig()); err != nil {
-			return fmt.Errorf("failed to provision pubsublite: %w", err)
-		}
-		return nil
-	})
+	if !skipKafka {
+		g.Go(func() error {
+			if err := ProvisionKafka(ctx); err != nil {
+				return fmt.Errorf("failed to provision kafka: %w", err)
+			}
+			return nil
+		})
+	}
+	if !skipPubsublite {
+		g.Go(func() error {
+			if err := ProvisionPubSubLite(ctx); err != nil {
+				return fmt.Errorf("failed to provision pubsublite: %w", err)
+			}
+			return nil
+		})
+	}
 	if !skipDestroy {
 		defer Destroy()
 	}
