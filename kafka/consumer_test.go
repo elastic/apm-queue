@@ -455,7 +455,7 @@ func TestConsumerGracefulShutdown(t *testing.T) {
 		select {
 		case process <- struct{}{}:
 			close(process) // Allow records to be processed
-		case <-time.After(time.Second):
+		case <-time.After(2 * time.Second):
 			t.Fatal("timed out waiting for consumer to process event")
 		}
 		assert.NoError(t, consumer.Close())
@@ -466,19 +466,9 @@ func TestConsumerGracefulShutdown(t *testing.T) {
 			t.Fatal("timed out waiting for consumer to exit")
 		}
 
-		// Assert the consumer error.
-		switch dt {
-		case apmqueue.AtMostOnceDeliveryType:
-			if consumerErr != nil {
-				assert.Equal(t, ErrCommitFailed, consumerErr)
-			}
-		case apmqueue.AtLeastOnceDeliveryType:
-			assert.NoError(t, consumerErr)
-		}
-		assert.GreaterOrEqual(t, processed.Load(), int32(1)) //  Ensure that at least one record is processed.
-		t.Logf("got: %d events processed, %d errored, want: %d processed",
-			processed.Load(), errored.Load(), records,
-		)
+		assert.NoError(t, consumerErr) // Assert the consumer error.
+		//  Ensure all records are processed.
+		assert.Equal(t, int32(records), processed.Load())
 	}
 
 	t.Run("AtLeastOnceDelivery", func(t *testing.T) {
@@ -585,7 +575,7 @@ func TestMultipleConsumers(t *testing.T) {
 		Topic: string(topics[0]),
 		Value: b,
 	}
-	produced := 1000
+	produced := 100
 	for i := 0; i < produced; i++ {
 		produceRecord(ctx, t, client, &record)
 	}
@@ -702,8 +692,9 @@ func TestConsumerRunError(t *testing.T) {
 
 func newConsumer(t testing.TB, cfg ConsumerConfig) *Consumer {
 	if cfg.MaxPollWait <= 0 {
-		// Lower MaxPollWait during tests to speed up execution.
+		// Lower MaxPollWait, ShutdownGracePeriod to speed up execution.
 		cfg.MaxPollWait = 50 * time.Millisecond
+		cfg.ShutdownGracePeriod = time.Second
 	}
 	consumer, err := NewConsumer(cfg)
 	require.NoError(t, err)

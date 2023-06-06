@@ -189,10 +189,12 @@ func NewConsumer(cfg ConsumerConfig) (*Consumer, error) {
 func (c *Consumer) Close() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	defer c.consumer.wg.Wait() // Wait for consumer goroutines to exit.
 	select {
 	case <-c.closed:
 	default:
 		close(c.closed)
+		defer c.client.Close() // Last, close the `kgo.Client`
 		// Cancel the context used in client.PollRecords, triggering graceful
 		// cancellation.
 		c.stopPoll()
@@ -215,9 +217,7 @@ func (c *Consumer) Close() error {
 			))
 		case <-stopped: // Stopped within c.cfg.ShutdownGracePeriod.
 		}
-		c.client.Close() // Last, close the `kgo.Client`
 	}
-	c.consumer.wg.Wait() // Wait for consumer goroutines to exit.
 	return nil
 }
 
@@ -227,6 +227,8 @@ func (c *Consumer) Close() error {
 // To shut down the consumer, call consumer.Close() or cancel the context.
 // Calling `consumer.Close` is advisable to ensure graceful shutdown and
 // avoid any records from being lost (AMOD), or processed twice (ALOD).
+// To ensure that all polled records are processed. Close() must be called,
+// even when the context is canceled.
 //
 // If called more than once, returns `apmqueue.ErrConsumerAlreadyRunning`.
 func (c *Consumer) Run(ctx context.Context) error {
@@ -265,6 +267,8 @@ func (c *Consumer) fetch(ctx, clientCtx context.Context) error {
 		errors.Is(fetches.Err0(), context.DeadlineExceeded) {
 		return context.Canceled
 	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	switch c.cfg.Delivery {
 	case apmqueue.AtLeastOnceDeliveryType:
 		// Committing the processed records happens on each partition consumer.
@@ -422,7 +426,7 @@ func (c *consumer) processFetch(ctx context.Context, fetches kgo.Fetches) {
 		}
 		// When using AtMostOnceDelivery, if the context is cancelled between
 		// PollRecords and this line, records will be lost.
-		if c.delivery == apmqueue.AtMostOnceDeliveryType {
+		if err != nil && c.delivery == apmqueue.AtMostOnceDeliveryType {
 			c.logWarn(err, ftp)
 		}
 	})
@@ -439,14 +443,10 @@ func (c *consumer) logWarn(err error, ftp kgo.FetchTopicPartition) {
 	)
 }
 
-// Implement the kgo.Hook that allows injecting the kgo.Client context that is
-// received on partition assignment.
+// OnFetchRecordBuffered Implements the kgo.Hook that injects the processCtx
+// context that is canceled by `Consumer.Close()`.
 func (c *consumer) OnFetchRecordBuffered(r *kgo.Record) {
-	// Inject the context so records's context have cancellation.
 	if r.Context == nil {
-		// NOTE(marclop) Using the kgo.Client context may result in records
-		// not being processed by the configured processor if the client is
-		// closed while some records are processed.
 		r.Context = c.ctx
 	}
 }
