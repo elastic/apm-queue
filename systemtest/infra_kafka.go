@@ -20,7 +20,6 @@ package systemtest
 import (
 	"bytes"
 	"context"
-	"crypto/tls"
 	"fmt"
 	"net"
 	"os"
@@ -75,15 +74,12 @@ func ProvisionKafka(ctx context.Context) error {
 			logger().Errorf("error deleting Kafka namespace %q: %w", kafkaNamespace, err)
 		}
 	})
-
-	// Create Kafka cluster. This assumes Strimzi is already installed in the cluster.
 	if err := execCommand(ctx,
 		"helm", "upgrade", "--install", "--wait",
 		"--create-namespace",
 		"--namespace", kafkaNamespace,
 		"--set", "name="+kafkaClusterName,
 		"--set", "namespace="+kafkaNamespace,
-		"--set", "topicOperator=null",
 		kafkaClusterName, "../infra/k8s/kafka",
 	); err != nil {
 		return fmt.Errorf("failed to create Kafka cluster: %w", err)
@@ -92,10 +88,10 @@ func ProvisionKafka(ctx context.Context) error {
 	if err := execCommand(ctx,
 		"kubectl", "--namespace", kafkaNamespace,
 		"wait", "--timeout=240s",
-		"--for=condition=Ready=True",
-		"kafka", kafkaClusterName,
+		"--for=condition=Available=True",
+		"deployment", kafkaClusterName,
 	); err != nil {
-		return fmt.Errorf("error waiting for Kafka broker to be provisioned by Strimzi: %w", err)
+		return fmt.Errorf("error waiting for Kafka broker to be ready: %w", err)
 	}
 
 	logger().Info("Kafka infastructure fully provisioned!")
@@ -149,11 +145,10 @@ func portforwardKafka(t testing.TB) string {
 	var wg sync.WaitGroup
 	stopCh := make(chan struct{})
 	pfReq := portforwarder.Request{
-		KubeCfg: getEnvOrDefault("KUBE_CONFIG_PATH", "~/.kube/config"),
-		// NOTE(marclop) this service name assumes we're using the Strimzi operator
-		ServiceName: fmt.Sprintf("%s-kafka-bootstrap", kafkaClusterName),
-		Namespace:   kafkaNamespace,
-		PortMapping: "0:9093",
+		KubeCfg:          getEnvOrDefault("KUBE_CONFIG_PATH", "~/.kube/config"),
+		PodLabelSelector: fmt.Sprintf("app.kubernetes.io/name=%s", kafkaClusterName),
+		Namespace:        kafkaNamespace,
+		PortMapping:      "0:9093",
 	}
 	pf, err := pfReq.New(context.Background(), stopCh)
 	require.NoError(t, err)
@@ -196,18 +191,14 @@ func KafkaCommonConfig(t testing.TB) kafka.CommonConfig {
 	}
 	if len(commonConfig.Brokers) == 0 {
 		brokerAddress := portforwardKafka(t)
-		tlsDialer := &tls.Dialer{
-			// running locally, should be fast
-			NetDialer: &net.Dialer{Timeout: time.Second},
-			Config:    &tls.Config{InsecureSkipVerify: true},
-		}
+		netDialer := &net.Dialer{Timeout: 10 * time.Second}
 		commonConfig.Brokers = []string{brokerAddress}
 		commonConfig.Dialer = func(ctx context.Context, network, addr string) (net.Conn, error) {
 			// The advertised broker address is only reachable within
 			// the Kubernetes cluster; replace it with the localhost
 			// port-forwarded address.
 			addr = brokerAddress
-			return tlsDialer.DialContext(ctx, network, addr)
+			return netDialer.DialContext(ctx, network, addr)
 		}
 	}
 	return commonConfig
