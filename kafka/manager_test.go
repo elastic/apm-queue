@@ -65,7 +65,7 @@ func TestManagerDeleteTopics(t *testing.T) {
 	cluster.ControlKey(kmsg.DeleteTopics.Int16(), func(req kmsg.Request) (kmsg.Response, error, bool) {
 		deleteTopicsRequest = req.(*kmsg.DeleteTopicsRequest)
 		return &kmsg.DeleteTopicsResponse{
-			Version: 7,
+			Version: deleteTopicsRequest.Version,
 			Topics: []kmsg.DeleteTopicsResponseTopic{{
 				Topic:        kmsg.StringPtr("topic1"),
 				ErrorCode:    kerr.UnknownTopicOrPartition.Code,
