@@ -79,6 +79,7 @@ func ProvisionKafka(ctx context.Context) error {
 	// Create Kafka cluster. This assumes Strimzi is already installed in the cluster.
 	if err := execCommand(ctx,
 		"helm", "upgrade", "--install", "--wait",
+		"--create-namespace",
 		"--namespace", kafkaNamespace,
 		"--set", "name="+kafkaClusterName,
 		"--set", "namespace="+kafkaNamespace,
