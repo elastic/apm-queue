@@ -82,7 +82,7 @@ func TestTopicCreatorCreateTopics(t *testing.T) {
 	cluster.ControlKey(kmsg.CreateTopics.Int16(), func(req kmsg.Request) (kmsg.Response, error, bool) {
 		createTopicsRequest = req.(*kmsg.CreateTopicsRequest)
 		return &kmsg.CreateTopicsResponse{
-			Version: 7,
+			Version: createTopicsRequest.Version,
 			Topics: []kmsg.CreateTopicsResponseTopic{{
 				Topic:        "topic1",
 				ErrorCode:    kerr.TopicAlreadyExists.Code,
