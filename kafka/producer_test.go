@@ -352,7 +352,7 @@ func newClusterWithTopics(t testing.TB, partitions int32, topics ...apmqueue.Top
 	for _, t := range topics {
 		strTopic = append(strTopic, string(t))
 	}
-	_, err = kadmClient.CreateTopics(context.Background(), 2, 1, nil, strTopic...)
+	_, err = kadmClient.CreateTopics(context.Background(), partitions, 1, nil, strTopic...)
 	require.NoError(t, err)
 	return client, addrs
 }
