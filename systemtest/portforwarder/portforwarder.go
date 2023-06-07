@@ -23,7 +23,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"strings"
 
 	homedir "github.com/mitchellh/go-homedir"
 	k8sv1 "k8s.io/api/core/v1"
@@ -37,10 +36,10 @@ import (
 
 // Request is a request to port forward a resource in k8s cluster.
 type Request struct {
-	KubeCfg          string
-	PodLabelSelector string
-	Namespace        string
-	PortMapping      string
+	KubeCfg     string
+	Pod         string
+	Namespace   string
+	PortMapping string
 }
 
 // New creates a port-forwarder for the given port forwarding request.
@@ -66,7 +65,7 @@ func (r Request) New(
 
 	pod, err := r.getPod(ctx, cfg)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get pod for label selector %q: %w", r.PodLabelSelector, err)
+		return nil, fmt.Errorf("failed to get pod %q: %w", r.Pod, err)
 	}
 
 	transport, upgrader, err := spdy.RoundTripperFor(cfg)
@@ -98,17 +97,5 @@ func (r Request) getPod(ctx context.Context, cfg *rest.Config) (*k8sv1.Pod, erro
 	if err != nil {
 		return nil, fmt.Errorf("failed to create k8s client: %w", err)
 	}
-
-	labels := []string{r.PodLabelSelector}
-	pods, err := clientset.CoreV1().
-		Pods(r.Namespace).
-		List(ctx, metav1.ListOptions{
-			LabelSelector: strings.Join(labels, ","),
-			Limit:         1,
-		})
-	if err != nil || len(pods.Items) == 0 {
-		return nil, fmt.Errorf("failed to find any matching pod: %w", err)
-	}
-
-	return &pods.Items[0], nil
+	return clientset.CoreV1().Pods(r.Namespace).Get(ctx, r.Pod, metav1.GetOptions{})
 }
