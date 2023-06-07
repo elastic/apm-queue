@@ -110,7 +110,7 @@ func TestNewProducerBasic(t *testing.T) {
 	test := func(t *testing.T, sync bool) {
 		t.Run(fmt.Sprintf("sync_%t", sync), func(t *testing.T) {
 			topic := apmqueue.Topic("default-topic")
-			client, brokers := newClusterWithTopics(t, topic)
+			client, brokers := newClusterWithTopics(t, 1, topic)
 			codec := json.JSON{}
 			producer, err := NewProducer(ProducerConfig{
 				CommonConfig: CommonConfig{
@@ -220,7 +220,7 @@ func (s *stub) MarshalJSON() ([]byte, error) {
 
 func TestProducerGracefulShutdown(t *testing.T) {
 	test := func(t testing.TB, dt apmqueue.DeliveryType, syncProducer bool) {
-		_, brokers := newClusterWithTopics(t, "topic")
+		_, brokers := newClusterWithTopics(t, 1, "topic")
 		var codec json.JSON
 		var processed atomic.Int64
 		producer := newProducer(t, ProducerConfig{
@@ -311,7 +311,7 @@ func TestProducerGracefulShutdown(t *testing.T) {
 }
 
 func TestProducerConcurrentClose(t *testing.T) {
-	_, brokers := newClusterWithTopics(t, "topic")
+	_, brokers := newClusterWithTopics(t, 1, "topic")
 	producer := newProducer(t, ProducerConfig{
 		CommonConfig: CommonConfig{
 			Brokers: brokers,
@@ -334,7 +334,7 @@ func TestProducerConcurrentClose(t *testing.T) {
 	wg.Wait()
 }
 
-func newClusterWithTopics(t testing.TB, topics ...apmqueue.Topic) (*kgo.Client, []string) {
+func newClusterWithTopics(t testing.TB, partitions int32, topics ...apmqueue.Topic) (*kgo.Client, []string) {
 	t.Helper()
 	cluster, err := kfake.NewCluster()
 	require.NoError(t, err)
