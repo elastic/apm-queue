@@ -26,7 +26,6 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
-	"go.uber.org/zap"
 
 	"github.com/elastic/apm-data/model"
 	apmqueue "github.com/elastic/apm-queue"
@@ -50,9 +49,6 @@ func TestProduceConsumeSingleTopic(t *testing.T) {
 			producer, consumer := pf(t,
 				withProcessor(processor),
 				withSync(isSync),
-				withLogger(func(t testing.TB) *zap.Logger {
-					return NoLevelLogger(t, zap.ErrorLevel)
-				}),
 			)
 
 			ctx, cancel := context.WithTimeout(context.Background(), timeout)
@@ -88,9 +84,6 @@ func TestProduceConsumeMultipleTopics(t *testing.T) {
 			producer, consumer := pf(t,
 				withProcessor(processor),
 				withSync(isSync),
-				withLogger(func(t testing.TB) *zap.Logger {
-					return NoLevelLogger(t, zap.ErrorLevel)
-				}),
 				withTopicsGenerator(func(t testing.TB) []apmqueue.Topic {
 					return SuffixTopics(
 						apmqueue.Topic(t.Name()+"Even"),
@@ -102,7 +95,6 @@ func TestProduceConsumeMultipleTopics(t *testing.T) {
 							return topics[0]
 						}
 						return topics[1]
-
 					}
 				}),
 			)
