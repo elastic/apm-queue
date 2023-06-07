@@ -31,8 +31,9 @@ import (
 
 var skipKafka, skipPubsublite bool
 
-func testMain(m *testing.M) int {
-	var skipDestroy bool
+func testMain(m *testing.M) (returnCode int) {
+	var destroyOnly, skipDestroy bool
+	flag.BoolVar(&destroyOnly, "destroy-only", false, "only destroy provisioned infrastructure, do not provision or run tests")
 	flag.BoolVar(&skipDestroy, "skip-destroy", false, "do not destroy the provisioned infrastructure after the tests finish")
 	flag.BoolVar(&skipKafka, "skip-kafka", false, "skip kafka tests")
 	flag.BoolVar(&skipPubsublite, "skip-pubsublite", false, "skip pubsublite tests")
@@ -41,28 +42,63 @@ func testMain(m *testing.M) int {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer cancel()
 	g, ctx := errgroup.WithContext(ctx)
-	if !skipKafka {
-		g.Go(func() error {
-			if err := ProvisionKafka(ctx); err != nil {
-				return fmt.Errorf("failed to provision kafka: %w", err)
+
+	var destroyFuncs []DestroyInfraFunc
+	type initInfraFunc func() (ProvisionInfraFunc, DestroyInfraFunc, error)
+	initInfra := func(name string, f initInfraFunc) error {
+		provision, destroy, err := f()
+		if err != nil {
+			return fmt.Errorf("failed to initialize %s: %w", name, err)
+		}
+		if !destroyOnly {
+			g.Go(func() error {
+				logger().Infof("provisioning %s infrastructure", name)
+				if err := provision(ctx); err != nil {
+					return fmt.Errorf("failed to provision %s infrastructure: %w", name, err)
+				}
+				logger().Infof("finished provisioning %s infrastructure", name)
+				return nil
+			})
+		}
+		destroyFuncs = append(destroyFuncs, func(ctx context.Context) error {
+			logger().Infof("destroying %s infrastructure", name)
+			if err := destroy(ctx); err != nil {
+				return fmt.Errorf("failed to destroy %s infrastructure: %w", name, err)
 			}
+			logger().Infof("finished destroying %s infrastructure", name)
 			return nil
 		})
+		return nil
+	}
+	if !skipKafka {
+		if err := initInfra("kafka", InitKafka); err != nil {
+			logger().Error(err)
+			return 1
+		}
 	}
 	if !skipPubsublite {
-		g.Go(func() error {
-			if err := ProvisionPubSubLite(ctx); err != nil {
-				return fmt.Errorf("failed to provision pubsublite: %w", err)
-			}
-			return nil
-		})
+		if err := initInfra("pubsublite", InitPubSubLite); err != nil {
+			logger().Error(err)
+			return 1
+		}
 	}
 	if !skipDestroy {
-		defer Destroy()
+		defer func() {
+			for _, destroy := range destroyFuncs {
+				if err := destroy(context.Background()); err != nil {
+					logger().Error(err)
+					returnCode = 1
+				}
+			}
+		}()
 	}
 	if err := g.Wait(); err != nil {
 		logger().Error(err)
 		return 1
+	}
+	if destroyOnly {
+		// Only destroy infrastructure (in the defer). This is used for teardown in CI.
+		return 0
 	}
 	logger().Info("running system tests...")
 	return m.Run()
