@@ -62,7 +62,7 @@ func TestProducerMetrics_deadlineExceeded(t *testing.T) {
 		attribute.Int("partition", 0),
 	)
 	want := metricdata.Metrics{
-		Name:        "producer.messages.error",
+		Name:        "producer.messages.errored",
 		Description: "The total number of error occurred on write",
 		Unit:        "1",
 		Data: metricdata.Sum[int64]{
@@ -103,7 +103,7 @@ func TestProducerMetrics_contextCanceled(t *testing.T) {
 		attribute.Int("partition", 0),
 	)
 	want := metricdata.Metrics{
-		Name:        "producer.messages.error",
+		Name:        "producer.messages.errored",
 		Description: "The total number of error occurred on write",
 		Unit:        "1",
 		Data: metricdata.Sum[int64]{
@@ -146,7 +146,7 @@ func TestProducerMetrics_otherError(t *testing.T) {
 		attribute.Int("partition", 0),
 	)
 	want := metricdata.Metrics{
-		Name:        "producer.messages.error",
+		Name:        "producer.messages.errored",
 		Description: "The total number of error occurred on write",
 		Unit:        "1",
 		Data: metricdata.Sum[int64]{

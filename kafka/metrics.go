@@ -33,7 +33,7 @@ const (
 	unitCount = "1"
 
 	messageProducedCounterKey = "producer.messages.produced"
-	writeErrorCounterKey      = "producer.messages.error"
+	writeErrorCounterKey      = "producer.messages.errored"
 )
 
 type instruments struct {
