@@ -62,19 +62,6 @@ func NewKgoHooks(mp metric.MeterProvider) *kgoHooks {
 	}
 }
 
-// https://pkg.go.dev/github.com/twmb/franz-go/pkg/kgo#HookProduceBatchWritten
-func (h *kgoHooks) OnProduceBatchWritten(meta kgo.BrokerMetadata, topic string, partition int32, metrics kgo.ProduceBatchMetrics) {
-	runtime.Breakpoint()
-	h.instruments.MessageProduced.Add(
-		context.Background(),
-		int64(metrics.NumRecords),
-		metric.WithAttributes(
-			attribute.Int("node", int(meta.NodeID)),
-			attribute.Int("partition", int(partition)),
-			attribute.String("host", meta.Host),
-			attribute.String("topic", topic),
-		))
-}
 
 // https://pkg.go.dev/github.com/twmb/franz-go/pkg/kgo#HookBrokerWrite
 func (h *kgoHooks) OnBrokerWrite(meta kgo.BrokerMetadata, _ int16, _ int, writeWait, _ time.Duration, err error) {
