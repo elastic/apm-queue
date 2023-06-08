@@ -2,7 +2,7 @@ package kafka
 
 import (
 	"context"
-	"runtime"
+	"errors"
 	"time"
 
 	"github.com/twmb/franz-go/pkg/kgo"
@@ -62,6 +62,36 @@ func NewKgoHooks(mp metric.MeterProvider) *kgoHooks {
 	}
 }
 
+func (h *kgoHooks) OnProduceRecordUnbuffered(r *kgo.Record, err error) {
+	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			h.instruments.WriteTimeout.Add(
+				context.Background(),
+				1,
+				metric.WithAttributes(
+					attribute.Int("partition", int(r.Partition)),
+					attribute.String("topic", r.Topic),
+				))
+		}
+		h.instruments.WriteErrors.Add(
+			context.Background(),
+			1,
+			metric.WithAttributes(
+				attribute.Int("partition", int(r.Partition)),
+				attribute.String("topic", r.Topic),
+			))
+		return
+	}
+
+	h.instruments.MessageProduced.Add(
+		context.Background(),
+		1,
+		metric.WithAttributes(
+			attribute.Int("partition", int(r.Partition)),
+			attribute.String("topic", r.Topic),
+		))
+
+}
 
 // https://pkg.go.dev/github.com/twmb/franz-go/pkg/kgo#HookBrokerWrite
 func (h *kgoHooks) OnBrokerWrite(meta kgo.BrokerMetadata, _ int16, _ int, writeWait, _ time.Duration, err error) {
