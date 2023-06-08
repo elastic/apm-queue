@@ -16,6 +16,7 @@ const unitCount = "1"
 type instruments struct {
 	MessageProduced metric.Int64Counter
 	WriteErrors     metric.Int64Counter
+	WriteTimeout    metric.Int64Counter
 }
 
 type kgoHooks struct {
@@ -43,10 +44,20 @@ func NewKgoHooks(mp metric.MeterProvider) *kgoHooks {
 		panic(err)
 	}
 
+	c, err := m.Int64Counter(
+		"write.timeout.count",
+		metric.WithDescription("The total number of messages not produced due to timeout"),
+		metric.WithUnit(unitCount),
+	)
+	if err != nil {
+		panic(err)
+	}
+
 	return &kgoHooks{
 		instruments{
 			MessageProduced: a,
 			WriteErrors:     b,
+			WriteTimeout:    c,
 		},
 	}
 }
