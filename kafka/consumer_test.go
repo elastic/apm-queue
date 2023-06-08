@@ -153,7 +153,7 @@ func TestConsumerInstrumentation(t *testing.T) {
 	event := model.APMEvent{Transaction: &model.Transaction{ID: "1"}}
 	codec := json.JSON{}
 	topics := []apmqueue.Topic{"topic"}
-	client, addrs := newClusterWithTopics(t, topics...)
+	client, addrs := newClusterWithTopics(t, 2, topics...)
 	processed := make(chan struct{})
 	cfg := ConsumerConfig{
 		CommonConfig: CommonConfig{
@@ -287,7 +287,7 @@ func TestConsumerDelivery(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			client, addrs := newClusterWithTopics(t, topics...)
+			client, addrs := newClusterWithTopics(t, 2, topics...)
 			baseLogger := zapTest(t)
 
 			var processed atomic.Int32
@@ -411,7 +411,7 @@ func TestConsumerGracefulShutdown(t *testing.T) {
 	// that ensures that when the first record is read and the consumer closed,
 	// the second record is read as well and not lost.
 	test := func(t testing.TB, dt apmqueue.DeliveryType) {
-		client, brokers := newClusterWithTopics(t, "topic")
+		client, brokers := newClusterWithTopics(t, 2, "topic")
 		var codec json.JSON
 		var processed atomic.Int32
 		var errored atomic.Int32
@@ -480,7 +480,7 @@ func TestConsumerGracefulShutdown(t *testing.T) {
 }
 
 func TestConsumerContextPropagation(t *testing.T) {
-	_, addrs := newClusterWithTopics(t, "topic")
+	_, addrs := newClusterWithTopics(t, 2, "topic")
 	commonCfg := CommonConfig{
 		Brokers: addrs,
 		Logger:  zap.NewNop(),
@@ -541,7 +541,7 @@ func TestMultipleConsumers(t *testing.T) {
 	event := model.APMEvent{Transaction: &model.Transaction{ID: "1"}}
 	codec := json.JSON{}
 	topics := []apmqueue.Topic{"topic"}
-	client, addrs := newClusterWithTopics(t, topics...)
+	client, addrs := newClusterWithTopics(t, 2, topics...)
 
 	var count atomic.Int32
 	cfg := ConsumerConfig{
@@ -588,7 +588,7 @@ func TestMultipleConsumerGroups(t *testing.T) {
 	event := model.APMEvent{Transaction: &model.Transaction{ID: "1"}}
 	codec := json.JSON{}
 	topics := []apmqueue.Topic{"topic"}
-	client, addrs := newClusterWithTopics(t, topics...)
+	client, addrs := newClusterWithTopics(t, 2, topics...)
 	cfg := ConsumerConfig{
 		CommonConfig: CommonConfig{
 			Brokers: addrs,
@@ -642,7 +642,7 @@ func TestMultipleConsumerGroups(t *testing.T) {
 
 func TestConsumerRunError(t *testing.T) {
 	newConsumer := func(t testing.TB, ready chan struct{}) (*Consumer, *kgo.Client) {
-		client, addr := newClusterWithTopics(t, "topic")
+		client, addr := newClusterWithTopics(t, 2, "topic")
 		consumer := newConsumer(t, ConsumerConfig{
 			CommonConfig: CommonConfig{
 				Brokers: addr,
