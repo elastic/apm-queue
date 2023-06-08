@@ -50,7 +50,7 @@ func newKgoHooks(mp metric.MeterProvider) (*kgoHooks, error) {
 
 	messageProducedCounter, err := m.Int64Counter(
 		messageProducedCounterKey,
-		metric.WithDescription("The total number of message produced"),
+		metric.WithDescription("The number of messages produced"),
 		metric.WithUnit(unitCount),
 	)
 	if err != nil {
@@ -59,7 +59,7 @@ func newKgoHooks(mp metric.MeterProvider) (*kgoHooks, error) {
 
 	messageErroredCounter, err := m.Int64Counter(
 		messageErroredCounterKey,
-		metric.WithDescription("The total number of error occurred on write"),
+		metric.WithDescription("The number of messages that failed to be produced"),
 		metric.WithUnit(unitCount),
 	)
 	if err != nil {
