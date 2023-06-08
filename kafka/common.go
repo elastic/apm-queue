@@ -192,7 +192,7 @@ func (cfg *CommonConfig) newClient(additionalOpts ...kgo.Opt) (*kgo.Client, erro
 			kotel.WithTracer(kotel.NewTracer(kotel.TracerProvider(cfg.tracerProvider()))),
 			kotel.WithMeter(kotel.NewMeter(kotel.MeterProvider(cfg.meterProvider()))),
 		)
-		metricHooks, err := NewKgoHooks(cfg.meterProvider())
+		metricHooks, err := newKgoHooks(cfg.meterProvider())
 		if err != nil {
 			return nil, fmt.Errorf("kafka: failed creating kgo metrics hooks: %w", err)
 		}
