@@ -76,30 +76,25 @@ func newKgoHooks(mp metric.MeterProvider) (*kgoHooks, error) {
 
 // https://pkg.go.dev/github.com/twmb/franz-go/pkg/kgo#HookProduceRecordUnbuffered
 func (h *kgoHooks) OnProduceRecordUnbuffered(r *kgo.Record, err error) {
-	partitionDimension := attribute.Int("partition", int(r.Partition))
-	topicDimension := attribute.String("topic", r.Topic)
+	partition := attribute.Int("partition", int(r.Partition))
+	topic := attribute.String("topic", r.Topic)
 
 	if err != nil {
-		errorDimension := attribute.String("error", "other")
-
+		errorType := attribute.String("error", "other")
 		if errors.Is(err, context.DeadlineExceeded) {
-			errorDimension = attribute.String("error", "timeout")
+			errorType = attribute.String("error", "timeout")
 		}
 		if errors.Is(err, context.Canceled) {
-			errorDimension = attribute.String("error", "canceled")
+			errorType = attribute.String("error", "canceled")
 		}
 
-		h.instruments.writeErrors.Add(
-			context.Background(),
-			1,
-			metric.WithAttributes(partitionDimension, topicDimension, errorDimension),
+		h.instruments.writeErrors.Add(context.Background(), 1,
+			metric.WithAttributes(partition, topic, errorType),
 		)
 		return
 	}
 
-	h.instruments.messageProduced.Add(
-		context.Background(),
-		1,
-		metric.WithAttributes(partitionDimension, topicDimension))
+	h.instruments.messageProduced.Add(context.Background(), 1,
+		metric.WithAttributes(partition, topic))
 
 }
