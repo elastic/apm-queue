@@ -33,9 +33,9 @@ const (
 
 	unitCount = "1"
 
-	messageProducedCounter = "message.produced"
-	writeErrorCounter      = "write.error"
-	writeTimeoutCounter    = "write.timeout"
+	messageProducedCounterKey = "message.produced"
+	writeErrorCounterKey      = "write.error"
+	writeTimeoutCounterKey    = "write.timeout"
 )
 
 type instruments struct {
@@ -51,38 +51,38 @@ type kgoHooks struct {
 func NewKgoHooks(mp metric.MeterProvider) (*kgoHooks, error) {
 	m := mp.Meter(instrumentName)
 
-	a, err := m.Int64Counter(
-		messageProducedCounter,
+	messageProducedCounter, err := m.Int64Counter(
+		messageProducedCounterKey,
 		metric.WithDescription("The total number of message produced"),
 		metric.WithUnit(unitCount),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("cannot create %s metric: %w", messageProducedCounter, err)
+		return nil, fmt.Errorf("cannot create %s metric: %w", messageProducedCounterKey, err)
 	}
 
-	b, err := m.Int64Counter(
-		writeErrorCounter,
+	writeErrorCounter, err := m.Int64Counter(
+		writeErrorCounterKey,
 		metric.WithDescription("The total number of error occurred on write"),
 		metric.WithUnit(unitCount),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("cannot create %s metric: %w", writeErrorCounter, err)
+		return nil, fmt.Errorf("cannot create %s metric: %w", writeErrorCounterKey, err)
 	}
 
-	c, err := m.Int64Counter(
-		writeTimeoutCounter,
+	writeTimeoutCounter, err := m.Int64Counter(
+		writeTimeoutCounterKey,
 		metric.WithDescription("The total number of messages not produced due to timeout"),
 		metric.WithUnit(unitCount),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("cannot create %s metric: %w", writeTimeoutCounter, err)
+		return nil, fmt.Errorf("cannot create %s metric: %w", writeTimeoutCounterKey, err)
 	}
 
 	return &kgoHooks{
 		instruments{
-			MessageProduced: a,
-			WriteErrors:     b,
-			WriteTimeout:    c,
+			MessageProduced: messageProducedCounter,
+			WriteErrors:     writeErrorCounter,
+			WriteTimeout:    writeTimeoutCounter,
 		},
 	}, nil
 }
