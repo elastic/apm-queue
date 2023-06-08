@@ -24,6 +24,7 @@ import (
 
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
+	"go.uber.org/zap/zaptest"
 )
 
 var loggerInstanceMu sync.Mutex
@@ -42,34 +43,54 @@ var logger = func() *zap.SugaredLogger {
 	return loggerInstance
 }
 
-// NoLevelLogger returns a logger that asserts that no entries are observed for
-// a particular log level. This is useful to assert that tests don't have any
-// Error or Warn entries for example.
-func NoLevelLogger(t testing.TB, l zapcore.Level) *zap.Logger {
-	return zap.New(noLevelCore{t, l,
-		zapcore.NewConsoleEncoder(zap.NewDevelopmentEncoderConfig()),
-	})
-}
-
-type noLevelCore struct {
-	t   testing.TB
-	l   zapcore.Level
-	enc zapcore.Encoder
-}
-
-func (c noLevelCore) Enabled(l zapcore.Level) bool      { return true }
-func (c noLevelCore) With([]zapcore.Field) zapcore.Core { return c }
-func (c noLevelCore) Check(e zapcore.Entry, ce *zapcore.CheckedEntry) *zapcore.CheckedEntry {
-	return ce.AddCore(e, c)
-}
-
-func (c noLevelCore) Write(entry zapcore.Entry, f []zapcore.Field) error {
-	if entry.Level >= c.l {
-		if b, err := c.enc.EncodeEntry(entry, f); err == nil {
-			c.t.Error(strings.Trim(b.String(), "\n"))
+// TestLogger creates a new zap.Logger meant to be used for tests. It only
+// prints logs when the tests fails, or the logger calls t.Error
+func TestLogger(t testing.TB) *zap.Logger {
+	writer := newTestingWriter(t)
+	t.Cleanup(func() {
+		defer writer.buf.Reset()
+		if t.Failed() {
+			for _, line := range writer.buf.Lines() {
+				// Strip trailing newline because t.Log always adds one.
+				t.Log(strings.TrimRight(line, "\n"))
+			}
 		}
-	}
-	return nil
+	})
+	return zap.New(
+		zapcore.NewCore(
+			zapcore.NewConsoleEncoder(zap.NewDevelopmentEncoderConfig()),
+			writer,
+			zapcore.InfoLevel,
+		),
+		zap.ErrorOutput(writer.withMarkFailed(true)),
+	)
 }
 
-func (noLevelCore) Sync() error { return nil }
+// testingWriter is a WriteSyncer that writes to the given testing.TB.
+type testingWriter struct {
+	t   testing.TB
+	buf *zaptest.Buffer
+	// If true, the test will be marked as failed.
+	markFailed bool
+}
+
+func newTestingWriter(t testing.TB) testingWriter {
+	return testingWriter{t: t, buf: new(zaptest.Buffer)}
+}
+
+// withMarkFailed returns a copy of this testingWriter with markFailed set to
+// the provided value.
+func (w testingWriter) withMarkFailed(v bool) testingWriter {
+	w.markFailed = v
+	return w
+}
+
+func (w testingWriter) Write(p []byte) (int, error) {
+	w.buf.Write(p)
+	if w.markFailed {
+		w.t.Fail()
+	}
+	return len(p), nil
+}
+
+func (w testingWriter) Sync() error { return w.buf.Sync() }

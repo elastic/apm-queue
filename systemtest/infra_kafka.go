@@ -180,7 +180,9 @@ func portforwardKafka(t testing.TB) string {
 // NewKafkaManager returns a new kafka.Manager for the configured broker.
 func NewKafkaManager(t testing.TB) (*kafka.Manager, error) {
 	return kafka.NewManager(kafka.ManagerConfig{
-		CommonConfig: KafkaCommonConfig(t),
+		CommonConfig: KafkaCommonConfig(t, kafka.CommonConfig{
+			Logger: defaultCfg.loggerF(t),
+		}),
 	})
 }
 
@@ -189,20 +191,17 @@ func NewKafkaManager(t testing.TB) (*kafka.Manager, error) {
 //
 // When Kafka is running in Kubernetes, this will take care of forwarding the
 // necessary port(s) to connect to the broker, and clean up on test completion.
-func KafkaCommonConfig(t testing.TB) kafka.CommonConfig {
-	commonConfig := kafka.CommonConfig{
-		Brokers: append([]string{}, kafkaBrokers...),
-		Logger:  logger().Desugar().Named("kafka"),
-	}
-	if len(commonConfig.Brokers) == 0 {
+func KafkaCommonConfig(t testing.TB, cfg kafka.CommonConfig) kafka.CommonConfig {
+	cfg.Brokers = append([]string{}, kafkaBrokers...)
+	if len(cfg.Brokers) == 0 {
 		brokerAddress := portforwardKafka(t)
 		tlsDialer := &tls.Dialer{
 			// running locally, should be fast
 			NetDialer: &net.Dialer{Timeout: time.Second},
 			Config:    &tls.Config{InsecureSkipVerify: true},
 		}
-		commonConfig.Brokers = []string{brokerAddress}
-		commonConfig.Dialer = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		cfg.Brokers = []string{brokerAddress}
+		cfg.Dialer = func(ctx context.Context, network, addr string) (net.Conn, error) {
 			// The advertised broker address is only reachable within
 			// the Kubernetes cluster; replace it with the localhost
 			// port-forwarded address.
@@ -210,7 +209,7 @@ func KafkaCommonConfig(t testing.TB) kafka.CommonConfig {
 			return tlsDialer.DialContext(ctx, network, addr)
 		}
 	}
-	return commonConfig
+	return cfg
 }
 
 func getEnvOrDefault(key, fallback string) string {
