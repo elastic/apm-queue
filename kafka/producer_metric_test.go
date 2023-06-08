@@ -20,7 +20,6 @@ package kafka
 import (
 	"context"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -63,7 +62,7 @@ func TestProducerMetrics(t *testing.T) {
 		producer, rdr := setupTestProducer(t)
 		want := metricdata.Metrics{
 			Name:        "producer.messages.errored",
-			Description: "The number messages that failed to be produced",
+			Description: "The number of messages that failed to be produced",
 			Unit:        "1",
 			Data: metricdata.Sum[int64]{
 				Temporality: metricdata.CumulativeTemporality,
@@ -87,7 +86,7 @@ func TestProducerMetrics(t *testing.T) {
 		producer, rdr := setupTestProducer(t)
 		want := metricdata.Metrics{
 			Name:        "producer.messages.errored",
-			Description: "The number messages that failed to be produced",
+			Description: "The number of messages that failed to be produced",
 			Unit:        "1",
 			Data: metricdata.Sum[int64]{
 				Temporality: metricdata.CumulativeTemporality,
@@ -111,7 +110,7 @@ func TestProducerMetrics(t *testing.T) {
 		producer, rdr := setupTestProducer(t)
 		want := metricdata.Metrics{
 			Name:        "producer.messages.errored",
-			Description: "The number messages that failed to be produced",
+			Description: "The number of messages that failed to be produced",
 			Unit:        "1",
 			Data: metricdata.Sum[int64]{
 				Temporality: metricdata.CumulativeTemporality,
