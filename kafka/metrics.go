@@ -39,9 +39,9 @@ const (
 )
 
 type instruments struct {
-	MessageProduced metric.Int64Counter
-	WriteErrors     metric.Int64Counter
-	WriteTimeout    metric.Int64Counter
+	messageProduced metric.Int64Counter
+	writeErrors     metric.Int64Counter
+	writeTimeout    metric.Int64Counter
 }
 
 type kgoHooks struct {
@@ -80,9 +80,9 @@ func NewKgoHooks(mp metric.MeterProvider) (*kgoHooks, error) {
 
 	return &kgoHooks{
 		instruments{
-			MessageProduced: messageProducedCounter,
-			WriteErrors:     writeErrorCounter,
-			WriteTimeout:    writeTimeoutCounter,
+			messageProduced: messageProducedCounter,
+			writeErrors:     writeErrorCounter,
+			writeTimeout:    writeTimeoutCounter,
 		},
 	}, nil
 }
@@ -94,19 +94,19 @@ func (h *kgoHooks) OnProduceRecordUnbuffered(r *kgo.Record, err error) {
 	)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
-			h.instruments.WriteTimeout.Add(
+			h.instruments.writeTimeout.Add(
 				context.Background(),
 				1,
 				metric.WithAttributeSet(attrs))
 		}
-		h.instruments.WriteErrors.Add(
+		h.instruments.writeErrors.Add(
 			context.Background(),
 			1,
 			metric.WithAttributeSet(attrs))
 		return
 	}
 
-	h.instruments.MessageProduced.Add(
+	h.instruments.messageProduced.Add(
 		context.Background(),
 		1,
 		metric.WithAttributeSet(attrs))
@@ -116,7 +116,7 @@ func (h *kgoHooks) OnProduceRecordUnbuffered(r *kgo.Record, err error) {
 // https://pkg.go.dev/github.com/twmb/franz-go/pkg/kgo#HookBrokerWrite
 func (h *kgoHooks) OnBrokerWrite(meta kgo.BrokerMetadata, _ int16, _ int, writeWait, _ time.Duration, err error) {
 	if err != nil {
-		h.instruments.WriteErrors.Add(
+		h.instruments.writeErrors.Add(
 			context.Background(),
 			1,
 			metric.WithAttributes(
