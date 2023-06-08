@@ -25,6 +25,7 @@ import (
 	"github.com/twmb/franz-go/pkg/kgo"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
+	semconv "go.opentelemetry.io/otel/semconv/v1.17.0"
 )
 
 const (
@@ -76,7 +77,7 @@ func newKgoHooks(mp metric.MeterProvider) (*kgoHooks, error) {
 
 // https://pkg.go.dev/github.com/twmb/franz-go/pkg/kgo#HookProduceRecordUnbuffered
 func (h *kgoHooks) OnProduceRecordUnbuffered(r *kgo.Record, err error) {
-	partition := attribute.Int("partition", int(r.Partition))
+	partition := semconv.MessagingKafkaDestinationPartition(int(r.Partition))
 	topic := attribute.String("topic", r.Topic)
 
 	if err != nil {

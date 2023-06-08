@@ -27,6 +27,7 @@ import (
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata/metricdatatest"
+	semconv "go.opentelemetry.io/otel/semconv/v1.17.0"
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 
@@ -72,7 +73,7 @@ func TestProducerMetrics(t *testing.T) {
 						Value: 3, Attributes: attribute.NewSet(
 							attribute.String("error", "timeout"),
 							attribute.String("topic", "default-topic"),
-							attribute.Int("partition", 0),
+							semconv.MessagingKafkaDestinationPartition(0),
 						),
 					},
 				},
@@ -96,7 +97,7 @@ func TestProducerMetrics(t *testing.T) {
 						Value: 3, Attributes: attribute.NewSet(
 							attribute.String("error", "canceled"),
 							attribute.String("topic", "default-topic"),
-							attribute.Int("partition", 0),
+							semconv.MessagingKafkaDestinationPartition(0),
 						),
 					},
 				},
@@ -121,7 +122,7 @@ func TestProducerMetrics(t *testing.T) {
 						Attributes: attribute.NewSet(
 							attribute.String("error", "other"),
 							attribute.String("topic", "default-topic"),
-							attribute.Int("partition", 0),
+							semconv.MessagingKafkaDestinationPartition(0),
 						),
 					},
 				},
@@ -144,7 +145,7 @@ func TestProducerMetrics(t *testing.T) {
 						Value: 3,
 						Attributes: attribute.NewSet(
 							attribute.String("topic", "default-topic"),
-							attribute.Int("partition", 0),
+							semconv.MessagingKafkaDestinationPartition(0),
 						),
 					},
 				},
