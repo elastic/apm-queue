@@ -34,9 +34,6 @@ import (
 	"github.com/elastic/apm-queue/codec/json"
 )
 
-// run this test with:
-// go test --tags=metrics -run
-// go test -v -run TestProducerMetrics --tags=metrics
 func TestProducerMetrics_deadlineExceeded(t *testing.T) {
 	producer, rdr := setupTestProducer(t)
 
@@ -53,7 +50,7 @@ func TestProducerMetrics_deadlineExceeded(t *testing.T) {
 	var rm metricdata.ResourceMetrics
 	assert.NoError(t, rdr.Collect(context.Background(), &rm))
 
-	metrics := extractMetrics(rm.ScopeMetrics)
+	metrics := extractMetrics(t, rm.ScopeMetrics)
 	assert.Len(t, metrics, 1)
 	metric := metrics[0]
 
@@ -77,13 +74,15 @@ func TestProducerMetrics_produced(t *testing.T) {
 
 	err := producer.ProcessBatch(ctx, &model.Batch{
 		model.APMEvent{Transaction: &model.Transaction{ID: "1"}},
+		model.APMEvent{Transaction: &model.Transaction{ID: "2"}},
+		model.APMEvent{Span: &model.Span{ID: "3"}},
 	})
 	assert.NoError(t, err)
 
 	var rm metricdata.ResourceMetrics
 	assert.NoError(t, rdr.Collect(context.Background(), &rm))
 
-	metrics := extractMetrics(rm.ScopeMetrics)
+	metrics := extractMetrics(t, rm.ScopeMetrics)
 	assert.Len(t, metrics, 1)
 	metric := metrics[0]
 
@@ -91,7 +90,7 @@ func TestProducerMetrics_produced(t *testing.T) {
 		Name: "message.produced",
 		Data: metricdata.Sum[int64]{
 			DataPoints: []metricdata.DataPoint[int64]{
-				{Value: 1},
+				{Value: 3},
 			},
 		},
 	}
@@ -99,7 +98,9 @@ func TestProducerMetrics_produced(t *testing.T) {
 	testMetric(t, want, metric)
 }
 
-func extractMetrics(sm []metricdata.ScopeMetrics) []metricdata.Metrics {
+func extractMetrics(t *testing.T, sm []metricdata.ScopeMetrics) []metricdata.Metrics {
+	t.Helper()
+
 	for _, m := range sm {
 		if m.Scope.Name == instrumentName {
 			return m.Metrics
@@ -110,6 +111,8 @@ func extractMetrics(sm []metricdata.ScopeMetrics) []metricdata.Metrics {
 }
 
 func testMetric(t *testing.T, want metricdata.Metrics, actual metricdata.Metrics) {
+	t.Helper()
+
 	assert.Equal(t, want.Name, actual.Name)
 
 	wantValue := want.Data.(metricdata.Sum[int64]).DataPoints[0].Value
@@ -118,6 +121,8 @@ func testMetric(t *testing.T, want metricdata.Metrics, actual metricdata.Metrics
 }
 
 func setupTestProducer(t *testing.T) (*Producer, sdkmetric.Reader) {
+	t.Helper()
+
 	rdr := sdkmetric.NewManualReader()
 	mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(rdr))
 
