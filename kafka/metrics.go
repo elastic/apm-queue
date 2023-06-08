@@ -37,16 +37,12 @@ const (
 	messageErroredCounterKey  = "producer.messages.errored"
 )
 
-type instruments struct {
+type metricHooks struct {
 	messageProduced metric.Int64Counter
 	messageErrored  metric.Int64Counter
 }
 
-type kgoHooks struct {
-	instruments instruments
-}
-
-func newKgoHooks(mp metric.MeterProvider) (*kgoHooks, error) {
+func newKgoHooks(mp metric.MeterProvider) (*metricHooks, error) {
 	m := mp.Meter(instrumentName)
 
 	messageProducedCounter, err := m.Int64Counter(
@@ -67,16 +63,14 @@ func newKgoHooks(mp metric.MeterProvider) (*kgoHooks, error) {
 		return nil, fmt.Errorf("cannot create %s metric: %w", messageErroredCounterKey, err)
 	}
 
-	return &kgoHooks{
-		instruments: instruments{
-			messageProduced: messageProducedCounter,
-			messageErrored:  messageErroredCounter,
-		},
+	return &metricHooks{
+		messageProduced: messageProducedCounter,
+		messageErrored:  messageErroredCounter,
 	}, nil
 }
 
 // https://pkg.go.dev/github.com/twmb/franz-go/pkg/kgo#HookProduceRecordUnbuffered
-func (h *kgoHooks) OnProduceRecordUnbuffered(r *kgo.Record, err error) {
+func (h *metricHooks) OnProduceRecordUnbuffered(r *kgo.Record, err error) {
 	partition := semconv.MessagingKafkaDestinationPartition(int(r.Partition))
 	topic := semconv.MessagingDestinationName(r.Topic)
 
@@ -89,13 +83,13 @@ func (h *kgoHooks) OnProduceRecordUnbuffered(r *kgo.Record, err error) {
 			errorType = attribute.String("error", "canceled")
 		}
 
-		h.instruments.messageErrored.Add(context.Background(), 1,
+		h.messageErrored.Add(context.Background(), 1,
 			metric.WithAttributes(partition, topic, errorType),
 		)
 		return
 	}
 
-	h.instruments.messageProduced.Add(context.Background(), 1,
+	h.messageProduced.Add(context.Background(), 1,
 		metric.WithAttributes(partition, topic))
 
 }
