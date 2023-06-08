@@ -33,12 +33,12 @@ const (
 	unitCount = "1"
 
 	messageProducedCounterKey = "producer.messages.produced"
-	writeErrorCounterKey      = "producer.messages.errored"
+	messageErroredCounterKey  = "producer.messages.errored"
 )
 
 type instruments struct {
 	messageProduced metric.Int64Counter
-	writeErrors     metric.Int64Counter
+	messageErrored  metric.Int64Counter
 }
 
 type kgoHooks struct {
@@ -57,19 +57,19 @@ func newKgoHooks(mp metric.MeterProvider) (*kgoHooks, error) {
 		return nil, fmt.Errorf("cannot create %s metric: %w", messageProducedCounterKey, err)
 	}
 
-	writeErrorCounter, err := m.Int64Counter(
-		writeErrorCounterKey,
+	messageErroredCounter, err := m.Int64Counter(
+		messageErroredCounterKey,
 		metric.WithDescription("The total number of error occurred on write"),
 		metric.WithUnit(unitCount),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("cannot create %s metric: %w", writeErrorCounterKey, err)
+		return nil, fmt.Errorf("cannot create %s metric: %w", messageErroredCounterKey, err)
 	}
 
 	return &kgoHooks{
 		instruments: instruments{
 			messageProduced: messageProducedCounter,
-			writeErrors:     writeErrorCounter,
+			messageErrored:  messageErroredCounter,
 		},
 	}, nil
 }
@@ -88,7 +88,7 @@ func (h *kgoHooks) OnProduceRecordUnbuffered(r *kgo.Record, err error) {
 			errorType = attribute.String("error", "canceled")
 		}
 
-		h.instruments.writeErrors.Add(context.Background(), 1,
+		h.instruments.messageErrored.Add(context.Background(), 1,
 			metric.WithAttributes(partition, topic, errorType),
 		)
 		return
