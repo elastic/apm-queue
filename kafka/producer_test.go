@@ -37,6 +37,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata/metricdatatest"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.opentelemetry.io/otel/trace"
@@ -397,28 +398,74 @@ func TestProducerMetrics(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, producer)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
-	defer cancel()
+	t.Run("deadline exceeded", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), 0*time.Second)
+		defer cancel()
 
-	err = producer.ProcessBatch(ctx, &model.Batch{
-		model.APMEvent{Transaction: &model.Transaction{ID: "1"}},
+		err = producer.ProcessBatch(ctx, &model.Batch{
+			model.APMEvent{Transaction: &model.Transaction{ID: "1"}},
+		})
+		assert.NoError(t, err)
+
+		var rm metricdata.ResourceMetrics
+		assert.NoError(t, rdr.Collect(context.Background(), &rm))
+
+		metric := rm.ScopeMetrics[1].Metrics[1]
+		want := metricdata.Metrics{
+			Name:        "write.timeout.count",
+			Description: "The total number of messages not produced due to timeout",
+			Unit:        "1",
+			Data: metricdata.Sum[int64]{
+				Temporality: metricdata.CumulativeTemporality,
+				IsMonotonic: true,
+				DataPoints: []metricdata.DataPoint[int64]{
+					{
+						Attributes: attribute.NewSet(
+							attribute.Int("partition", 0),
+							attribute.String("topic", "default-topic"),
+						),
+						Value: 1,
+					},
+				},
+			},
+		}
+
+		metricdatatest.AssertEqual(t, want, metric, metricdatatest.IgnoreTimestamp())
 	})
-	assert.NoError(t, err)
 
-	// batch := &model.Batch{
-	// 	{Transaction: &model.Transaction{ID: "1"}},
-	// 	{Transaction: &model.Transaction{ID: "2"}},
-	// }
-	// err = p.ProcessBatch(ctx, batch)
-	// require.NoError(t, err)
+	t.Run("produced", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
 
-	var rm metricdata.ResourceMetrics
-	assert.NoError(t, rdr.Collect(context.Background(), &rm))
-	fmt.Println(len(rm.ScopeMetrics))
-	asd := rm.ScopeMetrics[0]
-	fmt.Println(asd)
-	// metric := rm.ScopeMetrics[0].Metrics[0]
-	// fmt.Println(rm.ScopeMetrics[0])
-	runtime.Breakpoint()
-	// fmt.Println(metric)
+		err = producer.ProcessBatch(ctx, &model.Batch{
+			model.APMEvent{Transaction: &model.Transaction{ID: "1"}},
+		})
+		assert.NoError(t, err)
+
+		var rm metricdata.ResourceMetrics
+		assert.NoError(t, rdr.Collect(context.Background(), &rm))
+		runtime.Breakpoint()
+
+		metric := rm.ScopeMetrics[1].Metrics[0]
+		want := metricdata.Metrics{
+			Name:        "message.produced.count",
+			Description: metric.Description,
+			Unit:        metric.Unit,
+			Data: metricdata.Sum[int64]{
+				Temporality: metricdata.CumulativeTemporality,
+				IsMonotonic: true,
+				DataPoints: []metricdata.DataPoint[int64]{
+					{
+						Attributes: attribute.NewSet(
+							attribute.Int("partition", 1),
+							attribute.String("topic", "default-topic"),
+						),
+						Value: 1,
+					},
+				},
+			},
+		}
+
+		metricdatatest.AssertEqual(t, want, metric, metricdatatest.IgnoreTimestamp())
+	})
 }
