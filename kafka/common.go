@@ -192,7 +192,10 @@ func (cfg *CommonConfig) newClient(additionalOpts ...kgo.Opt) (*kgo.Client, erro
 			kotel.WithTracer(kotel.NewTracer(kotel.TracerProvider(cfg.tracerProvider()))),
 			kotel.WithMeter(kotel.NewMeter(kotel.MeterProvider(cfg.meterProvider()))),
 		)
-		opts = append(opts, kgo.WithHooks(kotelService.Hooks()...))
+		opts = append(opts,
+			kgo.WithHooks(NewKgoHooks(cfg.meterProvider())),
+			kgo.WithHooks(kotelService.Hooks()...),
+		)
 	}
 	client, err := kgo.NewClient(opts...)
 	if err != nil {
