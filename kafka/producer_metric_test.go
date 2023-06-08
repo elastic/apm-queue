@@ -55,7 +55,7 @@ func TestProducerMetrics_deadlineExceeded(t *testing.T) {
 	metric := metrics[0]
 
 	want := metricdata.Metrics{
-		Name: "write.error",
+		Name: "producer.messages.error",
 		Data: metricdata.Sum[int64]{
 			DataPoints: []metricdata.DataPoint[int64]{
 				{Value: 3},
@@ -87,7 +87,7 @@ func TestProducerMetrics_produced(t *testing.T) {
 	metric := metrics[0]
 
 	want := metricdata.Metrics{
-		Name: "message.produced",
+		Name: "producer.messages.produced",
 		Data: metricdata.Sum[int64]{
 			DataPoints: []metricdata.DataPoint[int64]{
 				{Value: 3},
