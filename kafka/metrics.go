@@ -35,13 +35,11 @@ const (
 
 	messageProducedCounterKey = "message.produced"
 	writeErrorCounterKey      = "write.error"
-	writeTimeoutCounterKey    = "write.timeout"
 )
 
 type instruments struct {
 	messageProduced metric.Int64Counter
 	writeErrors     metric.Int64Counter
-	writeTimeout    metric.Int64Counter
 }
 
 type kgoHooks struct {
@@ -69,47 +67,40 @@ func NewKgoHooks(mp metric.MeterProvider) (*kgoHooks, error) {
 		return nil, fmt.Errorf("cannot create %s metric: %w", writeErrorCounterKey, err)
 	}
 
-	writeTimeoutCounter, err := m.Int64Counter(
-		writeTimeoutCounterKey,
-		metric.WithDescription("The total number of messages not produced due to timeout"),
-		metric.WithUnit(unitCount),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("cannot create %s metric: %w", writeTimeoutCounterKey, err)
-	}
-
 	return &kgoHooks{
 		instruments{
 			messageProduced: messageProducedCounter,
 			writeErrors:     writeErrorCounter,
-			writeTimeout:    writeTimeoutCounter,
 		},
 	}, nil
 }
 
 func (h *kgoHooks) OnProduceRecordUnbuffered(r *kgo.Record, err error) {
-	attrs := attribute.NewSet(
-		attribute.Int("partition", int(r.Partition)),
-		attribute.String("topic", r.Topic),
-	)
+	partitionDimension := attribute.Int("partition", int(r.Partition))
+	topicDimension := attribute.String("topic", r.Topic)
+
 	if err != nil {
+		errorDimension := attribute.String("error", "other")
+
 		if errors.Is(err, context.DeadlineExceeded) {
-			h.instruments.writeTimeout.Add(
-				context.Background(),
-				1,
-				metric.WithAttributeSet(attrs))
+			errorDimension = attribute.String("error", "timeout")
 		}
+		if errors.Is(err, context.Canceled) {
+			errorDimension = attribute.String("error", "cancelled")
+		}
+
 		h.instruments.writeErrors.Add(
 			context.Background(),
 			1,
-			metric.WithAttributeSet(attrs))
+			metric.WithAttributes(partitionDimension, topicDimension, errorDimension),
+		)
 		return
 	}
 
 	h.instruments.messageProduced.Add(
 		context.Background(),
 		1,
-		metric.WithAttributeSet(attrs))
+		metric.WithAttributes(partitionDimension, topicDimension))
 
 }
 
