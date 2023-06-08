@@ -91,9 +91,16 @@ func (p *Producer) Stop() { p.client.Stop() }
 
 // Publish wraps the pubsublite publish action with traces and metrics.
 func (p *Producer) Publish(ctx context.Context, msg *pubsub.Message) pubsubabs.PublishResult {
+	attrs := p.attrs
+	if len(msg.Attributes) > 0 {
+		attrs = make([]attribute.KeyValue, 0, len(p.attrs)+len(msg.Attributes))
+		for key, v := range msg.Attributes {
+			attrs = append(attrs, attribute.String(key, v))
+		}
+	}
 	ctx, span := p.tracer.Start(ctx, "pubsublite.Publish",
 		trace.WithSpanKind(trace.SpanKindProducer),
-		trace.WithAttributes(p.attrs...),
+		trace.WithAttributes(attrs...),
 	)
 	if msg.Attributes == nil {
 		msg.Attributes = make(map[string]string)
@@ -110,12 +117,12 @@ func (p *Producer) Publish(ctx context.Context, msg *pubsub.Message) pubsubabs.P
 			span.RecordError(err)
 			span.SetStatus(codes.Error, err.Error())
 			p.metrics.errored.Add(ctx, 1, metric.WithAttributes(
-				p.attrs...,
+				attrs...,
 			))
 		} else {
 			span.SetStatus(codes.Ok, "success")
 			p.metrics.produced.Add(ctx, 1, metric.WithAttributes(
-				p.attrs...,
+				attrs...,
 			))
 		}
 		span.End()
