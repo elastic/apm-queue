@@ -27,7 +27,7 @@ func NewKgoHooks(mp metric.MeterProvider) *kgoHooks {
 	m := mp.Meter(instrumentName)
 
 	a, err := m.Int64Counter(
-		"message.produced",
+		"message.produced.count",
 		metric.WithDescription("The total number of message produced"),
 		metric.WithUnit(unitCount),
 	)
