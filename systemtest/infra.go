@@ -18,37 +18,22 @@
 package systemtest
 
 import (
+	"context"
 	"fmt"
 	"math/rand"
 	"strings"
-	"sync"
 	"time"
 
 	apmqueue "github.com/elastic/apm-queue"
 )
 
-var destroyMu sync.Mutex
-var destroyFuncs map[string]func()
+// ProvisionInfraFunc is a function returned by Init* functions for
+// provisioning infrastructure.
+type ProvisionInfraFunc func(context.Context) error
 
-// RegisterDestroy registers a cleanup or destroy function to be run after the
-// tests have been run.
-func RegisterDestroy(key string, f func()) {
-	destroyMu.Lock()
-	defer destroyMu.Unlock()
-	if destroyFuncs == nil {
-		destroyFuncs = make(map[string]func())
-	}
-	destroyFuncs[key] = f
-}
-
-// Destroy runs all the registered destroy hooks.
-func Destroy() {
-	destroyMu.Lock()
-	defer destroyMu.Unlock()
-	for _, f := range destroyFuncs {
-		f()
-	}
-}
+// DestroyInfraFunc is a function returned by Init* functions for
+// destroying infrastructure.
+type DestroyInfraFunc func(context.Context) error
 
 var persistentSuffix string
 

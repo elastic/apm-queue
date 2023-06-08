@@ -46,36 +46,32 @@ var (
 	kafkaClusterName = "kafka"
 )
 
-// ProvisionKafka provisions a Kafka cluster in the current Kubernetes
-// context, and configures Kafka clients to communicate with the broker
-// by forwarding the necessary port(s).
+// InitKafka initialises Kafka configuration, and returns a pair of
+// functions for provisioning and destroying a Kafka cluster.
 //
-// If KAFKA_BROKERS is set, provisioning is skipped and Kafka clients
-// will be configured to communicate with those brokers.
-func ProvisionKafka(ctx context.Context) error {
+// If KAFKA_BROKERS is set, provisioning and destroying are skipped,
+// and Kafka clients will be configured to communicate with those brokers.
+func InitKafka() (ProvisionInfraFunc, DestroyInfraFunc, error) {
 	if brokers := os.Getenv("KAFKA_BROKERS"); brokers != "" {
 		logger().Infof("KAFKA_BROKERS is set (%q), skipping Kafka cluster provisioning", brokers)
 		kafkaBrokers = strings.Split(brokers, ",")
-		return nil
+		nop := func(context.Context) error { return nil }
+		return nop, nil, nil
 	}
-
 	if v := os.Getenv("KAFKA_NAME"); v != "" {
 		kafkaClusterName = v
 	}
 	if v := os.Getenv("KAFKA_NAMESPACE"); v != "" {
 		kafkaNamespace = v
 	}
+	logger().Infof("managing Kafka cluster %q in namespace %q", kafkaClusterName, kafkaNamespace)
+	return ProvisionKafka, DestroyKafka, nil
+}
 
-	logger().Infof("provisioning Kafka cluster %q in namespace %q", kafkaClusterName, kafkaNamespace)
-	RegisterDestroy("strimzi", func() {
-		logger().Info("destroying provisioned Kafka infrastructure...")
-		if err := execCommand(context.Background(),
-			"kubectl", "delete", "--ignore-not-found", "namespace", kafkaNamespace,
-		); err != nil {
-			logger().Errorf("error deleting Kafka namespace %q: %w", kafkaNamespace, err)
-		}
-	})
-
+// ProvisionKafka provisions a Kafka cluster in the current Kubernetes
+// context, and configures Kafka clients to communicate with the broker
+// by forwarding the necessary port(s).
+func ProvisionKafka(ctx context.Context) error {
 	// Create Kafka cluster. This assumes Strimzi is already installed in the cluster.
 	if err := execCommand(ctx,
 		"helm", "upgrade", "--install", "--wait",
@@ -97,8 +93,14 @@ func ProvisionKafka(ctx context.Context) error {
 	); err != nil {
 		return fmt.Errorf("error waiting for Kafka broker to be provisioned by Strimzi: %w", err)
 	}
+	return nil
+}
 
-	logger().Info("Kafka infastructure fully provisioned!")
+// DestroyKafka destroys a Kafka cluster in the current Kubernetes context.
+func DestroyKafka(ctx context.Context) error {
+	if err := execCommand(ctx, "kubectl", "delete", "--ignore-not-found", "namespace", kafkaNamespace); err != nil {
+		return fmt.Errorf("error deleting Kafka namespace %q: %w", kafkaNamespace, err)
+	}
 	return nil
 }
 
