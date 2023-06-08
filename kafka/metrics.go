@@ -63,33 +63,28 @@ func NewKgoHooks(mp metric.MeterProvider) *kgoHooks {
 }
 
 func (h *kgoHooks) OnProduceRecordUnbuffered(r *kgo.Record, err error) {
+	attrs := attribute.NewSet(
+		attribute.Int("partition", int(r.Partition)),
+		attribute.String("topic", r.Topic),
+	)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
 			h.instruments.WriteTimeout.Add(
 				context.Background(),
 				1,
-				metric.WithAttributes(
-					attribute.Int("partition", int(r.Partition)),
-					attribute.String("topic", r.Topic),
-				))
+				metric.WithAttributeSet(attrs))
 		}
 		h.instruments.WriteErrors.Add(
 			context.Background(),
 			1,
-			metric.WithAttributes(
-				attribute.Int("partition", int(r.Partition)),
-				attribute.String("topic", r.Topic),
-			))
+			metric.WithAttributeSet(attrs))
 		return
 	}
 
 	h.instruments.MessageProduced.Add(
 		context.Background(),
 		1,
-		metric.WithAttributes(
-			attribute.Int("partition", int(r.Partition)),
-			attribute.String("topic", r.Topic),
-		))
+		metric.WithAttributeSet(attrs))
 
 }
 
