@@ -94,7 +94,6 @@ func TestProducerMetrics(t *testing.T) {
 		}
 
 		assert.True(t, cmp.Equal(want, metric, opt))
-		// metricdatatest.AssertEqual(t, want, metric, metricdatatest.IgnoreTimestamp())
 	})
 
 	t.Run("produced", func(t *testing.T) {
