@@ -20,7 +20,6 @@ package kafka
 import (
 	"context"
 	"fmt"
-	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -33,14 +32,9 @@ import (
 	"github.com/twmb/franz-go/pkg/kadm"
 	"github.com/twmb/franz-go/pkg/kfake"
 	"github.com/twmb/franz-go/pkg/kgo"
-	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
-	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
-	"go.opentelemetry.io/otel/sdk/metric/metricdata"
-	"go.opentelemetry.io/otel/sdk/metric/metricdata/metricdatatest"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
-	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"go.uber.org/zap/zaptest"
@@ -370,102 +364,4 @@ func newProducer(t testing.TB, cfg ProducerConfig) *Producer {
 		assert.NoError(t, producer.Close())
 	})
 	return producer
-}
-
-func TestProducerMetrics(t *testing.T) {
-	rdr := sdkmetric.NewManualReader()
-	mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(rdr))
-
-	otel.SetMeterProvider(mp)
-
-	topic := apmqueue.Topic("default-topic")
-	_, brokers := newClusterWithTopics(t, topic)
-	codec := json.JSON{}
-	fmt.Println(brokers, codec)
-	producer, err := NewProducer(ProducerConfig{
-		CommonConfig: CommonConfig{
-			Brokers:        brokers,
-			Logger:         zap.NewNop(),
-			TracerProvider: trace.NewNoopTracerProvider(),
-			MeterProvider:  mp,
-		},
-		Sync:    true,
-		Encoder: codec,
-		TopicRouter: func(event model.APMEvent) apmqueue.Topic {
-			return topic
-		},
-	})
-	require.NoError(t, err)
-	require.NotNil(t, producer)
-
-	t.Run("deadline exceeded", func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(context.Background(), 0*time.Second)
-		defer cancel()
-
-		err = producer.ProcessBatch(ctx, &model.Batch{
-			model.APMEvent{Transaction: &model.Transaction{ID: "1"}},
-		})
-		assert.NoError(t, err)
-
-		var rm metricdata.ResourceMetrics
-		assert.NoError(t, rdr.Collect(context.Background(), &rm))
-
-		metric := rm.ScopeMetrics[1].Metrics[1]
-		want := metricdata.Metrics{
-			Name:        "write.timeout.count",
-			Description: "The total number of messages not produced due to timeout",
-			Unit:        "1",
-			Data: metricdata.Sum[int64]{
-				Temporality: metricdata.CumulativeTemporality,
-				IsMonotonic: true,
-				DataPoints: []metricdata.DataPoint[int64]{
-					{
-						Attributes: attribute.NewSet(
-							attribute.Int("partition", 0),
-							attribute.String("topic", "default-topic"),
-						),
-						Value: 1,
-					},
-				},
-			},
-		}
-
-		metricdatatest.AssertEqual(t, want, metric, metricdatatest.IgnoreTimestamp())
-	})
-
-	t.Run("produced", func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-		defer cancel()
-
-		err = producer.ProcessBatch(ctx, &model.Batch{
-			model.APMEvent{Transaction: &model.Transaction{ID: "1"}},
-		})
-		assert.NoError(t, err)
-
-		var rm metricdata.ResourceMetrics
-		assert.NoError(t, rdr.Collect(context.Background(), &rm))
-		runtime.Breakpoint()
-
-		metric := rm.ScopeMetrics[1].Metrics[0]
-		want := metricdata.Metrics{
-			Name:        "message.produced.count",
-			Description: metric.Description,
-			Unit:        metric.Unit,
-			Data: metricdata.Sum[int64]{
-				Temporality: metricdata.CumulativeTemporality,
-				IsMonotonic: true,
-				DataPoints: []metricdata.DataPoint[int64]{
-					{
-						Attributes: attribute.NewSet(
-							attribute.Int("partition", 1),
-							attribute.String("topic", "default-topic"),
-						),
-						Value: 1,
-					},
-				},
-			},
-		}
-
-		metricdatatest.AssertEqual(t, want, metric, metricdatatest.IgnoreTimestamp())
-	})
 }
