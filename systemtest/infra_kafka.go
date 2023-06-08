@@ -20,8 +20,8 @@ package systemtest
 import (
 	"bytes"
 	"context"
-	"crypto/tls"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -41,9 +41,8 @@ import (
 )
 
 var (
-	kafkaBrokers     []string
-	kafkaNamespace   = "kafka"
-	kafkaClusterName = "kafka"
+	kafkaBrokers   []string
+	kafkaNamespace = "kafka"
 )
 
 // InitKafka initialises Kafka configuration, and returns a pair of
@@ -58,40 +57,39 @@ func InitKafka() (ProvisionInfraFunc, DestroyInfraFunc, error) {
 		nop := func(context.Context) error { return nil }
 		return nop, nil, nil
 	}
-	if v := os.Getenv("KAFKA_NAME"); v != "" {
-		kafkaClusterName = v
-	}
 	if v := os.Getenv("KAFKA_NAMESPACE"); v != "" {
 		kafkaNamespace = v
 	}
-	logger().Infof("managing Kafka cluster %q in namespace %q", kafkaClusterName, kafkaNamespace)
+	logger().Infof("managing Redpanda in namespace %q", kafkaNamespace)
 	return ProvisionKafka, DestroyKafka, nil
 }
 
-// ProvisionKafka provisions a Kafka cluster in the current Kubernetes
-// context, and configures Kafka clients to communicate with the broker
-// by forwarding the necessary port(s).
+// ProvisionKafka provisions Redpanda in the current Kubernetes context,
+// and configures Kafka clients to communicate with the broker by forwarding
+// the necessary port(s).
 func ProvisionKafka(ctx context.Context) error {
-	// Create Kafka cluster. This assumes Strimzi is already installed in the cluster.
-	if err := execCommand(ctx,
-		"helm", "upgrade", "--install", "--wait",
-		"--create-namespace",
-		"--namespace", kafkaNamespace,
-		"--set", "name="+kafkaClusterName,
-		"--set", "namespace="+kafkaNamespace,
-		"--set", "topicOperator=null",
-		kafkaClusterName, "../infra/k8s/kafka",
-	); err != nil {
+	// Create the namespace if it doesn't already exist.
+	namespaceYAML := fmt.Sprintf(`
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: %q
+`, kafkaNamespace)
+	if err := execCommandStdin(ctx, strings.NewReader(namespaceYAML), "kubectl", "apply", "-f", "-"); err != nil {
+		return fmt.Errorf("failed to create Kafka namespace: %w", err)
+	}
+	if err := execCommand(ctx, "kubectl", "apply", "-n", kafkaNamespace, "-f", "redpanda.yaml"); err != nil {
 		return fmt.Errorf("failed to create Kafka cluster: %w", err)
 	}
-	logger().Info("waiting for Kafka cluster to be ready...")
+
+	logger().Info("waiting for Redpanda to be ready...")
 	if err := execCommand(ctx,
 		"kubectl", "--namespace", kafkaNamespace,
 		"wait", "--timeout=240s",
 		"--for=condition=Ready=True",
-		"kafka", kafkaClusterName,
+		"pod/redpanda",
 	); err != nil {
-		return fmt.Errorf("error waiting for Kafka broker to be provisioned by Strimzi: %w", err)
+		return fmt.Errorf("error waiting for Redpanda broker to be ready: %w", err)
 	}
 	return nil
 }
@@ -132,10 +130,15 @@ func CreateKafkaTopics(ctx context.Context, t testing.TB, topics ...apmqueue.Top
 }
 
 func execCommand(ctx context.Context, command string, args ...string) error {
+	return execCommandStdin(ctx, nil, command, args...)
+}
+
+func execCommandStdin(ctx context.Context, stdin io.Reader, command string, args ...string) error {
 	var buf bytes.Buffer
 	cmd := exec.CommandContext(ctx, command, args...)
 	cmd.Stdout = &buf
 	cmd.Stderr = &buf
+	cmd.Stdin = stdin
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf(
 			"%s command failed: %w (%s)",
@@ -145,15 +148,14 @@ func execCommand(ctx context.Context, command string, args ...string) error {
 	return nil
 }
 
-// portforwardKafka forwards an ephemeral port to the Kafka broker running
+// portforwardKafka forwards an ephemeral port to the Redpanda broker running
 // in Kubernetes, and returns the localhost address.
 func portforwardKafka(t testing.TB) string {
 	var wg sync.WaitGroup
 	stopCh := make(chan struct{})
 	pfReq := portforwarder.Request{
-		KubeCfg: getEnvOrDefault("KUBE_CONFIG_PATH", "~/.kube/config"),
-		// NOTE(marclop) this service name assumes we're using the Strimzi operator
-		ServiceName: fmt.Sprintf("%s-kafka-bootstrap", kafkaClusterName),
+		KubeCfg:     getEnvOrDefault("KUBE_CONFIG_PATH", "~/.kube/config"),
+		Pod:         "redpanda",
 		Namespace:   kafkaNamespace,
 		PortMapping: "0:9093",
 	}
@@ -197,18 +199,14 @@ func KafkaCommonConfig(t testing.TB, cfg kafka.CommonConfig) kafka.CommonConfig 
 	cfg.Brokers = append([]string{}, kafkaBrokers...)
 	if len(cfg.Brokers) == 0 {
 		brokerAddress := portforwardKafka(t)
-		tlsDialer := &tls.Dialer{
-			// running locally, should be fast
-			NetDialer: &net.Dialer{Timeout: time.Second},
-			Config:    &tls.Config{InsecureSkipVerify: true},
-		}
+		netDialer := &net.Dialer{Timeout: 10 * time.Second}
 		cfg.Brokers = []string{brokerAddress}
 		cfg.Dialer = func(ctx context.Context, network, addr string) (net.Conn, error) {
 			// The advertised broker address is only reachable within
 			// the Kubernetes cluster; replace it with the localhost
 			// port-forwarded address.
 			addr = brokerAddress
-			return tlsDialer.DialContext(ctx, network, addr)
+			return netDialer.DialContext(ctx, network, addr)
 		}
 	}
 	return cfg
