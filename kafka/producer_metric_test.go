@@ -24,8 +24,10 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel/attribute"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata/metricdatatest"
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 
@@ -54,11 +56,104 @@ func TestProducerMetrics_deadlineExceeded(t *testing.T) {
 	assert.Len(t, metrics, 1)
 	metric := metrics[0]
 
+	attrs := attribute.NewSet(
+		attribute.String("error", "timeout"),
+		attribute.String("topic", "default-topic"),
+		attribute.Int("partition", 0),
+	)
 	want := metricdata.Metrics{
-		Name: "producer.messages.error",
+		Name:        "producer.messages.error",
+		Description: "The total number of error occurred on write",
+		Unit:        "1",
 		Data: metricdata.Sum[int64]{
+			Temporality: metricdata.CumulativeTemporality,
+			IsMonotonic: true,
 			DataPoints: []metricdata.DataPoint[int64]{
-				{Value: 3},
+				{Value: 3, Attributes: attrs},
+			},
+		},
+	}
+
+	testMetric(t, want, metric)
+}
+
+func TestProducerMetrics_contextCanceled(t *testing.T) {
+	producer, rdr := setupTestProducer(t)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err := producer.ProcessBatch(ctx, &model.Batch{
+		model.APMEvent{Transaction: &model.Transaction{ID: "1"}},
+		model.APMEvent{Transaction: &model.Transaction{ID: "2"}},
+		model.APMEvent{Span: &model.Span{ID: "3"}},
+	})
+	assert.NoError(t, err)
+
+	var rm metricdata.ResourceMetrics
+	assert.NoError(t, rdr.Collect(context.Background(), &rm))
+
+	metrics := extractMetrics(t, rm.ScopeMetrics)
+	assert.Len(t, metrics, 1)
+	metric := metrics[0]
+
+	attrs := attribute.NewSet(
+		attribute.String("error", "canceled"),
+		attribute.String("topic", "default-topic"),
+		attribute.Int("partition", 0),
+	)
+	want := metricdata.Metrics{
+		Name:        "producer.messages.error",
+		Description: "The total number of error occurred on write",
+		Unit:        "1",
+		Data: metricdata.Sum[int64]{
+			Temporality: metricdata.CumulativeTemporality,
+			IsMonotonic: true,
+			DataPoints: []metricdata.DataPoint[int64]{
+				{Value: 3, Attributes: attrs},
+			},
+		},
+	}
+
+	testMetric(t, want, metric)
+}
+
+func TestProducerMetrics_otherError(t *testing.T) {
+	producer, rdr := setupTestProducer(t)
+
+	ctx := context.Background()
+
+	err := producer.Close()
+	require.Nil(t, err)
+
+	err = producer.ProcessBatch(ctx, &model.Batch{
+		model.APMEvent{Transaction: &model.Transaction{ID: "1"}},
+		model.APMEvent{Transaction: &model.Transaction{ID: "2"}},
+		model.APMEvent{Span: &model.Span{ID: "3"}},
+	})
+	assert.NoError(t, err)
+
+	var rm metricdata.ResourceMetrics
+	assert.NoError(t, rdr.Collect(context.Background(), &rm))
+
+	metrics := extractMetrics(t, rm.ScopeMetrics)
+	assert.Len(t, metrics, 1)
+	metric := metrics[0]
+
+	attrs := attribute.NewSet(
+		attribute.String("error", "other"),
+		attribute.String("topic", "default-topic"),
+		attribute.Int("partition", 0),
+	)
+	want := metricdata.Metrics{
+		Name:        "producer.messages.error",
+		Description: "The total number of error occurred on write",
+		Unit:        "1",
+		Data: metricdata.Sum[int64]{
+			Temporality: metricdata.CumulativeTemporality,
+			IsMonotonic: true,
+			DataPoints: []metricdata.DataPoint[int64]{
+				{Value: 3, Attributes: attrs},
 			},
 		},
 	}
@@ -86,11 +181,19 @@ func TestProducerMetrics_produced(t *testing.T) {
 	assert.Len(t, metrics, 1)
 	metric := metrics[0]
 
+	attrs := attribute.NewSet(
+		attribute.String("topic", "default-topic"),
+		attribute.Int("partition", 0),
+	)
 	want := metricdata.Metrics{
-		Name: "producer.messages.produced",
+		Name:        "producer.messages.produced",
+		Description: "The total number of message produced",
+		Unit:        "1",
 		Data: metricdata.Sum[int64]{
+			Temporality: metricdata.CumulativeTemporality,
+			IsMonotonic: true,
 			DataPoints: []metricdata.DataPoint[int64]{
-				{Value: 3},
+				{Value: 3, Attributes: attrs},
 			},
 		},
 	}
@@ -113,11 +216,8 @@ func extractMetrics(t *testing.T, sm []metricdata.ScopeMetrics) []metricdata.Met
 func testMetric(t *testing.T, want metricdata.Metrics, actual metricdata.Metrics) {
 	t.Helper()
 
-	assert.Equal(t, want.Name, actual.Name)
-
-	wantValue := want.Data.(metricdata.Sum[int64]).DataPoints[0].Value
-	metricValue := actual.Data.(metricdata.Sum[int64]).DataPoints[0].Value
-	assert.Equal(t, wantValue, metricValue)
+	metricdatatest.AssertEqual(t, want, actual,
+		metricdatatest.IgnoreTimestamp())
 }
 
 func setupTestProducer(t *testing.T) (*Producer, sdkmetric.Reader) {
