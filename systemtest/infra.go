@@ -65,16 +65,3 @@ func SuffixTopics(topics ...apmqueue.Topic) []apmqueue.Topic {
 	}
 	return suffixed
 }
-
-// SingleSubscribers returns a single apmqueue.Subscription for each
-// topic, with the subscriber having the same name as the topic.
-func SingleSubscribers(topics ...apmqueue.Topic) []apmqueue.Subscription {
-	out := make([]apmqueue.Subscription, len(topics))
-	for i, topic := range topics {
-		out[i] = apmqueue.Subscription{
-			Name:  string(topic),
-			Topic: topic,
-		}
-	}
-	return out
-}

@@ -36,7 +36,8 @@ func TestNewConsumer(t *testing.T) {
 			"pubsublite: project must be set",
 			"pubsublite: region must be set",
 			"pubsublite: logger must be set",
-			"pubsublite: at least one subscription must be set",
+			"pubsublite: at least one topic must be set",
+			"pubsublite: consumer name must be set",
 			"pubsublite: decoder must be set",
 			"pubsublite: processor must be set",
 		}, "\n"))
@@ -51,11 +52,10 @@ func TestNewConsumer(t *testing.T) {
 				Region:  "region_name",
 				Logger:  zap.NewNop(),
 			},
-			Decoder:   validDecoder,
-			Processor: validProcessor,
-			Subscriptions: []apmqueue.Subscription{
-				{Name: "subscription_name", Topic: "topic_name"},
-			},
+			Decoder:      validDecoder,
+			Processor:    validProcessor,
+			Topics:       []apmqueue.Topic{"topic_name"},
+			ConsumerName: "consumer_name",
 		}
 	}
 
@@ -65,19 +65,5 @@ func TestNewConsumer(t *testing.T) {
 		_, err := NewConsumer(context.Background(), config)
 		assert.Error(t, err)
 		assert.EqualError(t, err, "pubsublite: invalid consumer config: pubsublite: delivery is not valid")
-	})
-
-	t.Run("invalid subscription", func(t *testing.T) {
-		config := validConfig()
-		config.Subscriptions = []apmqueue.Subscription{
-			{Name: "just_name_no_topic"},
-			{Topic: "just_topic_no_name"},
-		}
-		_, err := NewConsumer(context.Background(), config)
-		assert.Error(t, err)
-		assert.EqualError(t, err, "pubsublite: invalid consumer config: "+strings.Join([]string{
-			"pubsublite: subscription topic must be set",
-			"pubsublite: subscription name must be set",
-		}, "\n"))
 	})
 }

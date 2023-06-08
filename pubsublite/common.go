@@ -27,6 +27,8 @@ import (
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 	"google.golang.org/api/option"
+
+	apmqueue "github.com/elastic/apm-queue"
 )
 
 // CommonConfig defines common configuration for Kafka consumers, producers,
@@ -117,3 +119,9 @@ func (cfg *CommonConfig) tracerProvider() trace.TracerProvider {
 }
 
 // TODO(axw) method for producing common option.ClientOptions, such as otelgrpc interceptors.
+
+// SubscriptionName returns a Pub/Sub Lite subscription name
+// for the given topic and consumer name.
+func SubscriptionName(topic apmqueue.Topic, consumer string) string {
+	return fmt.Sprintf("%s+%s", topic, consumer)
+}
