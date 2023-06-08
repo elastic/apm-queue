@@ -67,7 +67,7 @@ func NewKgoHooks(mp metric.MeterProvider) (*kgoHooks, error) {
 	}
 
 	return &kgoHooks{
-		instruments{
+		instruments: instruments{
 			messageProduced: messageProducedCounter,
 			writeErrors:     writeErrorCounter,
 		},
