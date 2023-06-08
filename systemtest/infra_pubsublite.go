@@ -84,7 +84,9 @@ func InitPubSubLite() (ProvisionInfraFunc, DestroyInfraFunc, error) {
 // using configuration taken from `gcloud` and $GOOGLE_REGION.
 func ProvisionPubSubLite(ctx context.Context) error {
 	manager, err := pubsublite.NewManager(pubsublite.ManagerConfig{
-		CommonConfig: PubSubLiteCommonConfig(),
+		CommonConfig: PubSubLiteCommonConfig(pubsublite.CommonConfig{
+			Logger: logger().Desugar().Named("pubsublite"),
+		}),
 	})
 	if err != nil {
 		return err
@@ -118,7 +120,9 @@ func ProvisionPubSubLite(ctx context.Context) error {
 
 func DestroyPubSubLite(ctx context.Context) error {
 	manager, err := pubsublite.NewManager(pubsublite.ManagerConfig{
-		CommonConfig: PubSubLiteCommonConfig(),
+		CommonConfig: PubSubLiteCommonConfig(pubsublite.CommonConfig{
+			Logger: logger().Desugar().Named("pubsublite"),
+		}),
 	})
 	if err != nil {
 		return err
@@ -132,12 +136,10 @@ func DestroyPubSubLite(ctx context.Context) error {
 
 // PubSubLiteCommonConfig returns a pubsublite.CommonConfig suitable for
 // using to construct pubsublite resources.
-func PubSubLiteCommonConfig() pubsublite.CommonConfig {
-	return pubsublite.CommonConfig{
-		Project: googleProject,
-		Region:  googleRegion,
-		Logger:  logger().Desugar(),
-	}
+func PubSubLiteCommonConfig(cfg pubsublite.CommonConfig) pubsublite.CommonConfig {
+	cfg.Project = googleProject
+	cfg.Region = googleRegion
+	return cfg
 }
 
 // CreatePubsubTopics interacts with the Google Cloud API to create

@@ -23,8 +23,6 @@ import (
 	"time"
 
 	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
-	"go.uber.org/zap/zaptest"
 
 	"github.com/elastic/apm-data/model"
 	apmqueue "github.com/elastic/apm-queue"
@@ -32,6 +30,8 @@ import (
 	"github.com/elastic/apm-queue/kafka"
 	"github.com/elastic/apm-queue/pubsublite"
 )
+
+var skipKafka, skipPubsublite bool
 
 type config struct {
 	processor      model.BatchProcessor
@@ -51,17 +51,14 @@ const (
 
 var (
 	defaultCfg = config{
-		codec: json.JSON{},
-		sync:  true,
-		loggerF: func(t testing.TB) *zap.Logger {
-			return zaptest.NewLogger(t, zaptest.Level(zapcore.ErrorLevel))
-		},
+		codec:   json.JSON{},
+		sync:    true,
+		loggerF: TestLogger,
 		topicsF: func(t testing.TB) ([]apmqueue.Topic, func(model.APMEvent) apmqueue.Topic) {
 			topics := SuffixTopics(apmqueue.Topic(t.Name()))
 			topicRouter := func(model.APMEvent) apmqueue.Topic {
 				return topics[0]
 			}
-
 			return topics, topicRouter
 		},
 	}
@@ -125,20 +122,19 @@ func kafkaTypes(t testing.TB, opts ...option) (apmqueue.Producer, apmqueue.Consu
 	CreateKafkaTopics(ctx, t, topics...)
 
 	producer := newKafkaProducer(t, kafka.ProducerConfig{
-		CommonConfig: kafka.CommonConfig{Logger: logger},
+		CommonConfig: kafka.CommonConfig{Logger: logger.Named("producer")},
 		Encoder:      cfg.codec,
 		TopicRouter:  topicRouter,
 		Sync:         cfg.sync,
 	})
 	consumer := newKafkaConsumer(t, kafka.ConsumerConfig{
-		CommonConfig: kafka.CommonConfig{Logger: logger},
+		CommonConfig: kafka.CommonConfig{Logger: logger.Named("consumer")},
 		Decoder:      cfg.codec,
 		Topics:       topics,
 		GroupID:      t.Name(),
 		Processor:    cfg.processor,
 		Delivery:     cfg.dt,
 	})
-
 	return producer, consumer
 }
 
@@ -163,19 +159,18 @@ func pubSubTypes(t testing.TB, opts ...option) (apmqueue.Producer, apmqueue.Cons
 	CreatePubsubTopics(ctx, t, topics...)
 
 	producer := newPubSubLiteProducer(t, pubsublite.ProducerConfig{
-		CommonConfig: pubsublite.CommonConfig{Logger: logger},
+		CommonConfig: pubsublite.CommonConfig{Logger: logger.Named("producer")},
 		Encoder:      cfg.codec,
 		TopicRouter:  topicRouter,
 		Sync:         cfg.sync,
 	})
 	consumer := newPubSubLiteConsumer(context.Background(), t, pubsublite.ConsumerConfig{
-		CommonConfig:  pubsublite.CommonConfig{Logger: logger},
+		CommonConfig:  pubsublite.CommonConfig{Logger: logger.Named("consumer")},
 		Decoder:       cfg.codec,
 		Subscriptions: subscriptions,
 		Processor:     cfg.processor,
 		Delivery:      cfg.dt,
 	})
-
 	return producer, consumer
 }
 
