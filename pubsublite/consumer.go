@@ -47,9 +47,12 @@ type Decoder interface {
 // ConsumerConfig defines the configuration for the PubSub Lite consumer.
 type ConsumerConfig struct {
 	CommonConfig
-	// Subscriptions holds topic subscriptions from which messages
-	// will be consumed.
-	Subscriptions []apmqueue.Subscription
+	// Topics holds the list of topics from which to consume.
+	Topics []apmqueue.Topic
+	// ConsumerName holds the consumer name. This will be combined with
+	// the topic names to identify Pub/Sub Lite subscriptions, and must
+	// be unique per consuming service.
+	ConsumerName string
 	// Decoder holds an encoding.Decoder for decoding events.
 	Decoder Decoder
 	// Processor that will be used to process each event individually.
@@ -67,19 +70,11 @@ func (cfg ConsumerConfig) Validate() error {
 	if err := cfg.CommonConfig.Validate(); err != nil {
 		errs = append(errs, err)
 	}
-	if len(cfg.Subscriptions) == 0 {
-		errs = append(errs,
-			errors.New("pubsublite: at least one subscription must be set"),
-		)
-	} else {
-		for _, s := range cfg.Subscriptions {
-			if s.Name == "" {
-				errs = append(errs, errors.New("pubsublite: subscription name must be set"))
-			}
-			if s.Topic == "" {
-				errs = append(errs, errors.New("pubsublite: subscription topic must be set"))
-			}
-		}
+	if len(cfg.Topics) == 0 {
+		errs = append(errs, errors.New("pubsublite: at least one topic must be set"))
+	}
+	if cfg.ConsumerName == "" {
+		errs = append(errs, errors.New("pubsublite: consumer name must be set"))
 	}
 	if cfg.Decoder == nil {
 		errs = append(errs, errors.New("pubsublite: decoder must be set"))
@@ -133,11 +128,13 @@ func NewConsumer(ctx context.Context, cfg ConsumerConfig) (*Consumer, error) {
 			return nil // nil is returned to avoid terminating the subscriber.
 		},
 	}
+
 	parent := fmt.Sprintf("projects/%s/locations/%s", cfg.Project, cfg.Region)
-	consumers := make([]*consumer, 0, len(cfg.Subscriptions))
+	consumers := make([]*consumer, 0, len(cfg.Topics))
 	cfg.Logger = cfg.Logger.Named("pubsublite")
-	for _, subscription := range cfg.Subscriptions {
-		subscriptionPath := path.Join(parent, "subscriptions", subscription.Name)
+	for _, topic := range cfg.Topics {
+		subscriptionName := SubscriptionName(topic, cfg.ConsumerName)
+		subscriptionPath := path.Join(parent, "subscriptions", subscriptionName)
 		client, err := pscompat.NewSubscriberClientWithSettings(
 			ctx, subscriptionPath, settings, cfg.ClientOptions...,
 		)
@@ -150,13 +147,13 @@ func NewConsumer(ctx context.Context, cfg ConsumerConfig) (*Consumer, error) {
 			processor:        cfg.Processor,
 			decoder:          cfg.Decoder,
 			logger: cfg.Logger.With(
-				zap.String("subscription", subscription.Name),
-				zap.String("topic", string(subscription.Topic)),
+				zap.String("subscription", subscriptionName),
+				zap.String("topic", string(topic)),
 				zap.String("region", cfg.Region),
 				zap.String("project", cfg.Project),
 			),
 			telemetryAttributes: []attribute.KeyValue{
-				semconv.MessagingSourceNameKey.String(string(subscription.Topic)),
+				semconv.MessagingSourceNameKey.String(string(topic)),
 				semconv.CloudRegion(cfg.Region),
 				semconv.CloudAccountID(cfg.Project),
 			},

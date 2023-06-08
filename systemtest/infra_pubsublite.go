@@ -118,11 +118,7 @@ func PubSubLiteCommonConfig(cfg pubsublite.CommonConfig) pubsublite.CommonConfig
 }
 
 // CreatePubsubTopics interacts with the Google Cloud API to create
-// Pub/Sub Lite topics and subscriptions.
-//
-// TODO(axw) decouple creation of subscriptions from creation of topics.
-// Tests should be able to create multiple subscriptions for a topic,
-// or none.
+// Pub/Sub Lite topics.
 func CreatePubsubTopics(ctx context.Context, t testing.TB, topics ...apmqueue.Topic) {
 	err := pubsubliteTopicCreator.CreateTopics(ctx, topics...)
 	require.NoError(t, err)
@@ -133,13 +129,17 @@ func CreatePubsubTopics(ctx context.Context, t testing.TB, topics ...apmqueue.To
 			require.NoError(t, err)
 		})
 	}
+}
 
+// CreatePubsubTopicSubscriptions interacts with the Google Cloud API to create
+// Pub/Sub Lite subscriptions.
+func CreatePubsubTopicSubscriptions(ctx context.Context, t testing.TB, consumer string, topics ...apmqueue.Topic) {
 	for _, topic := range topics {
-		topic := string(topic)
-		err := pubsubliteManager.CreateSubscription(ctx, topic, topic, true)
+		subscriptionName := pubsublite.SubscriptionName(topic, consumer)
+		err := pubsubliteManager.CreateSubscription(ctx, subscriptionName, string(topic), true)
 		require.NoError(t, err)
 		t.Cleanup(func() {
-			err := pubsubliteManager.DeleteSubscription(context.Background(), topic)
+			err := pubsubliteManager.DeleteSubscription(context.Background(), subscriptionName)
 			require.NoError(t, err)
 		})
 	}
