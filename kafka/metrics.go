@@ -21,7 +21,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/twmb/franz-go/pkg/kgo"
 	"go.opentelemetry.io/otel/attribute"
@@ -75,6 +74,7 @@ func NewKgoHooks(mp metric.MeterProvider) (*kgoHooks, error) {
 	}, nil
 }
 
+// https://pkg.go.dev/github.com/twmb/franz-go/pkg/kgo#HookProduceRecordUnbuffered
 func (h *kgoHooks) OnProduceRecordUnbuffered(r *kgo.Record, err error) {
 	partitionDimension := attribute.Int("partition", int(r.Partition))
 	topicDimension := attribute.String("topic", r.Topic)
@@ -102,18 +102,4 @@ func (h *kgoHooks) OnProduceRecordUnbuffered(r *kgo.Record, err error) {
 		1,
 		metric.WithAttributes(partitionDimension, topicDimension))
 
-}
-
-// https://pkg.go.dev/github.com/twmb/franz-go/pkg/kgo#HookBrokerWrite
-func (h *kgoHooks) OnBrokerWrite(meta kgo.BrokerMetadata, _ int16, _ int, writeWait, _ time.Duration, err error) {
-	if err != nil {
-		h.instruments.writeErrors.Add(
-			context.Background(),
-			1,
-			metric.WithAttributes(
-				attribute.Int("node", int(meta.NodeID)),
-				attribute.String("host", meta.Host),
-			))
-		return
-	}
 }
