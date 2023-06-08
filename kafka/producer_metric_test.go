@@ -36,172 +36,126 @@ import (
 	"github.com/elastic/apm-queue/codec/json"
 )
 
-func TestProducerMetrics_deadlineExceeded(t *testing.T) {
-	producer, rdr := setupTestProducer(t)
+func TestProducerMetrics(t *testing.T) {
+	test := func(ctx context.Context,
+		t *testing.T,
+		producer apmqueue.Producer,
+		rdr sdkmetric.Reader,
+		want metricdata.Metrics,
+	) {
+		err := producer.ProcessBatch(ctx, &model.Batch{
+			model.APMEvent{Transaction: &model.Transaction{ID: "1"}},
+			model.APMEvent{Transaction: &model.Transaction{ID: "2"}},
+			model.APMEvent{Span: &model.Span{ID: "3"}},
+		})
+		assert.NoError(t, err)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 0)
-	defer cancel()
+		var rm metricdata.ResourceMetrics
+		assert.NoError(t, rdr.Collect(context.Background(), &rm))
 
-	err := producer.ProcessBatch(ctx, &model.Batch{
-		model.APMEvent{Transaction: &model.Transaction{ID: "1"}},
-		model.APMEvent{Transaction: &model.Transaction{ID: "2"}},
-		model.APMEvent{Span: &model.Span{ID: "3"}},
-	})
-	assert.NoError(t, err)
-
-	var rm metricdata.ResourceMetrics
-	assert.NoError(t, rdr.Collect(context.Background(), &rm))
-
-	metrics := extractMetrics(t, rm.ScopeMetrics)
-	assert.Len(t, metrics, 1)
-	metric := metrics[0]
-
-	attrs := attribute.NewSet(
-		attribute.String("error", "timeout"),
-		attribute.String("topic", "default-topic"),
-		attribute.Int("partition", 0),
-	)
-	want := metricdata.Metrics{
-		Name:        "producer.messages.errored",
-		Description: "The total number of error occurred on write",
-		Unit:        "1",
-		Data: metricdata.Sum[int64]{
-			Temporality: metricdata.CumulativeTemporality,
-			IsMonotonic: true,
-			DataPoints: []metricdata.DataPoint[int64]{
-				{Value: 3, Attributes: attrs},
-			},
-		},
+		metrics := filterMetrics(t, rm.ScopeMetrics)
+		assert.Len(t, metrics, 1)
+		metricdatatest.AssertEqual(t, want, metrics[0],
+			metricdatatest.IgnoreTimestamp(),
+		)
 	}
-
-	testMetric(t, want, metric)
+	t.Run("DeadlineExceeded", func(t *testing.T) {
+		producer, rdr := setupTestProducer(t)
+		want := metricdata.Metrics{
+			Name:        "producer.messages.errored",
+			Description: "The number messages that failed to be produced",
+			Unit:        "1",
+			Data: metricdata.Sum[int64]{
+				Temporality: metricdata.CumulativeTemporality,
+				IsMonotonic: true,
+				DataPoints: []metricdata.DataPoint[int64]{
+					{
+						Value: 3, Attributes: attribute.NewSet(
+							attribute.String("error", "timeout"),
+							attribute.String("topic", "default-topic"),
+							attribute.Int("partition", 0),
+						),
+					},
+				},
+			},
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 0)
+		defer cancel()
+		test(ctx, t, producer, rdr, want)
+	})
+	t.Run("ContextCanceled", func(t *testing.T) {
+		producer, rdr := setupTestProducer(t)
+		want := metricdata.Metrics{
+			Name:        "producer.messages.errored",
+			Description: "The number messages that failed to be produced",
+			Unit:        "1",
+			Data: metricdata.Sum[int64]{
+				Temporality: metricdata.CumulativeTemporality,
+				IsMonotonic: true,
+				DataPoints: []metricdata.DataPoint[int64]{
+					{
+						Value: 3, Attributes: attribute.NewSet(
+							attribute.String("error", "canceled"),
+							attribute.String("topic", "default-topic"),
+							attribute.Int("partition", 0),
+						),
+					},
+				},
+			},
+		}
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		test(ctx, t, producer, rdr, want)
+	})
+	t.Run("Other", func(t *testing.T) {
+		producer, rdr := setupTestProducer(t)
+		want := metricdata.Metrics{
+			Name:        "producer.messages.errored",
+			Description: "The number messages that failed to be produced",
+			Unit:        "1",
+			Data: metricdata.Sum[int64]{
+				Temporality: metricdata.CumulativeTemporality,
+				IsMonotonic: true,
+				DataPoints: []metricdata.DataPoint[int64]{
+					{
+						Value: 3,
+						Attributes: attribute.NewSet(
+							attribute.String("error", "other"),
+							attribute.String("topic", "default-topic"),
+							attribute.Int("partition", 0),
+						),
+					},
+				},
+			},
+		}
+		require.NoError(t, producer.Close())
+		test(context.Background(), t, producer, rdr, want)
+	})
+	t.Run("Produced", func(t *testing.T) {
+		producer, rdr := setupTestProducer(t)
+		want := metricdata.Metrics{
+			Name:        "producer.messages.produced",
+			Description: "The number of messages produced",
+			Unit:        "1",
+			Data: metricdata.Sum[int64]{
+				Temporality: metricdata.CumulativeTemporality,
+				IsMonotonic: true,
+				DataPoints: []metricdata.DataPoint[int64]{
+					{
+						Value: 3,
+						Attributes: attribute.NewSet(
+							attribute.String("topic", "default-topic"),
+							attribute.Int("partition", 0),
+						),
+					},
+				},
+			},
+		}
+		test(context.Background(), t, producer, rdr, want)
+	})
 }
 
-func TestProducerMetrics_contextCanceled(t *testing.T) {
-	producer, rdr := setupTestProducer(t)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-
-	err := producer.ProcessBatch(ctx, &model.Batch{
-		model.APMEvent{Transaction: &model.Transaction{ID: "1"}},
-		model.APMEvent{Transaction: &model.Transaction{ID: "2"}},
-		model.APMEvent{Span: &model.Span{ID: "3"}},
-	})
-	assert.NoError(t, err)
-
-	var rm metricdata.ResourceMetrics
-	assert.NoError(t, rdr.Collect(context.Background(), &rm))
-
-	metrics := extractMetrics(t, rm.ScopeMetrics)
-	assert.Len(t, metrics, 1)
-	metric := metrics[0]
-
-	attrs := attribute.NewSet(
-		attribute.String("error", "canceled"),
-		attribute.String("topic", "default-topic"),
-		attribute.Int("partition", 0),
-	)
-	want := metricdata.Metrics{
-		Name:        "producer.messages.errored",
-		Description: "The total number of error occurred on write",
-		Unit:        "1",
-		Data: metricdata.Sum[int64]{
-			Temporality: metricdata.CumulativeTemporality,
-			IsMonotonic: true,
-			DataPoints: []metricdata.DataPoint[int64]{
-				{Value: 3, Attributes: attrs},
-			},
-		},
-	}
-
-	testMetric(t, want, metric)
-}
-
-func TestProducerMetrics_otherError(t *testing.T) {
-	producer, rdr := setupTestProducer(t)
-
-	ctx := context.Background()
-
-	err := producer.Close()
-	require.Nil(t, err)
-
-	err = producer.ProcessBatch(ctx, &model.Batch{
-		model.APMEvent{Transaction: &model.Transaction{ID: "1"}},
-		model.APMEvent{Transaction: &model.Transaction{ID: "2"}},
-		model.APMEvent{Span: &model.Span{ID: "3"}},
-	})
-	assert.NoError(t, err)
-
-	var rm metricdata.ResourceMetrics
-	assert.NoError(t, rdr.Collect(context.Background(), &rm))
-
-	metrics := extractMetrics(t, rm.ScopeMetrics)
-	assert.Len(t, metrics, 1)
-	metric := metrics[0]
-
-	attrs := attribute.NewSet(
-		attribute.String("error", "other"),
-		attribute.String("topic", "default-topic"),
-		attribute.Int("partition", 0),
-	)
-	want := metricdata.Metrics{
-		Name:        "producer.messages.errored",
-		Description: "The total number of error occurred on write",
-		Unit:        "1",
-		Data: metricdata.Sum[int64]{
-			Temporality: metricdata.CumulativeTemporality,
-			IsMonotonic: true,
-			DataPoints: []metricdata.DataPoint[int64]{
-				{Value: 3, Attributes: attrs},
-			},
-		},
-	}
-
-	testMetric(t, want, metric)
-}
-
-func TestProducerMetrics_produced(t *testing.T) {
-	producer, rdr := setupTestProducer(t)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-
-	err := producer.ProcessBatch(ctx, &model.Batch{
-		model.APMEvent{Transaction: &model.Transaction{ID: "1"}},
-		model.APMEvent{Transaction: &model.Transaction{ID: "2"}},
-		model.APMEvent{Span: &model.Span{ID: "3"}},
-	})
-	assert.NoError(t, err)
-
-	var rm metricdata.ResourceMetrics
-	assert.NoError(t, rdr.Collect(context.Background(), &rm))
-
-	metrics := extractMetrics(t, rm.ScopeMetrics)
-	assert.Len(t, metrics, 1)
-	metric := metrics[0]
-
-	attrs := attribute.NewSet(
-		attribute.String("topic", "default-topic"),
-		attribute.Int("partition", 0),
-	)
-	want := metricdata.Metrics{
-		Name:        "producer.messages.produced",
-		Description: "The total number of message produced",
-		Unit:        "1",
-		Data: metricdata.Sum[int64]{
-			Temporality: metricdata.CumulativeTemporality,
-			IsMonotonic: true,
-			DataPoints: []metricdata.DataPoint[int64]{
-				{Value: 3, Attributes: attrs},
-			},
-		},
-	}
-
-	testMetric(t, want, metric)
-}
-
-func extractMetrics(t *testing.T, sm []metricdata.ScopeMetrics) []metricdata.Metrics {
+func filterMetrics(t testing.TB, sm []metricdata.ScopeMetrics) []metricdata.Metrics {
 	t.Helper()
 
 	for _, m := range sm {
@@ -213,37 +167,28 @@ func extractMetrics(t *testing.T, sm []metricdata.ScopeMetrics) []metricdata.Met
 	return []metricdata.Metrics{}
 }
 
-func testMetric(t *testing.T, want metricdata.Metrics, actual metricdata.Metrics) {
-	t.Helper()
-
-	metricdatatest.AssertEqual(t, want, actual,
-		metricdatatest.IgnoreTimestamp())
-}
-
-func setupTestProducer(t *testing.T) (*Producer, sdkmetric.Reader) {
+func setupTestProducer(t testing.TB) (*Producer, sdkmetric.Reader) {
 	t.Helper()
 
 	rdr := sdkmetric.NewManualReader()
-	mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(rdr))
-
 	topic := apmqueue.Topic("default-topic")
-	_, brokers := newClusterWithTopics(t, topic)
-	codec := json.JSON{}
+	_, brokers := newClusterWithTopics(t, 1, topic)
 	producer, err := NewProducer(ProducerConfig{
 		CommonConfig: CommonConfig{
 			Brokers:        brokers,
 			Logger:         zap.NewNop(),
 			TracerProvider: trace.NewNoopTracerProvider(),
-			MeterProvider:  mp,
+			MeterProvider: sdkmetric.NewMeterProvider(
+				sdkmetric.WithReader(rdr),
+			),
 		},
 		Sync:    true,
-		Encoder: codec,
+		Encoder: json.JSON{},
 		TopicRouter: func(event model.APMEvent) apmqueue.Topic {
 			return topic
 		},
 	})
 	require.NoError(t, err)
 	require.NotNil(t, producer)
-
 	return producer, rdr
 }
