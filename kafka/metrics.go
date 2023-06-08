@@ -14,7 +14,6 @@ const instrumentName = "github.com/elastic/apm-queue/kafka"
 const unitCount = "1"
 
 type instruments struct {
-	MessageBuffered metric.Int64Counter
 	MessageProduced metric.Int64Counter
 	WriteErrors     metric.Int64Counter
 }
@@ -44,18 +43,8 @@ func NewKgoHooks(mp metric.MeterProvider) *kgoHooks {
 		panic(err)
 	}
 
-	c, err := m.Int64Counter(
-		"message.buffered",
-		metric.WithDescription("The total number of message buffered from produce batches"),
-		metric.WithUnit(unitCount),
-	)
-	if err != nil {
-		panic(err)
-	}
-
 	return &kgoHooks{
 		instruments{
-			MessageBuffered: c,
 			MessageProduced: a,
 			WriteErrors:     b,
 		},
@@ -74,18 +63,6 @@ func (h *kgoHooks) OnProduceBatchWritten(meta kgo.BrokerMetadata, topic string, 
 			attribute.String("host", meta.Host),
 			attribute.String("topic", topic),
 		))
-}
-
-func (h *kgoHooks) OnProduceRecordBuffered(r *kgo.Record) {
-	runtime.Breakpoint()
-	h.instruments.MessageBuffered.Add(
-		context.Background(),
-		1,
-		metric.WithAttributes(
-			attribute.Int("partition", int(r.Partition)),
-			attribute.String("topic", r.Topic),
-		),
-	)
 }
 
 // https://pkg.go.dev/github.com/twmb/franz-go/pkg/kgo#HookBrokerWrite
