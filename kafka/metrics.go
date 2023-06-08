@@ -78,7 +78,7 @@ func newKgoHooks(mp metric.MeterProvider) (*kgoHooks, error) {
 // https://pkg.go.dev/github.com/twmb/franz-go/pkg/kgo#HookProduceRecordUnbuffered
 func (h *kgoHooks) OnProduceRecordUnbuffered(r *kgo.Record, err error) {
 	partition := semconv.MessagingKafkaDestinationPartition(int(r.Partition))
-	topic := attribute.String("topic", r.Topic)
+	topic := semconv.MessagingDestinationName(r.Topic)
 
 	if err != nil {
 		errorType := attribute.String("error", "other")

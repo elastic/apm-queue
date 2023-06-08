@@ -72,7 +72,7 @@ func TestProducerMetrics(t *testing.T) {
 					{
 						Value: 3, Attributes: attribute.NewSet(
 							attribute.String("error", "timeout"),
-							attribute.String("topic", "default-topic"),
+							semconv.MessagingDestinationName("default-topic"),
 							semconv.MessagingKafkaDestinationPartition(0),
 						),
 					},
@@ -96,7 +96,7 @@ func TestProducerMetrics(t *testing.T) {
 					{
 						Value: 3, Attributes: attribute.NewSet(
 							attribute.String("error", "canceled"),
-							attribute.String("topic", "default-topic"),
+							semconv.MessagingDestinationName("default-topic"),
 							semconv.MessagingKafkaDestinationPartition(0),
 						),
 					},
@@ -121,7 +121,7 @@ func TestProducerMetrics(t *testing.T) {
 						Value: 3,
 						Attributes: attribute.NewSet(
 							attribute.String("error", "other"),
-							attribute.String("topic", "default-topic"),
+							semconv.MessagingDestinationName("default-topic"),
 							semconv.MessagingKafkaDestinationPartition(0),
 						),
 					},
@@ -144,7 +144,7 @@ func TestProducerMetrics(t *testing.T) {
 					{
 						Value: 3,
 						Attributes: attribute.NewSet(
-							attribute.String("topic", "default-topic"),
+							semconv.MessagingDestinationName("default-topic"),
 							semconv.MessagingKafkaDestinationPartition(0),
 						),
 					},
