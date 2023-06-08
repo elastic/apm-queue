@@ -45,33 +45,29 @@ var (
 	kafkaNamespace = "kafka"
 )
 
-// ProvisionKafka provisions a Kafka cluster in the current Kubernetes
-// context, and configures Kafka clients to communicate with the broker
-// by forwarding the necessary port(s).
+// InitKafka initialises Kafka configuration, and returns a pair of
+// functions for provisioning and destroying a Kafka cluster.
 //
-// If KAFKA_BROKERS is set, provisioning is skipped and Kafka clients
-// will be configured to communicate with those brokers.
-func ProvisionKafka(ctx context.Context) error {
+// If KAFKA_BROKERS is set, provisioning and destroying are skipped,
+// and Kafka clients will be configured to communicate with those brokers.
+func InitKafka() (ProvisionInfraFunc, DestroyInfraFunc, error) {
 	if brokers := os.Getenv("KAFKA_BROKERS"); brokers != "" {
 		logger().Infof("KAFKA_BROKERS is set (%q), skipping Kafka cluster provisioning", brokers)
 		kafkaBrokers = strings.Split(brokers, ",")
-		return nil
+		nop := func(context.Context) error { return nil }
+		return nop, nil, nil
 	}
-
 	if v := os.Getenv("KAFKA_NAMESPACE"); v != "" {
 		kafkaNamespace = v
 	}
+	logger().Infof("managing Redpanda in namespace %q", kafkaNamespace)
+	return ProvisionKafka, DestroyKafka, nil
+}
 
-	logger().Infof("provisioning Redpanda in namespace %q", kafkaNamespace)
-	RegisterDestroy("kafka", func() {
-		logger().Info("destroying provisioned Kafka infrastructure...")
-		if err := execCommand(context.Background(),
-			"kubectl", "delete", "--ignore-not-found", "namespace", kafkaNamespace,
-		); err != nil {
-			logger().Errorf("error deleting Kafka namespace %q: %w", kafkaNamespace, err)
-		}
-	})
-
+// ProvisionKafka provisions Redpanda in the current Kubernetes context,
+// and configures Kafka clients to communicate with the broker by forwarding
+// the necessary port(s).
+func ProvisionKafka(ctx context.Context) error {
 	// Create the namespace if it doesn't already exist.
 	namespaceYAML := fmt.Sprintf(`
 apiVersion: v1
@@ -80,23 +76,29 @@ metadata:
   name: %q
 `, kafkaNamespace)
 	if err := execCommandStdin(ctx, strings.NewReader(namespaceYAML), "kubectl", "apply", "-f", "-"); err != nil {
-		return fmt.Errorf("failed to create Kafka cluster: %w", err)
+		return fmt.Errorf("failed to create Kafka namespace: %w", err)
 	}
 	if err := execCommand(ctx, "kubectl", "apply", "-n", kafkaNamespace, "-f", "redpanda.yaml"); err != nil {
 		return fmt.Errorf("failed to create Kafka cluster: %w", err)
 	}
 
-	logger().Info("waiting for Kafka cluster to be ready...")
+	logger().Info("waiting for Redpanda to be ready...")
 	if err := execCommand(ctx,
 		"kubectl", "--namespace", kafkaNamespace,
 		"wait", "--timeout=240s",
 		"--for=condition=Ready=True",
 		"pod/redpanda",
 	); err != nil {
-		return fmt.Errorf("error waiting for Kafka broker to be ready: %w", err)
+		return fmt.Errorf("error waiting for Redpanda broker to be ready: %w", err)
 	}
+	return nil
+}
 
-	logger().Info("Kafka infastructure fully provisioned!")
+// DestroyKafka destroys a Kafka cluster in the current Kubernetes context.
+func DestroyKafka(ctx context.Context) error {
+	if err := execCommand(ctx, "kubectl", "delete", "--ignore-not-found", "namespace", kafkaNamespace); err != nil {
+		return fmt.Errorf("error deleting Kafka namespace %q: %w", kafkaNamespace, err)
+	}
 	return nil
 }
 

@@ -66,16 +66,6 @@ type Producer interface {
 	Close() error
 }
 
-// Subscription represents a topic subscription. This is roughly
-// equivalent to a Kafka topic consumer group.
-type Subscription struct {
-	// Name holds the name of the subscription.
-	Name string
-
-	// Topic holds the name of the subscribed topic.
-	Topic Topic
-}
-
 // Topic represents a destination topic where to produce a message/record.
 type Topic string
 

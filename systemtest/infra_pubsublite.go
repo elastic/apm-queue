@@ -21,6 +21,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"strings"
@@ -42,28 +43,46 @@ var (
 	googleRegion  string
 	googleAccount string
 
-	pubsubliteManager      *pubsublite.Manager
-	pubsubliteTopicCreator *pubsublite.TopicCreator
+	pubsubliteReservationPrefix string
+	pubsubliteReservation       string
+	pubsubliteManager           *pubsublite.Manager
+	pubsubliteTopicCreator      *pubsublite.TopicCreator
 )
+
+// InitPubSubLite initialises Pub/Sub Lite configuration, and returns a pair
+// of functions for provisioning and destroying a Pub/Sub Lite throughput
+// reservation and associated resources.
+func InitPubSubLite() (ProvisionInfraFunc, DestroyInfraFunc, error) {
+	initGCloud()
+	if googleProject == "" {
+		return nil, nil, errors.New("could not determine Google Cloud project; gcloud not initialized")
+	}
+	if googleRegion == "" {
+		return nil, nil, errors.New("could not determine Google Cloud region; GOOGLE_REGION not set")
+	}
+	if googleAccount == "" {
+		return nil, nil, errors.New("could not determine Google Cloud account; gcloud not initialized")
+	}
+
+	pubsubliteReservationPrefix = os.Getenv("PUBSUBLITE_RESERVATION_PREFIX")
+	if pubsubliteReservationPrefix != "" {
+		// Allow CI to specify a prefix, so it can automatically and safely clean up.
+		logger().Infof("$PUBSUBLITE_RESERVATION_PREFIX set to %q", pubsubliteReservationPrefix)
+	} else {
+		pubsubliteReservationPrefix = "systemtest-" + sanitizePubSubSuffix(googleAccount) + "-"
+	}
+
+	pubsubliteReservation = pubsubliteReservationPrefix + persistentSuffix
+	logger().Infof(
+		"managing Pub/Sub Lite throughput reservation %q in project %q, region %q, account %q",
+		pubsubliteReservation, googleProject, googleRegion, googleAccount,
+	)
+	return ProvisionPubSubLite, DestroyPubSubLite, nil
+}
 
 // ProvisionPubSubLite provisions a Pub/Sub Lite throughput reservation
 // using configuration taken from `gcloud` and $GOOGLE_REGION.
 func ProvisionPubSubLite(ctx context.Context) error {
-	initGCloud()
-	if googleProject == "" {
-		return errors.New("could not determine Google Cloud project; gcloud not initialized")
-	}
-	if googleRegion == "" {
-		return errors.New("could not determine Google Cloud region; GOOGLE_REGION not set")
-	}
-	if googleAccount == "" {
-		return errors.New("could not determine Google Cloud account; gcloud not initialized")
-	}
-
-	logger().Infof(
-		"provisioning Pub/Sub Lite throughput reservation in project %q, region %q, account %q",
-		googleProject, googleRegion, googleAccount,
-	)
 	manager, err := pubsublite.NewManager(pubsublite.ManagerConfig{
 		CommonConfig: PubSubLiteCommonConfig(pubsublite.CommonConfig{
 			Logger: logger().Desugar().Named("pubsublite"),
@@ -76,17 +95,8 @@ func ProvisionPubSubLite(ctx context.Context) error {
 
 	// Delete any existing reservations with the matching prefix, and their associated
 	// topics and subscriptions.
-	resourcePrefix := "systemtest-" + sanitizePubSubSuffix(googleAccount) + "-"
-	reservationName := resourcePrefix + persistentSuffix
-	RegisterDestroy("pubsublite", func() {
-		defer manager.Close()
-		if err := destroyPubsubResources(context.Background(), manager, resourcePrefix); err != nil {
-			logger().Errorf("failed to destroy pubsublite resources: %w", err)
-			return
-		}
-	})
 	creator, err := pubsubliteManager.NewTopicCreator(pubsublite.TopicCreatorConfig{
-		Reservation:                reservationName,
+		Reservation:                pubsubliteReservation,
 		PartitionCount:             1,
 		PublishCapacityMiBPerSec:   4,
 		SubscribeCapacityMiBPerSec: 4,
@@ -102,10 +112,25 @@ func ProvisionPubSubLite(ctx context.Context) error {
 	// reservation name for the process's lifetime, since resource names cannot
 	// be reused within an hour of being destroyed.
 	const throughputCapacity = 2
-	if err := manager.CreateReservation(ctx, reservationName, throughputCapacity); err != nil {
+	if err := manager.CreateReservation(ctx, pubsubliteReservation, throughputCapacity); err != nil {
 		return err
 	}
-	logger().Info("Pub/Sub Lite infastructure fully provisioned!")
+	return nil
+}
+
+func DestroyPubSubLite(ctx context.Context) error {
+	manager, err := pubsublite.NewManager(pubsublite.ManagerConfig{
+		CommonConfig: PubSubLiteCommonConfig(pubsublite.CommonConfig{
+			Logger: logger().Desugar().Named("pubsublite"),
+		}),
+	})
+	if err != nil {
+		return err
+	}
+	defer manager.Close()
+	if err := destroyPubsubResources(ctx, manager, pubsubliteReservationPrefix); err != nil {
+		return fmt.Errorf("failed to destroy pubsublite resources: %w", err)
+	}
 	return nil
 }
 
@@ -118,11 +143,7 @@ func PubSubLiteCommonConfig(cfg pubsublite.CommonConfig) pubsublite.CommonConfig
 }
 
 // CreatePubsubTopics interacts with the Google Cloud API to create
-// Pub/Sub Lite topics and subscriptions.
-//
-// TODO(axw) decouple creation of subscriptions from creation of topics.
-// Tests should be able to create multiple subscriptions for a topic,
-// or none.
+// Pub/Sub Lite topics.
 func CreatePubsubTopics(ctx context.Context, t testing.TB, topics ...apmqueue.Topic) {
 	err := pubsubliteTopicCreator.CreateTopics(ctx, topics...)
 	require.NoError(t, err)
@@ -133,28 +154,30 @@ func CreatePubsubTopics(ctx context.Context, t testing.TB, topics ...apmqueue.To
 			require.NoError(t, err)
 		})
 	}
+}
 
+// CreatePubsubTopicSubscriptions interacts with the Google Cloud API to create
+// Pub/Sub Lite subscriptions.
+func CreatePubsubTopicSubscriptions(ctx context.Context, t testing.TB, consumer string, topics ...apmqueue.Topic) {
 	for _, topic := range topics {
-		topic := string(topic)
-		err := pubsubliteManager.CreateSubscription(ctx, topic, topic, true)
+		subscriptionName := pubsublite.SubscriptionName(topic, consumer)
+		err := pubsubliteManager.CreateSubscription(ctx, subscriptionName, string(topic), true)
 		require.NoError(t, err)
 		t.Cleanup(func() {
-			err := pubsubliteManager.DeleteSubscription(context.Background(), topic)
+			err := pubsubliteManager.DeleteSubscription(context.Background(), subscriptionName)
 			require.NoError(t, err)
 		})
 	}
 }
 
-func destroyPubsubResources(ctx context.Context, manager *pubsublite.Manager, resourcePrefix string) error {
+func destroyPubsubResources(ctx context.Context, manager *pubsublite.Manager, reservationPrefix string) error {
 	var g errgroup.Group
 	reservations, err := manager.ListReservations(ctx)
 	if err != nil {
 		return err
 	}
 	for _, reservation := range reservations {
-		if !strings.HasPrefix(reservation, resourcePrefix) {
-			// We assume all topics and subscriptions associated with the
-			// reservation match the prefix and should be deleted.
+		if !strings.HasPrefix(reservation, reservationPrefix) {
 			continue
 		}
 		reservation := reservation // copy for closure

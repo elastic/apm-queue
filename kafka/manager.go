@@ -152,7 +152,7 @@ func (m *Manager) gatherMetrics(ctx context.Context, o metric.Observer) error {
 
 	// Fetch commits for consumer groups.
 	//
-	// TODO(axw) pass in apmqueue.Subscriptions, map these to consumer group names?
+	// TODO(axw) pass in a list of group names?
 	groups, err := m.adminClient.DescribeGroups(ctx)
 	if err != nil {
 		span.RecordError(err)
