@@ -23,11 +23,12 @@ import (
 	"fmt"
 	"os"
 
-	apmqueue "github.com/elastic/apm-queue"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 	"google.golang.org/api/option"
+
+	apmqueue "github.com/elastic/apm-queue"
 )
 
 // CommonConfig defines common configuration for Kafka consumers, producers,
