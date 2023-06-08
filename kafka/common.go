@@ -192,8 +192,12 @@ func (cfg *CommonConfig) newClient(additionalOpts ...kgo.Opt) (*kgo.Client, erro
 			kotel.WithTracer(kotel.NewTracer(kotel.TracerProvider(cfg.tracerProvider()))),
 			kotel.WithMeter(kotel.NewMeter(kotel.MeterProvider(cfg.meterProvider()))),
 		)
+		metricHooks, err := NewKgoHooks(cfg.meterProvider())
+		if err != nil {
+			return nil, fmt.Errorf("cannot setup kgo metrics hooks: %w", err)
+		}
 		opts = append(opts,
-			kgo.WithHooks(NewKgoHooks(cfg.meterProvider())),
+			kgo.WithHooks(metricHooks),
 			kgo.WithHooks(kotelService.Hooks()...),
 		)
 	}

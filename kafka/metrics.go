@@ -20,6 +20,7 @@ package kafka
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/twmb/franz-go/pkg/kgo"
@@ -27,8 +28,15 @@ import (
 	"go.opentelemetry.io/otel/metric"
 )
 
-const instrumentName = "github.com/elastic/apm-queue/kafka"
-const unitCount = "1"
+const (
+	instrumentName = "github.com/elastic/apm-queue/kafka"
+
+	unitCount = "1"
+
+	messageProducedCounter = "message.produced"
+	writeErrorCounter      = "write.error"
+	writeTimeoutCounter    = "write.timeout"
+)
 
 type instruments struct {
 	MessageProduced metric.Int64Counter
@@ -40,34 +48,34 @@ type kgoHooks struct {
 	instruments instruments
 }
 
-func NewKgoHooks(mp metric.MeterProvider) *kgoHooks {
+func NewKgoHooks(mp metric.MeterProvider) (*kgoHooks, error) {
 	m := mp.Meter(instrumentName)
 
 	a, err := m.Int64Counter(
-		"message.produced.count",
+		messageProducedCounter,
 		metric.WithDescription("The total number of message produced"),
 		metric.WithUnit(unitCount),
 	)
 	if err != nil {
-		panic(err)
+		return nil, fmt.Errorf("cannot create %s metric: %w", messageProducedCounter, err)
 	}
 
 	b, err := m.Int64Counter(
-		"write.error.count",
+		writeErrorCounter,
 		metric.WithDescription("The total number of error occurred on write"),
 		metric.WithUnit(unitCount),
 	)
 	if err != nil {
-		panic(err)
+		return nil, fmt.Errorf("cannot create %s metric: %w", writeErrorCounter, err)
 	}
 
 	c, err := m.Int64Counter(
-		"write.timeout.count",
+		writeTimeoutCounter,
 		metric.WithDescription("The total number of messages not produced due to timeout"),
 		metric.WithUnit(unitCount),
 	)
 	if err != nil {
-		panic(err)
+		return nil, fmt.Errorf("cannot create %s metric: %w", writeTimeoutCounter, err)
 	}
 
 	return &kgoHooks{
@@ -76,7 +84,7 @@ func NewKgoHooks(mp metric.MeterProvider) *kgoHooks {
 			WriteErrors:     b,
 			WriteTimeout:    c,
 		},
-	}
+	}, nil
 }
 
 func (h *kgoHooks) OnProduceRecordUnbuffered(r *kgo.Record, err error) {
