@@ -194,7 +194,7 @@ func (cfg *CommonConfig) newClient(additionalOpts ...kgo.Opt) (*kgo.Client, erro
 		)
 		metricHooks, err := NewKgoHooks(cfg.meterProvider())
 		if err != nil {
-			return nil, fmt.Errorf("cannot setup kgo metrics hooks: %w", err)
+			return nil, fmt.Errorf("kafka: failed creating kgo metrics hooks: %w", err)
 		}
 		opts = append(opts,
 			kgo.WithHooks(metricHooks),

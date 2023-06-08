@@ -106,7 +106,7 @@ func extractMetrics(t *testing.T, sm []metricdata.ScopeMetrics) []metricdata.Met
 			return m.Metrics
 		}
 	}
-
+	t.Fatal("unable to find metrics for", instrumentName)
 	return []metricdata.Metrics{}
 }
 

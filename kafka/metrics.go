@@ -45,7 +45,7 @@ type kgoHooks struct {
 	instruments instruments
 }
 
-func NewKgoHooks(mp metric.MeterProvider) (*kgoHooks, error) {
+func newKgoHooks(mp metric.MeterProvider) (*kgoHooks, error) {
 	m := mp.Meter(instrumentName)
 
 	messageProducedCounter, err := m.Int64Counter(
@@ -86,7 +86,7 @@ func (h *kgoHooks) OnProduceRecordUnbuffered(r *kgo.Record, err error) {
 			errorDimension = attribute.String("error", "timeout")
 		}
 		if errors.Is(err, context.Canceled) {
-			errorDimension = attribute.String("error", "cancelled")
+			errorDimension = attribute.String("error", "canceled")
 		}
 
 		h.instruments.writeErrors.Add(
