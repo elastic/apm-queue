@@ -29,8 +29,6 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-var skipKafka, skipPubsublite bool
-
 func testMain(m *testing.M) int {
 	var skipDestroy bool
 	flag.BoolVar(&skipDestroy, "skip-destroy", false, "do not destroy the provisioned infrastructure after the tests finish")
