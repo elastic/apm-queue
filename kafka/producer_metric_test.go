@@ -34,6 +34,7 @@ import (
 	"github.com/elastic/apm-data/model"
 	apmqueue "github.com/elastic/apm-queue"
 	"github.com/elastic/apm-queue/codec/json"
+	"github.com/elastic/apm-queue/queuecontext"
 )
 
 func TestProducerMetrics(t *testing.T) {
@@ -152,6 +153,34 @@ func TestProducerMetrics(t *testing.T) {
 			},
 		}
 		test(context.Background(), t, producer, rdr, want)
+	})
+	t.Run("ProducedWithHeaders", func(t *testing.T) {
+		producer, rdr := setupTestProducer(t)
+		want := metricdata.Metrics{
+			Name:        "producer.messages.produced",
+			Description: "The number of messages produced",
+			Unit:        "1",
+			Data: metricdata.Sum[int64]{
+				Temporality: metricdata.CumulativeTemporality,
+				IsMonotonic: true,
+				DataPoints: []metricdata.DataPoint[int64]{
+					{
+						Value: 3,
+						Attributes: attribute.NewSet(
+							semconv.MessagingDestinationName("default-topic"),
+							semconv.MessagingKafkaDestinationPartition(0),
+							attribute.String("key", "value"),
+							attribute.String("some key", "some value"),
+						),
+					},
+				},
+			},
+		}
+		ctx := queuecontext.WithMetadata(context.Background(), map[string]string{
+			"key":      "value",
+			"some key": "some value",
+		})
+		test(ctx, t, producer, rdr, want)
 	})
 }
 
