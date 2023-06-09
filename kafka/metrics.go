@@ -71,8 +71,14 @@ func newKgoHooks(mp metric.MeterProvider) (*metricHooks, error) {
 
 // https://pkg.go.dev/github.com/twmb/franz-go/pkg/kgo#HookProduceRecordUnbuffered
 func (h *metricHooks) OnProduceRecordUnbuffered(r *kgo.Record, err error) {
-	partition := semconv.MessagingKafkaDestinationPartition(int(r.Partition))
-	topic := semconv.MessagingDestinationName(r.Topic)
+	attrs := make([]attribute.KeyValue, 0, 5) // Preallocate 5 elements.
+	attrs = append(attrs,
+		semconv.MessagingDestinationName(r.Topic),
+		semconv.MessagingKafkaDestinationPartition(int(r.Partition)),
+	)
+	for _, v := range r.Headers {
+		attrs = append(attrs, attribute.String(v.Key, string(v.Value)))
+	}
 
 	if err != nil {
 		errorType := attribute.String("error", "other")
@@ -84,12 +90,11 @@ func (h *metricHooks) OnProduceRecordUnbuffered(r *kgo.Record, err error) {
 		}
 
 		h.messageErrored.Add(context.Background(), 1,
-			metric.WithAttributes(partition, topic, errorType),
+			metric.WithAttributes(append(attrs, errorType)...),
 		)
 		return
 	}
-
 	h.messageProduced.Add(context.Background(), 1,
-		metric.WithAttributes(partition, topic))
-
+		metric.WithAttributes(attrs...),
+	)
 }
