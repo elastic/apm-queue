@@ -90,7 +90,7 @@ type Producer struct {
 	responses chan []resTopic
 	closed    chan struct{}
 	tracer    trace.Tracer
-	metrics   telemetry.ProducerMetrics
+	metrics   telemetry.PublisherMetrics
 }
 
 // NewProducer creates a new PubSub Lite producer for a single project.
@@ -101,7 +101,7 @@ func NewProducer(cfg ProducerConfig) (*Producer, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("pubsublite: invalid producer config: %w", err)
 	}
-	metrics, err := telemetry.NewProducerMetrics(cfg.meterProvider())
+	metrics, err := telemetry.NewPublisherMetrics(cfg.meterProvider())
 	if err != nil {
 		return nil, fmt.Errorf("pubsublite: %w", err)
 	}

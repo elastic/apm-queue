@@ -40,21 +40,21 @@ const (
 	instrumentName = "github.com/elastic/apm-queue/pubsublite"
 )
 
-// ProducerMetrics hold the metrics that are recorded for producers
-type ProducerMetrics struct {
+// PublisherMetrics hold the metrics that are recorded for producers
+type PublisherMetrics struct {
 	produced metric.Int64Counter
 	errored  metric.Int64Counter
 }
 
-// NewProducerMetrics instantiates the producer metrics.
-func NewProducerMetrics(mp metric.MeterProvider) (ProducerMetrics, error) {
+// NewPublisherMetrics instantiates the producer metrics.
+func NewPublisherMetrics(mp metric.MeterProvider) (PublisherMetrics, error) {
 	m := mp.Meter(instrumentName)
 	produced, err := m.Int64Counter(producedKey,
 		metric.WithDescription("The number of messages produced"),
 		metric.WithUnit("1"),
 	)
 	if err != nil {
-		return ProducerMetrics{}, fmt.Errorf(
+		return PublisherMetrics{}, fmt.Errorf(
 			"telemetry: cannot create %s metric: %w", producedKey, err,
 		)
 	}
@@ -63,11 +63,11 @@ func NewProducerMetrics(mp metric.MeterProvider) (ProducerMetrics, error) {
 		metric.WithUnit("1"),
 	)
 	if err != nil {
-		return ProducerMetrics{}, fmt.Errorf(
+		return PublisherMetrics{}, fmt.Errorf(
 			"telemetry: cannot create %s metric: %w", erroredKey, err,
 		)
 	}
-	return ProducerMetrics{
+	return PublisherMetrics{
 		produced: produced,
 		errored:  errored,
 	}, nil
@@ -79,7 +79,7 @@ var _ pubsubabs.Publisher = &Producer{}
 type Producer struct {
 	client  pubsubabs.Publisher
 	tracer  trace.Tracer
-	metrics ProducerMetrics
+	metrics PublisherMetrics
 	attrs   []attribute.KeyValue
 }
 
@@ -135,7 +135,7 @@ func (p *Producer) Publish(ctx context.Context, msg *pubsub.Message) pubsubabs.P
 func NewProducer(
 	client pubsubabs.Publisher,
 	tracer trace.Tracer,
-	metrics ProducerMetrics,
+	metrics PublisherMetrics,
 	attrs []attribute.KeyValue,
 ) *Producer {
 	return &Producer{

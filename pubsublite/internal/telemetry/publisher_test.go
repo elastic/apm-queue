@@ -218,7 +218,7 @@ func TestPublisher(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			rdr := sdkmetric.NewManualReader()
-			pm, err := NewProducerMetrics(sdkmetric.NewMeterProvider(
+			pm, err := NewPublisherMetrics(sdkmetric.NewMeterProvider(
 				sdkmetric.WithReader(rdr),
 			))
 			require.NoError(t, err)
