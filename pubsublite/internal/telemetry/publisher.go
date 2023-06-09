@@ -94,6 +94,7 @@ func (p *Producer) Publish(ctx context.Context, msg *pubsub.Message) pubsubabs.P
 	attrs := p.attrs
 	if len(msg.Attributes) > 0 {
 		attrs = make([]attribute.KeyValue, 0, len(p.attrs)+len(msg.Attributes))
+		attrs = append(attrs, p.attrs...)
 		for key, v := range msg.Attributes {
 			attrs = append(attrs, attribute.String(key, v))
 		}

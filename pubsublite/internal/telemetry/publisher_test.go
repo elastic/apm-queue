@@ -168,7 +168,9 @@ func TestPublisher(t *testing.T) {
 		},
 		{
 			name: "success with otel attributes",
-			msg:  &pubsub.Message{},
+			msg: &pubsub.Message{
+				Attributes: map[string]string{"key": "value"},
+			},
 
 			attributes: []attribute.KeyValue{
 				attribute.String("project", "project_name"),
@@ -183,6 +185,7 @@ func TestPublisher(t *testing.T) {
 						attribute.String("project", "project_name"),
 						semconv.MessagingSystemKey.String("pubsublite"),
 						semconv.MessagingDestinationKindTopic,
+						attribute.String("key", "value"),
 						semconv.MessagingMessageIDKey.String("msg-id"),
 					},
 					InstrumentationLibrary: instrumentation.Library{
@@ -206,6 +209,7 @@ func TestPublisher(t *testing.T) {
 							semconv.MessagingSystemKey.String("pubsublite"),
 							semconv.MessagingDestinationKindTopic,
 							attribute.String("project", "project_name"),
+							attribute.String("key", "value"),
 						),
 					}},
 				},
