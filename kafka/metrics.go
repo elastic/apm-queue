@@ -77,6 +77,9 @@ func (h *metricHooks) OnProduceRecordUnbuffered(r *kgo.Record, err error) {
 		semconv.MessagingKafkaDestinationPartition(int(r.Partition)),
 	)
 	for _, v := range r.Headers {
+		if v.Key == "traceparent" { // Ignore traceparent header.
+			continue
+		}
 		attrs = append(attrs, attribute.String(v.Key, string(v.Value)))
 	}
 
