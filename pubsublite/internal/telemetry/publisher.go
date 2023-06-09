@@ -19,43 +19,97 @@ package telemetry
 
 import (
 	"context"
+	"fmt"
 
 	"cloud.google.com/go/pubsub"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/propagation"
 	semconv "go.opentelemetry.io/otel/semconv/v1.18.0"
 	"go.opentelemetry.io/otel/trace"
+
+	"github.com/elastic/apm-queue/pubsublite/internal/pubsubabs"
 )
 
-type producerHandler = func(context.Context, *pubsub.Message) *pubsub.PublishResult
+const (
+	producedKey = "producer.messages.produced"
+	erroredKey  = "producer.messages.errored"
 
-// Publisher adds telemetry data to messages published
-func Publisher(ctx context.Context, tracer trace.Tracer, msg *pubsub.Message, h producerHandler, attrs []attribute.KeyValue) *pubsub.PublishResult {
+	instrumentName = "github.com/elastic/apm-queue/pubsublite"
+)
 
-	attrs = append(attrs,
-		semconv.MessagingSystemKey.String("pubsublite"),
-		semconv.MessagingDestinationKindTopic,
+// PublisherMetrics hold the metrics that are recorded for producers
+type PublisherMetrics struct {
+	produced metric.Int64Counter
+	errored  metric.Int64Counter
+}
+
+// NewPublisherMetrics instantiates the producer metrics.
+func NewPublisherMetrics(mp metric.MeterProvider) (PublisherMetrics, error) {
+	m := mp.Meter(instrumentName)
+	produced, err := m.Int64Counter(producedKey,
+		metric.WithDescription("The number of messages produced"),
+		metric.WithUnit("1"),
 	)
-	ctx, span := tracer.Start(ctx, "pubsublite.Publish",
+	if err != nil {
+		return PublisherMetrics{}, fmt.Errorf(
+			"telemetry: cannot create %s metric: %w", producedKey, err,
+		)
+	}
+	errored, err := m.Int64Counter(erroredKey,
+		metric.WithDescription("The number of messages that failed to be produced"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		return PublisherMetrics{}, fmt.Errorf(
+			"telemetry: cannot create %s metric: %w", erroredKey, err,
+		)
+	}
+	return PublisherMetrics{
+		produced: produced,
+		errored:  errored,
+	}, nil
+}
+
+var _ pubsubabs.Publisher = &Producer{}
+
+// Producer wraps a publisher client to provider tracing and metering.
+type Producer struct {
+	client  pubsubabs.Publisher
+	tracer  trace.Tracer
+	metrics PublisherMetrics
+	attrs   []attribute.KeyValue
+}
+
+// Error returns the producer stop error.
+func (p *Producer) Error() error { return p.client.Error() }
+
+// Stop stops the producer.
+func (p *Producer) Stop() { p.client.Stop() }
+
+// Publish wraps the pubsublite publish action with traces and metrics.
+func (p *Producer) Publish(ctx context.Context, msg *pubsub.Message) pubsubabs.PublishResult {
+	attrs := p.attrs
+	if len(msg.Attributes) > 0 {
+		attrs = make([]attribute.KeyValue, 0, len(p.attrs)+len(msg.Attributes))
+		attrs = append(attrs, p.attrs...)
+		for key, v := range msg.Attributes {
+			attrs = append(attrs, attribute.String(key, v))
+		}
+	}
+	ctx, span := p.tracer.Start(ctx, "pubsublite.Publish",
 		trace.WithSpanKind(trace.SpanKindProducer),
 		trace.WithAttributes(attrs...),
 	)
-
-	if msg == nil {
-		msg = &pubsub.Message{}
-	}
-
 	if msg.Attributes == nil {
 		msg.Attributes = make(map[string]string)
 	}
 	otel.GetTextMapPropagator().Inject(ctx, propagation.MapCarrier(msg.Attributes))
-
-	res := h(ctx, msg)
-
+	res := p.client.Publish(ctx, msg)
 	// This creates one goroutine for each message, which may cause overhead for
-	// mid-high producers.
+	// mid-high throughput producers.
 	// See also https://github.com/googleapis/google-cloud-go/issues/2953
 	go func() {
 		mid, err := res.Get(ctx)
@@ -63,10 +117,34 @@ func Publisher(ctx context.Context, tracer trace.Tracer, msg *pubsub.Message, h 
 		if err != nil {
 			span.RecordError(err)
 			span.SetStatus(codes.Error, err.Error())
+			p.metrics.errored.Add(ctx, 1, metric.WithAttributes(
+				attrs...,
+			))
+		} else {
+			span.SetStatus(codes.Ok, "success")
+			p.metrics.produced.Add(ctx, 1, metric.WithAttributes(
+				attrs...,
+			))
 		}
-
 		span.End()
 	}()
-
 	return res
+}
+
+// NewProducer decorates an existing publisher with tracing and metering.
+func NewProducer(
+	client pubsubabs.Publisher,
+	tracer trace.Tracer,
+	metrics PublisherMetrics,
+	attrs []attribute.KeyValue,
+) *Producer {
+	return &Producer{
+		client:  client,
+		tracer:  tracer,
+		metrics: metrics,
+		attrs: append(attrs,
+			semconv.MessagingSystemKey.String("pubsublite"),
+			semconv.MessagingDestinationKindTopic,
+		),
+	}
 }

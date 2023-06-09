@@ -24,6 +24,7 @@ import (
 	"os"
 
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 	"google.golang.org/api/option"
@@ -55,6 +56,10 @@ type CommonConfig struct {
 	// TracerProvider allows specifying a custom otel tracer provider.
 	// Defaults to the global one.
 	TracerProvider trace.TracerProvider
+
+	// MeterProvider allows specifying a custom otel meter provider.
+	// Defaults to the global one.
+	MeterProvider metric.MeterProvider
 }
 
 // Validate ensures the configuration is valid, otherwise, returns an error.
@@ -116,6 +121,13 @@ func (cfg *CommonConfig) tracerProvider() trace.TracerProvider {
 		return cfg.TracerProvider
 	}
 	return otel.GetTracerProvider()
+}
+
+func (cfg *CommonConfig) meterProvider() metric.MeterProvider {
+	if cfg.MeterProvider != nil {
+		return cfg.MeterProvider
+	}
+	return otel.GetMeterProvider()
 }
 
 // TODO(axw) method for producing common option.ClientOptions, such as otelgrpc interceptors.
