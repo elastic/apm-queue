@@ -27,13 +27,13 @@ import (
 
 // ErrorStop defines the Stop and Error methods.
 type ErrorStop interface {
-	// Stop sends all remaining published messages and closes publish streams.
-	// Returns once all outstanding messages have been sent or have failed to be
-	// sent. Stop should be called when the client is no longer required.
-	Error() error
 	// Error returns the error that caused the publisher client to terminate. The
 	// error returned here may contain more context than PublishResult errors. The
 	// return value may be nil if Stop() was called.
+	Error() error
+	// Stop sends all remaining published messages and closes publish streams.
+	// Returns once all outstanding messages have been sent or have failed to be
+	// sent. Stop should be called when the client is no longer required.
 	Stop()
 }
 
@@ -80,11 +80,11 @@ func (p *pubSubClient) Publish(ctx context.Context, msg *pubsub.Message) Publish
 
 // PublishResult abstracts the pubsub.PublishResult type.
 type PublishResult interface {
-	// Ready returns a channel that is closed when the result is ready.
-	// When the Ready channel is closed, Get is guaranteed not to block.
-	Get(ctx context.Context) (serverID string, err error)
 	// Get returns the server-generated message ID and/or error result of a Publish call.
 	// Get blocks until the Publish call completes or the context is done.
+	Get(ctx context.Context) (serverID string, err error)
+	// Ready returns a channel that is closed when the result is ready.
+	// When the Ready channel is closed, Get is guaranteed not to block.
 	Ready() <-chan struct{}
 }
 
