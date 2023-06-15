@@ -26,8 +26,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"go.elastic.co/apm/module/apmzap/v2"
-	"go.elastic.co/ecszap"
 	"go.uber.org/zap"
 
 	"github.com/elastic/apm-data/model"
@@ -59,13 +57,12 @@ type loadgen struct {
 }
 
 func newLoadgen(opt ...func(*loadgen) error) (*loadgen, error) {
-	encoderConfig := ecszap.NewDefaultEncoderConfig()
-	core := ecszap.NewCore(encoderConfig, os.Stdout, zap.InfoLevel)
-	var apmzapCore apmzap.Core
-	logger := zap.New(apmzapCore.WrapCore(core), zap.AddCaller()).Named("loadgen")
-
+	logger, err := zap.NewProduction(zap.AddCaller())
+	if err != nil {
+		return nil, err
+	}
 	lg := &loadgen{
-		logger:        logger,
+		logger:        logger.Named("loadgen"),
 		prefix:        defaultPrefix,
 		replay:        defaultReplay,
 		outputType:    defaultOutput,
@@ -129,11 +126,13 @@ func (lg *loadgen) process(ctx context.Context, p model.BatchProcessor) error {
 
 func (lg *loadgen) kafkaProcessor() (model.BatchProcessor, error) {
 	return kafka.NewProducer(kafka.ProducerConfig{
-		Brokers:     []string{lg.outputAddress},
-		Logger:      lg.logger.Named("producer"),
+		CommonConfig: kafka.CommonConfig{
+			Brokers: []string{lg.outputAddress},
+			Logger:  lg.logger.Named("producer"),
+			TLS:     &tls.Config{InsecureSkipVerify: true},
+		},
 		Encoder:     json.JSON{},
 		TopicRouter: apmqueue.NewEventTypeTopicRouter(lg.prefix),
-		TLS:         &tls.Config{InsecureSkipVerify: true},
 	})
 }
 
@@ -141,18 +140,14 @@ func (lg *loadgen) pubsubProcessor() (model.BatchProcessor, error) {
 	project := os.Getenv("GCLOUD_PROJECT_ID")
 	region := os.Getenv("GCLOUD_REGION")
 	router := apmqueue.NewEventTypeTopicRouter(lg.prefix)
-	b := newBatch()
-	topics := make([]apmqueue.Topic, 0, len(b))
-	for _, e := range b {
-		topics = append(topics, router(e))
-	}
-	return pubsublite.NewProducer(context.Background(), pubsublite.ProducerConfig{
+	return pubsublite.NewProducer(pubsublite.ProducerConfig{
+		CommonConfig: pubsublite.CommonConfig{
+			Logger:  lg.logger.Named("producer"),
+			Project: project,
+			Region:  region,
+		},
 		Encoder:     json.JSON{},
 		TopicRouter: router,
-		Logger:      lg.logger.Named("producer"),
-		Project:     project,
-		Region:      region,
-		Topics:      topics,
 	})
 }
 

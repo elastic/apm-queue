@@ -6,6 +6,7 @@ require (
 	cloud.google.com/go/pubsub v1.31.0
 	cloud.google.com/go/pubsublite v1.8.1
 	github.com/elastic/apm-data v0.1.1-0.20230602075939-0ce9b1cbd219
+	github.com/google/uuid v1.3.0
 	github.com/googleapis/gax-go/v2 v2.10.0
 	github.com/stretchr/testify v1.8.4
 	github.com/twmb/franz-go v1.13.5
@@ -42,7 +43,6 @@ require (
 	github.com/golang/protobuf v1.5.3 // indirect
 	github.com/google/go-cmp v0.5.9 // indirect
 	github.com/google/s2a-go v0.1.4 // indirect
-	github.com/google/uuid v1.3.0 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.2.3 // indirect
 	github.com/klauspost/compress v1.16.3 // indirect
 	github.com/kr/text v0.2.0 // indirect
