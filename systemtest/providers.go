@@ -24,9 +24,7 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/elastic/apm-data/model"
 	apmqueue "github.com/elastic/apm-queue"
-	"github.com/elastic/apm-queue/codec/json"
 	"github.com/elastic/apm-queue/kafka"
 	"github.com/elastic/apm-queue/pubsublite"
 )
@@ -34,13 +32,12 @@ import (
 var skipKafka, skipPubsublite bool
 
 type config struct {
-	processor      model.BatchProcessor
+	processor      apmqueue.Processor
 	sync           bool
 	dt             apmqueue.DeliveryType
-	codec          universalEncoderDecoder
 	maxPollRecords int
 	loggerF        func(testing.TB) *zap.Logger
-	topicsF        func(testing.TB) ([]apmqueue.Topic, func(model.APMEvent) apmqueue.Topic)
+	topicsF        func(testing.TB) []apmqueue.Topic
 }
 
 const (
@@ -51,27 +48,16 @@ const (
 
 var (
 	defaultCfg = config{
-		codec:   json.JSON{},
 		sync:    true,
 		loggerF: TestLogger,
-		topicsF: func(t testing.TB) ([]apmqueue.Topic, func(model.APMEvent) apmqueue.Topic) {
+		topicsF: func(t testing.TB) []apmqueue.Topic {
 			topics := SuffixTopics(apmqueue.Topic(t.Name()))
-			topicRouter := func(model.APMEvent) apmqueue.Topic {
-				return topics[0]
-			}
-			return topics, topicRouter
+			return topics
 		},
 	}
 )
 
 type option func(*config)
-
-type universalEncoderDecoder interface {
-	kafka.Encoder
-	kafka.Decoder
-	pubsublite.Encoder
-	pubsublite.Decoder
-}
 
 type providerF func(testing.TB, ...option) (apmqueue.Producer, apmqueue.Consumer)
 
@@ -118,18 +104,15 @@ func kafkaTypes(t testing.TB, opts ...option) (apmqueue.Producer, apmqueue.Consu
 	}
 
 	logger := cfg.loggerF(t)
-	topics, topicRouter := cfg.topicsF(t)
+	topics := cfg.topicsF(t)
 	CreateKafkaTopics(ctx, t, topics...)
 
 	producer := newKafkaProducer(t, kafka.ProducerConfig{
 		CommonConfig: kafka.CommonConfig{Logger: logger.Named("producer")},
-		Encoder:      cfg.codec,
-		TopicRouter:  topicRouter,
 		Sync:         cfg.sync,
 	})
 	consumer := newKafkaConsumer(t, kafka.ConsumerConfig{
 		CommonConfig: kafka.CommonConfig{Logger: logger.Named("consumer")},
-		Decoder:      cfg.codec,
 		Topics:       topics,
 		GroupID:      t.Name(),
 		Processor:    cfg.processor,
@@ -148,20 +131,17 @@ func pubSubTypes(t testing.TB, opts ...option) (apmqueue.Producer, apmqueue.Cons
 	}
 
 	logger := cfg.loggerF(t)
-	topics, topicRouter := cfg.topicsF(t)
+	topics := cfg.topicsF(t)
 	consumerName := "test_consumer"
 	CreatePubsubTopics(ctx, t, topics...)
 	CreatePubsubTopicSubscriptions(ctx, t, consumerName, topics...)
 
 	producer := newPubSubLiteProducer(t, pubsublite.ProducerConfig{
 		CommonConfig: pubsublite.CommonConfig{Logger: logger.Named("producer")},
-		Encoder:      cfg.codec,
-		TopicRouter:  topicRouter,
 		Sync:         cfg.sync,
 	})
 	consumer := newPubSubLiteConsumer(context.Background(), t, pubsublite.ConsumerConfig{
 		CommonConfig: pubsublite.CommonConfig{Logger: logger.Named("consumer")},
-		Decoder:      cfg.codec,
 		Topics:       topics,
 		ConsumerName: consumerName,
 		Processor:    cfg.processor,
@@ -170,7 +150,7 @@ func pubSubTypes(t testing.TB, opts ...option) (apmqueue.Producer, apmqueue.Cons
 	return producer, consumer
 }
 
-func withProcessor(p model.BatchProcessor) option {
+func withProcessor(p apmqueue.Processor) option {
 	return func(c *config) {
 		c.processor = p
 	}
@@ -200,32 +180,16 @@ func withLogger(f func(testing.TB) *zap.Logger) option {
 	}
 }
 
-func withEncoderDecoder(u universalEncoderDecoder) option {
-	return func(c *config) {
-		c.codec = u
-	}
-}
-
 func withTopic(topicsGenerator func(testing.TB) apmqueue.Topic) option {
 	return func(c *config) {
-		c.topicsF = func(t testing.TB) ([]apmqueue.Topic, func(model.APMEvent) apmqueue.Topic) {
-			topic := topicsGenerator(t)
-			topicRouter := func(model.APMEvent) apmqueue.Topic {
-				return topic
-			}
-
-			return []apmqueue.Topic{topic}, topicRouter
+		c.topicsF = func(t testing.TB) []apmqueue.Topic {
+			return []apmqueue.Topic{topicsGenerator(t)}
 		}
 	}
 }
 
-func withTopicsGenerator(topicsGenerator func(testing.TB) []apmqueue.Topic, topicRouterGenerator func([]apmqueue.Topic) func(model.APMEvent) apmqueue.Topic) option {
+func withTopicsGenerator(topicsGenerator func(testing.TB) []apmqueue.Topic) option {
 	return func(c *config) {
-		c.topicsF = func(t testing.TB) ([]apmqueue.Topic, func(model.APMEvent) apmqueue.Topic) {
-			topics := topicsGenerator(t)
-			topicRouter := topicRouterGenerator(topics)
-
-			return topics, topicRouter
-		}
+		c.topicsF = topicsGenerator
 	}
 }

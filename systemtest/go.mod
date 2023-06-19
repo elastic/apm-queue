@@ -3,7 +3,6 @@ module github.com/elastic/apm-queue/systemtest
 go 1.20
 
 require (
-	github.com/elastic/apm-data v0.1.1-0.20230602075939-0ce9b1cbd219
 	github.com/elastic/apm-queue v0.0.0-20230412171009-9717da3b23c4
 	github.com/mitchellh/go-homedir v1.1.0
 	github.com/stretchr/testify v1.8.4
@@ -50,7 +49,6 @@ require (
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/pierrec/lz4/v4 v4.1.17 // indirect
-	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect
 	github.com/twmb/franz-go v1.13.5 // indirect
@@ -59,7 +57,6 @@ require (
 	github.com/twmb/franz-go/pkg/kmsg v1.5.0 // indirect
 	github.com/twmb/franz-go/plugin/kotel v1.4.0 // indirect
 	github.com/twmb/franz-go/plugin/kzap v1.1.2 // indirect
-	go.elastic.co/fastjson v1.1.0 // indirect
 	go.opencensus.io v0.24.0 // indirect
 	go.opentelemetry.io/otel v1.16.0 // indirect
 	go.opentelemetry.io/otel/metric v1.16.0 // indirect

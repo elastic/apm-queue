@@ -36,9 +36,7 @@ import (
 	"go.uber.org/zap/zapcore"
 	"go.uber.org/zap/zaptest"
 
-	"github.com/elastic/apm-data/model"
 	apmqueue "github.com/elastic/apm-queue"
-	"github.com/elastic/apm-queue/codec/json"
 	"github.com/elastic/apm-queue/queuecontext"
 )
 
@@ -58,8 +56,7 @@ func TestNewConsumer(t *testing.T) {
 				},
 				Topics:    []apmqueue.Topic{"topic"},
 				GroupID:   "groupid",
-				Decoder:   json.JSON{},
-				Processor: model.ProcessBatchFunc(func(context.Context, *model.Batch) error { return nil }),
+				Processor: apmqueue.ProcessorFunc(func(context.Context, ...apmqueue.Record) error { return nil }),
 			},
 			expectErr: true,
 		},
@@ -74,8 +71,7 @@ func TestNewConsumer(t *testing.T) {
 				},
 				GroupID:   "groupid",
 				Topics:    []apmqueue.Topic{"topic"},
-				Decoder:   json.JSON{},
-				Processor: model.ProcessBatchFunc(func(context.Context, *model.Batch) error { return nil }),
+				Processor: apmqueue.ProcessorFunc(func(context.Context, ...apmqueue.Record) error { return nil }),
 			},
 			expectErr: false,
 		},
@@ -124,8 +120,7 @@ func TestConsumerHealth(t *testing.T) {
 				},
 				Topics:    []apmqueue.Topic{"topic"},
 				GroupID:   "groupid",
-				Decoder:   json.JSON{},
-				Processor: model.ProcessBatchFunc(func(context.Context, *model.Batch) error { return nil }),
+				Processor: apmqueue.ProcessorFunc(func(context.Context, ...apmqueue.Record) error { return nil }),
 			})
 
 			if tc.closeEarly {
@@ -150,9 +145,8 @@ func TestConsumerInstrumentation(t *testing.T) {
 	)
 	defer tp.Shutdown(context.Background())
 
-	event := model.APMEvent{Transaction: &model.Transaction{ID: "1"}}
-	codec := json.JSON{}
 	topics := []apmqueue.Topic{"topic"}
+	event := apmqueue.Record{Topic: topics[0], Value: []byte("1")}
 	client, addrs := newClusterWithTopics(t, 2, topics...)
 	processed := make(chan struct{})
 	cfg := ConsumerConfig{
@@ -163,21 +157,17 @@ func TestConsumerInstrumentation(t *testing.T) {
 		},
 		Topics:         topics,
 		GroupID:        "groupid",
-		Decoder:        codec,
 		MaxPollRecords: 1, // Consume a single record for this test.
-		Processor: model.ProcessBatchFunc(func(_ context.Context, b *model.Batch) error {
+		Processor: apmqueue.ProcessorFunc(func(_ context.Context, r ...apmqueue.Record) error {
 			defer close(processed)
-			assert.Len(t, *b, 1)
-			assert.Equal(t, event, (*b)[0])
+			assert.Len(t, r, 1)
+			assert.Equal(t, event, r[0])
 			return nil
 		}),
 	}
 
-	b, err := codec.Encode(event)
-	require.NoError(t, err)
-
 	produceRecord(context.Background(), t, client,
-		&kgo.Record{Topic: string(topics[0]), Value: b},
+		&kgo.Record{Topic: string(topics[0]), Value: event.Value},
 	)
 	consumer := newConsumer(t, cfg)
 	spanCount := len(exp.GetSpans())
@@ -194,8 +184,6 @@ func TestConsumerInstrumentation(t *testing.T) {
 func TestConsumerDelivery(t *testing.T) {
 	// ALOD = at least once delivery
 	// AMOD = at most once delivery
-	event := model.APMEvent{Transaction: &model.Transaction{ID: "1"}}
-	codec := json.JSON{}
 	topics := []apmqueue.Topic{"topic"}
 
 	// Produces `initialRecords` + `lastRecords` in total. Asserting the
@@ -292,15 +280,15 @@ func TestConsumerDelivery(t *testing.T) {
 
 			var processed atomic.Int32
 			var errored atomic.Int32
-			newProcessor := func(processRecord, failRecord <-chan struct{}) model.BatchProcessor {
-				return model.ProcessBatchFunc(func(_ context.Context, b *model.Batch) error {
+			newProcessor := func(processRecord, failRecord <-chan struct{}) apmqueue.Processor {
+				return apmqueue.ProcessorFunc(func(_ context.Context, r ...apmqueue.Record) error {
 					select {
 					// Records are marked as processed on receive processRecord.
 					case <-processRecord:
-						processed.Add(int32(len(*b)))
+						processed.Add(int32(len(r)))
 					// Records are marked as failed on receive failRecord.
 					case <-failRecord:
-						errored.Add(int32(len(*b)))
+						errored.Add(int32(len(r)))
 						return errors.New("failed processing record")
 					}
 					return nil
@@ -314,18 +302,15 @@ func TestConsumerDelivery(t *testing.T) {
 					Logger:  baseLogger,
 				},
 				Delivery:       tc.deliveryType,
-				Decoder:        codec,
 				Topics:         topics,
 				GroupID:        "groupid",
 				MaxPollRecords: tc.maxPollRecords,
 				Processor:      newProcessor(processRecord, failRecord),
 			}
 
-			b, err := codec.Encode(event)
-			require.NoError(t, err)
 			record := &kgo.Record{
 				Topic: string(topics[0]),
-				Value: b,
+				Value: []byte("content"),
 			}
 
 			// Context used for the consumer
@@ -344,7 +329,7 @@ func TestConsumerDelivery(t *testing.T) {
 				}
 			}()
 
-			// Wait until the batch processor function is called.
+			// Wait until the processor function is called.
 			// The first event is processed and after the context is canceled,
 			// the partition consumers are also stopped. Fetching and record
 			// processing is decoupled. The consumer may have fetched more
@@ -412,7 +397,6 @@ func TestConsumerGracefulShutdown(t *testing.T) {
 	// the second record is read as well and not lost.
 	test := func(t testing.TB, dt apmqueue.DeliveryType) {
 		client, brokers := newClusterWithTopics(t, 2, "topic")
-		var codec json.JSON
 		var processed atomic.Int32
 		var errored atomic.Int32
 		process := make(chan struct{})
@@ -424,16 +408,15 @@ func TestConsumerGracefulShutdown(t *testing.T) {
 			},
 			GroupID:        t.Name(),
 			Topics:         []apmqueue.Topic{"topic"},
-			Decoder:        codec,
 			MaxPollRecords: records,
 			Delivery:       dt,
-			Processor: model.ProcessBatchFunc(func(ctx context.Context, b *model.Batch) error {
+			Processor: apmqueue.ProcessorFunc(func(ctx context.Context, r ...apmqueue.Record) error {
 				select {
 				case <-ctx.Done():
-					errored.Add(int32(len(*b)))
+					errored.Add(int32(len(r)))
 					return ctx.Err()
 				case <-process:
-					processed.Add(int32(len(*b)))
+					processed.Add(int32(len(r)))
 				}
 				return nil
 			}),
@@ -447,10 +430,8 @@ func TestConsumerGracefulShutdown(t *testing.T) {
 			consumerErr = consumer.Run(ctx)
 		}()
 
-		b, err := codec.Encode(model.APMEvent{Transaction: &model.Transaction{ID: "1"}})
-		require.NoError(t, err)
 		for i := 0; i < records; i++ {
-			produceRecord(ctx, t, client, &kgo.Record{Topic: "topic", Value: b})
+			produceRecord(ctx, t, client, &kgo.Record{Topic: "topic", Value: []byte("content")})
 		}
 		select {
 		case process <- struct{}{}:
@@ -485,15 +466,13 @@ func TestConsumerContextPropagation(t *testing.T) {
 		Brokers: addrs,
 		Logger:  zap.NewNop(),
 	}
-	var codec json.JSON
 	processed := make(chan struct{})
 	expectedMeta := map[string]string{"key": "value"}
 	consumer := newConsumer(t, ConsumerConfig{
 		CommonConfig: commonCfg,
 		GroupID:      "ctx_prop",
 		Topics:       []apmqueue.Topic{"topic"},
-		Decoder:      codec,
-		Processor: model.ProcessBatchFunc(func(ctx context.Context, _ *model.Batch) error {
+		Processor: apmqueue.ProcessorFunc(func(ctx context.Context, _ ...apmqueue.Record) error {
 			select {
 			case <-processed:
 				t.Fatal("should only be called once")
@@ -514,10 +493,6 @@ func TestConsumerContextPropagation(t *testing.T) {
 	producer := newProducer(t, ProducerConfig{
 		CommonConfig: commonCfg,
 		Sync:         true,
-		Encoder:      codec,
-		TopicRouter: func(model.APMEvent) apmqueue.Topic {
-			return "topic"
-		},
 	})
 	// Enrich the producer's context with metadata.
 	ctx, cancel := context.WithCancel(queuecontext.WithMetadata(
@@ -525,8 +500,9 @@ func TestConsumerContextPropagation(t *testing.T) {
 	))
 	defer cancel()
 
-	producer.ProcessBatch(ctx, &model.Batch{
-		{}, // Empty record.
+	producer.Produce(ctx, apmqueue.Record{
+		Topic: apmqueue.Topic("topic"),
+		Value: []byte("1"),
 	})
 	assert.NoError(t, producer.Close())
 
@@ -538,8 +514,6 @@ func TestConsumerContextPropagation(t *testing.T) {
 }
 
 func TestMultipleConsumers(t *testing.T) {
-	event := model.APMEvent{Transaction: &model.Transaction{ID: "1"}}
-	codec := json.JSON{}
 	topics := []apmqueue.Topic{"topic"}
 	client, addrs := newClusterWithTopics(t, 2, topics...)
 
@@ -551,10 +525,9 @@ func TestMultipleConsumers(t *testing.T) {
 		},
 		Topics:  topics,
 		GroupID: "groupid",
-		Decoder: codec,
-		Processor: model.ProcessBatchFunc(func(_ context.Context, b *model.Batch) error {
+		Processor: apmqueue.ProcessorFunc(func(_ context.Context, r ...apmqueue.Record) error {
 			count.Add(1)
-			assert.Len(t, *b, 1)
+			assert.Len(t, r, 1)
 			return nil
 		}),
 	}
@@ -569,11 +542,9 @@ func TestMultipleConsumers(t *testing.T) {
 		}()
 	}
 
-	b, err := codec.Encode(event)
-	require.NoError(t, err)
 	record := kgo.Record{
 		Topic: string(topics[0]),
-		Value: b,
+		Value: []byte("content"),
 	}
 	produced := 100
 	for i := 0; i < produced; i++ {
@@ -585,8 +556,7 @@ func TestMultipleConsumers(t *testing.T) {
 }
 
 func TestMultipleConsumerGroups(t *testing.T) {
-	event := model.APMEvent{Transaction: &model.Transaction{ID: "1"}}
-	codec := json.JSON{}
+	event := apmqueue.Record{Topic: apmqueue.Topic("topic"), Value: []byte("x")}
 	topics := []apmqueue.Topic{"topic"}
 	client, addrs := newClusterWithTopics(t, 2, topics...)
 	cfg := ConsumerConfig{
@@ -594,12 +564,8 @@ func TestMultipleConsumerGroups(t *testing.T) {
 			Brokers: addrs,
 			Logger:  zap.NewNop(),
 		},
-		Topics:  topics,
-		Decoder: codec,
+		Topics: topics,
 	}
-
-	b, err := codec.Encode(event)
-	require.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -610,10 +576,10 @@ func TestMultipleConsumerGroups(t *testing.T) {
 		cfg.GroupID = gid
 		var counter atomic.Int64
 		m[gid] = &counter
-		cfg.Processor = model.ProcessBatchFunc(func(_ context.Context, b *model.Batch) error {
+		cfg.Processor = apmqueue.ProcessorFunc(func(_ context.Context, r ...apmqueue.Record) error {
 			counter.Add(1)
-			assert.Len(t, *b, 1)
-			assert.Equal(t, event, (*b)[0])
+			assert.Len(t, r, 1)
+			assert.Equal(t, event, r[0])
 			return nil
 		})
 		consumer := newConsumer(t, cfg)
@@ -626,7 +592,7 @@ func TestMultipleConsumerGroups(t *testing.T) {
 	for i := 0; i < produceRecords; i++ {
 		client.Produce(ctx, &kgo.Record{
 			Topic: string(topics[0]),
-			Value: b,
+			Value: event.Value,
 		}, func(r *kgo.Record, err error) {
 			assert.NoError(t, err)
 			assert.NotNil(t, r)
@@ -650,8 +616,7 @@ func TestConsumerRunError(t *testing.T) {
 			},
 			Topics:  []apmqueue.Topic{"topic"},
 			GroupID: "groupid",
-			Decoder: json.JSON{},
-			Processor: model.ProcessBatchFunc(func(context.Context, *model.Batch) error {
+			Processor: apmqueue.ProcessorFunc(func(_ context.Context, _ ...apmqueue.Record) error {
 				select {
 				case <-ready:
 				default:

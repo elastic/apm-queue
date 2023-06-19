@@ -31,46 +31,25 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/elastic/apm-data/model"
 	apmqueue "github.com/elastic/apm-queue"
 	"github.com/elastic/apm-queue/pubsublite/internal/pubsubabs"
 	"github.com/elastic/apm-queue/pubsublite/internal/telemetry"
 	"github.com/elastic/apm-queue/queuecontext"
 )
 
-// Encoder encodes a model.APMEvent to a []byte
-type Encoder interface {
-	// Encode accepts a model.APMEvent and returns the encoded representation.
-	Encode(model.APMEvent) ([]byte, error)
-}
-
 // ProducerConfig for the PubSub Lite producer.
 type ProducerConfig struct {
 	CommonConfig
-	// Encoder holds an encoding.Encoder for encoding events.
-	Encoder Encoder
-	// TopicRouter returns the topic where an event should be produced.
-	TopicRouter apmqueue.TopicRouter
 	// Sync can be used to indicate whether production should be synchronous.
-	// Due to the mechanics of pubsub lite publishing, producing synchronously
-	// will yield poor performance unless the model.Batch are large enough to
-	// trigger immediate flush after processing a single batch.
+	// Due to the mechanics of PubSub Lite publishing, producing synchronously
+	// will yield poor performance the unless a single call to produce contains
+	// enough records that are large enough to cause immediate flush.
 	Sync bool
 }
 
 // Validate ensures the configuration is valid, otherwise, returns an error.
 func (cfg ProducerConfig) Validate() error {
-	var errs []error
-	if err := cfg.CommonConfig.Validate(); err != nil {
-		errs = append(errs, err)
-	}
-	if cfg.Encoder == nil {
-		errs = append(errs, errors.New("pubsublite: encoder must be set"))
-	}
-	if cfg.TopicRouter == nil {
-		errs = append(errs, errors.New("pubsublite: topic router must be set"))
-	}
-	return errors.Join(errs...)
+	return cfg.CommonConfig.Validate()
 }
 
 // resTopic enriches a pubsub.PublishResult with its topic.
@@ -79,7 +58,9 @@ type resTopic struct {
 	topic    apmqueue.Topic
 }
 
-// Producer implementes the model.BatchProcessor interface and sends each of
+var _ apmqueue.Producer = &Producer{}
+
+// Producer implementes the apmqueue.Producer interface and sends each of
 // the events in a batch to a PubSub Lite topic, which is determined by calling
 // the configured TopicRouter.
 type Producer struct {
@@ -152,11 +133,15 @@ func (p *Producer) Close() error {
 	return p.errg.Wait()
 }
 
-// ProcessBatch publishes the batch to the PubSub Lite topic inferred from the
-// configured TopicRouter. If the Producer is synchronous, it waits until all
-// messages have been produced to PubSub Lite, otherwise, returns as soon as
-// the messages have been stored in the producer's buffer.
-func (p *Producer) ProcessBatch(ctx context.Context, batch *model.Batch) error {
+// Produce produces N records. If the Producer is synchronous, waits until
+// all records are produced, otherwise, returns as soon as the records are
+// stored in the producer buffer, or when the records are produced to the
+// queue if sync producing is configured.
+// If the context has been enriched with metadata, each entry will be added
+// as a record's header.
+// Produce takes ownership of Record and any modifications after Produce is
+// called may cause an unhandled exception.
+func (p *Producer) Produce(ctx context.Context, rs ...apmqueue.Record) error {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	select {
@@ -164,13 +149,9 @@ func (p *Producer) ProcessBatch(ctx context.Context, batch *model.Batch) error {
 		return errors.New("pubsublite: producer closed")
 	default:
 	}
-	responses := make([]resTopic, 0, len(*batch))
-	for _, event := range *batch {
-		encoded, err := p.cfg.Encoder.Encode(event)
-		if err != nil {
-			return fmt.Errorf("failed to encode event: %w", err)
-		}
-		msg := pubsub.Message{Data: encoded}
+	responses := make([]resTopic, 0, len(rs))
+	for _, record := range rs {
+		msg := pubsub.Message{Data: record.Value}
 		if meta, ok := queuecontext.MetadataFromContext(ctx); ok {
 			for k, v := range meta {
 				if msg.Attributes == nil {
@@ -179,8 +160,7 @@ func (p *Producer) ProcessBatch(ctx context.Context, batch *model.Batch) error {
 				msg.Attributes[k] = v
 			}
 		}
-		topic := p.cfg.TopicRouter(event)
-		publisher, err := p.getPublisher(topic)
+		publisher, err := p.getPublisher(record.Topic)
 		if err != nil {
 			return fmt.Errorf("pubsublite: failed to get publisher: %w", err)
 		}
@@ -193,7 +173,7 @@ func (p *Producer) ProcessBatch(ctx context.Context, batch *model.Batch) error {
 			// instrumentation, the context will be useful to propagate traces.
 			// This is accurate as of pubsublite@v1.7.0
 			response: publisher.Publish(ctx, &msg),
-			topic:    topic,
+			topic:    record.Topic,
 		})
 	}
 	if p.cfg.Sync {
