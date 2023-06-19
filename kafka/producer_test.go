@@ -222,7 +222,6 @@ func TestProducerGracefulShutdown(t *testing.T) {
 		// This is a workaround to hook into the processing code using json marshalling.
 		// The goal is try to close the producer before the batch is sent to kafka but after the Produce
 		// method is called.
-		// We are using two goroutines because both Produce and Close will block waiting on each other.
 		// Brief walkthrough:
 		// - Call the producer and start processing the batch
 		// - json encoding will block and a signal will be sent so that we know processing started
