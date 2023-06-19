@@ -193,7 +193,6 @@ func TestProducerGracefulShutdown(t *testing.T) {
 		_, brokers := newClusterWithTopics(t, 1, "topic")
 		var processed atomic.Int64
 		wait := make(chan struct{})
-		// signal := make(chan struct{})
 		producer := newProducer(t, ProducerConfig{
 			CommonConfig: CommonConfig{
 				Brokers: brokers,
