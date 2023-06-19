@@ -26,22 +26,14 @@ import (
 	"sync"
 
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 
 	"github.com/twmb/franz-go/pkg/kgo"
 
-	"github.com/elastic/apm-data/model"
 	apmqueue "github.com/elastic/apm-queue"
 	"github.com/elastic/apm-queue/queuecontext"
 )
-
-// Encoder encodes a model.APMEvent to a []byte
-type Encoder interface {
-	// Encode accepts a model.APMEvent and returns the encoded representation.
-	Encode(model.APMEvent) ([]byte, error)
-}
 
 // CompressionCodec configures how records are compressed before being sent.
 // Type alias to kgo.CompressionCodec.
@@ -67,14 +59,8 @@ func ZstdCompression() CompressionCodec { return kgo.ZstdCompression() }
 type ProducerConfig struct {
 	CommonConfig
 
-	// Encoder holds an encoding.Encoder for encoding events.
-	Encoder Encoder
-
 	// Sync can be used to indicate whether production should be synchronous.
 	Sync bool
-
-	// TopicRouter returns the topic where an event should be produced.
-	TopicRouter apmqueue.TopicRouter
 
 	// CompressionCodec specifies a list of compression codecs.
 	// See kgo.ProducerBatchCompression for more details.
@@ -97,12 +83,6 @@ func (cfg *ProducerConfig) finalize() error {
 	var errs []error
 	if err := cfg.CommonConfig.finalize(); err != nil {
 		errs = append(errs, err)
-	}
-	if cfg.Encoder == nil {
-		errs = append(errs, errors.New("kafka: encoder cannot be nil"))
-	}
-	if cfg.TopicRouter == nil {
-		errs = append(errs, errors.New("kafka: topic router must be set"))
 	}
 	if len(cfg.CompressionCodec) == 0 {
 		if v := os.Getenv("KAFKA_PRODUCER_COMPRESSION_CODEC"); v != "" {
@@ -130,7 +110,9 @@ func (cfg *ProducerConfig) finalize() error {
 	return errors.Join(errs...)
 }
 
-// Producer is a model.BatchProcessor that publishes events to Kafka.
+var _ apmqueue.Producer = &Producer{}
+
+// Producer publishes events to Kafka. Implements the Producer interface.
 type Producer struct {
 	cfg    ProducerConfig
 	client *kgo.Client
@@ -174,17 +156,24 @@ func (p *Producer) Close() error {
 	return nil
 }
 
-// ProcessBatch publishes the batch to the kafka topic inferred from the
-// configured TopicRouter. If the Producer is synchronous, it waits until all
-// messages have been produced to Kafka, otherwise, returns as soon as
-// the messages have been stored in the producer's buffer.
-func (p *Producer) ProcessBatch(ctx context.Context, batch *model.Batch) error {
-	ctx, span := p.tracer.Start(ctx, "producer.ProcessBatch", trace.WithAttributes(
+// Produce produces N records. If the Producer is synchronous, waits until
+// all records are produced, otherwise, returns as soon as the records are
+// stored in the producer buffer, or when the records are produced to the
+// queue if sync producing is configured.
+// If the context has been enriched with metadata, each entry will be added
+// as a record's header.
+// Produce takes ownership of Record and any modifications after Produce is
+// called may cause an unhandled exception.
+func (p *Producer) Produce(ctx context.Context, rs ...apmqueue.Record) error {
+	ctx, span := p.tracer.Start(ctx, "producer.Produce", trace.WithAttributes(
 		attribute.Bool("sync", p.cfg.Sync),
-		attribute.Int("batch.size", len(*batch)),
+		attribute.Int("record.count", len(rs)),
 	))
 	defer span.End()
 
+	if len(rs) == 0 {
+		return nil
+	}
 	// Take a read lock to prevent Close from closing the client
 	// while we're attempting to produce records.
 	p.mu.RLock()
@@ -192,44 +181,34 @@ func (p *Producer) ProcessBatch(ctx context.Context, batch *model.Batch) error {
 
 	var headers []kgo.RecordHeader
 	if m, ok := queuecontext.MetadataFromContext(ctx); ok {
+		headers = make([]kgo.RecordHeader, 0, len(m))
 		for k, v := range m {
 			headers = append(headers, kgo.RecordHeader{
-				Key:   k,
-				Value: []byte(v),
+				Key: k, Value: []byte(v),
 			})
 		}
 	}
 
 	var wg sync.WaitGroup
-	wg.Add(len(*batch))
-	for _, event := range *batch {
-		record := &kgo.Record{
+	wg.Add(len(rs))
+	if !p.cfg.Sync {
+		ctx = queuecontext.DetachedContext(ctx)
+	}
+	for _, record := range rs {
+		kgoRecord := &kgo.Record{
 			Headers: headers,
-			Topic:   string(p.cfg.TopicRouter(event)),
+			Topic:   string(record.Topic),
+			Value:   record.Value,
 		}
-		encoded, err := p.cfg.Encoder.Encode(event)
-		if err != nil {
-			err = fmt.Errorf("failed to encode event: %w", err)
-			span.RecordError(err)
-			span.SetStatus(codes.Error, err.Error())
-			return err
-		}
-		record.Value = encoded
-		if !p.cfg.Sync {
-			// Detach the context from its deadline or cancellation.
-			ctx = queuecontext.DetachedContext(ctx)
-		}
-		p.client.Produce(ctx, record, func(msg *kgo.Record, err error) {
+		p.client.Produce(ctx, kgoRecord, func(r *kgo.Record, err error) {
 			defer wg.Done()
-
-			// kotel already handles marking spans as errors. So we don't need to do
-			// anything regarding tracing here.
+			// kotel already marks spans as errors. No need to handle it here.
 			if err != nil {
 				p.cfg.Logger.Error("failed producing message",
 					zap.Error(err),
-					zap.String("topic", msg.Topic),
-					zap.Int64("offset", msg.Offset),
-					zap.Int32("partition", msg.Partition),
+					zap.String("topic", r.Topic),
+					zap.Int64("offset", r.Offset),
+					zap.Int32("partition", r.Partition),
 					zap.Any("headers", headers),
 				)
 			}

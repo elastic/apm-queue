@@ -20,7 +20,6 @@ package systemtest
 import (
 	"context"
 	"errors"
-	"math/rand"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -28,7 +27,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/elastic/apm-data/model"
 	apmqueue "github.com/elastic/apm-queue"
 )
 
@@ -38,13 +36,14 @@ func TestProduceConsumeDelivery(t *testing.T) {
 	forEachProvider(t, func(t *testing.T, pf providerF) {
 		forEachDeliveryType(t, func(t *testing.T, dt apmqueue.DeliveryType) {
 			timeout := 60 * time.Second
-			events := 100
-			replay := 1
-			expectedRecordsCount := 199
+			topic := SuffixTopics(apmqueue.Topic(t.Name()))[0]
+			recordCount := 200
+			expectedRecordsCount := recordCount - 1 // Expect 1 record to be dropped.
 
 			var records atomic.Int64
 			var once sync.Once
-			processor := model.ProcessBatchFunc(func(ctx context.Context, b *model.Batch) error {
+			proc := assertProcessor(t, consumerAssertions{records: &records})
+			processor := apmqueue.ProcessorFunc(func(ctx context.Context, r ...apmqueue.Record) error {
 				var err error
 				once.Do(func() {
 					err = errors.New("first event error")
@@ -52,22 +51,21 @@ func TestProduceConsumeDelivery(t *testing.T) {
 				if err != nil {
 					return err
 				}
-				return assertBatchFunc(t, consumerAssertions{
-					records:   &records,
-					processor: model.TransactionProcessor,
-				}).ProcessBatch(ctx, b)
+				return proc.Process(ctx, r...)
 			})
 
 			producer, consumer := pf(t,
 				withProcessor(processor),
 				withDeliveryType(dt),
+				withTopic(func(t testing.TB) apmqueue.Topic {
+					return topic
+				}),
 			)
 
 			ctx, cancel := context.WithTimeout(context.Background(), timeout)
 			defer cancel()
 			testProduceConsume(ctx, t, produceConsumeCfg{
-				events:               events,
-				replay:               replay,
+				events:               map[apmqueue.Topic]int{topic: recordCount},
 				expectedRecordsCount: expectedRecordsCount,
 				records:              &records,
 				producer:             producer,
@@ -84,8 +82,8 @@ func TestProduceConsumeDeliveryGuarantees(t *testing.T) {
 			topic := SuffixTopics(apmqueue.Topic(t.Name()))[0]
 
 			var errRecords atomic.Int64
-			errProcessor := model.ProcessBatchFunc(func(_ context.Context, b *model.Batch) error {
-				errRecords.Add(int64(len(*b)))
+			errProcessor := apmqueue.ProcessorFunc(func(_ context.Context, r ...apmqueue.Record) error {
+				errRecords.Add(int64(len(r)))
 				return errors.New("first consumer processor error")
 			})
 
@@ -102,17 +100,9 @@ func TestProduceConsumeDeliveryGuarantees(t *testing.T) {
 
 			go errConsumer.Run(ctx)
 
-			batch := model.Batch{model.APMEvent{
-				Timestamp:   time.Now(),
-				Processor:   model.TransactionProcessor,
-				Trace:       model.Trace{ID: "trace"},
-				Transaction: &model.Transaction{ID: "transaction"},
-				Event: model.Event{
-					Duration: time.Millisecond * (time.Duration(rand.Int63n(999)) + 1),
-				},
-			}}
+			record := apmqueue.Record{Topic: topic, Value: []byte("content")}
 			// Produce record and close the producer.
-			assert.NoError(t, producer.ProcessBatch(context.Background(), &batch))
+			assert.NoError(t, producer.Produce(context.Background(), record))
 			assert.NoError(t, producer.Close())
 
 			assert.Eventually(t, func() bool {
@@ -128,8 +118,8 @@ func TestProduceConsumeDeliveryGuarantees(t *testing.T) {
 			assert.NoError(t, errConsumer.Close())
 
 			var successRecords atomic.Int64
-			successProcessor := model.ProcessBatchFunc(func(_ context.Context, b *model.Batch) error {
-				successRecords.Add(int64(len(*b)))
+			successProcessor := apmqueue.ProcessorFunc(func(_ context.Context, r ...apmqueue.Record) error {
+				successRecords.Add(int64(len(r)))
 				return nil
 			})
 

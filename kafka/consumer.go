@@ -28,7 +28,6 @@ import (
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 
-	"github.com/elastic/apm-data/model"
 	apmqueue "github.com/elastic/apm-queue"
 	"github.com/elastic/apm-queue/queuecontext"
 )
@@ -39,12 +38,6 @@ var (
 	ErrCommitFailed = errors.New("kafka: failed to commit offsets")
 )
 
-// Decoder decodes a []byte into a model.APMEvent
-type Decoder interface {
-	// Decode decodes an encoded model.APM Event into its struct form.
-	Decode([]byte, *model.APMEvent) error
-}
-
 // ConsumerConfig defines the configuration for the Kafka consumer.
 type ConsumerConfig struct {
 	CommonConfig
@@ -52,8 +45,6 @@ type ConsumerConfig struct {
 	Topics []apmqueue.Topic
 	// GroupID to join as part of the consumer group.
 	GroupID string
-	// Decoder holds an encoding.Decoder for decoding records.
-	Decoder Decoder
 	// MaxPollRecords defines an upper bound to the number of records that can
 	// be polled on a single fetch. If MaxPollRecords <= 0, defaults to 100.
 	//
@@ -78,7 +69,7 @@ type ConsumerConfig struct {
 	//
 	// The processing time of each processing cycle can be calculated as:
 	// record.process.time * MaxPollRecords.
-	Processor model.BatchProcessor
+	Processor apmqueue.Processor
 }
 
 // finalize ensures the configuration is valid, setting default values from
@@ -95,14 +86,13 @@ func (cfg *ConsumerConfig) finalize() error {
 	if cfg.GroupID == "" {
 		errs = append(errs, errors.New("kafka: consumer GroupID must be set"))
 	}
-	if cfg.Decoder == nil {
-		errs = append(errs, errors.New("kafka: decoder must be set"))
-	}
 	if cfg.Processor == nil {
 		errs = append(errs, errors.New("kafka: processor must be set"))
 	}
 	return errors.Join(errs...)
 }
+
+var _ apmqueue.Consumer = &Consumer{}
 
 // Consumer wraps a Kafka consumer and the consumption implementation details.
 // Consumes each partition in a dedicated goroutine.
@@ -133,7 +123,6 @@ func NewConsumer(cfg ConsumerConfig) (*Consumer, error) {
 		consumers: make(map[topicPartition]partitionConsumer),
 		processor: cfg.Processor,
 		logger:    cfg.Logger.Named("partition"),
-		decoder:   cfg.Decoder,
 		delivery:  cfg.Delivery,
 		ctx:       processingCtx,
 	}
@@ -309,9 +298,8 @@ type consumer struct {
 	mu        sync.RWMutex
 	wg        sync.WaitGroup
 	consumers map[topicPartition]partitionConsumer
-	processor model.BatchProcessor
+	processor apmqueue.Processor
 	logger    *zap.Logger
-	decoder   Decoder
 	delivery  apmqueue.DeliveryType
 	// ctx contains the graceful cancellation context that is passed to the
 	// partition consumers.
@@ -335,7 +323,6 @@ func (c *consumer) assigned(_ context.Context, client *kgo.Client, assigned map[
 				records:   make(chan []*kgo.Record),
 				processor: c.processor,
 				logger:    c.logger,
-				decoder:   c.decoder,
 				client:    client,
 				delivery:  c.delivery,
 			}
@@ -454,9 +441,8 @@ func (c *consumer) OnFetchRecordBuffered(r *kgo.Record) {
 type partitionConsumer struct {
 	client    *kgo.Client
 	records   chan []*kgo.Record
-	processor model.BatchProcessor
+	processor apmqueue.Processor
 	logger    *zap.Logger
-	decoder   Decoder
 	delivery  apmqueue.DeliveryType
 }
 
@@ -477,22 +463,11 @@ func (pc partitionConsumer) consume(ctx context.Context, topic string, partition
 			for _, h := range msg.Headers {
 				meta[h.Key] = string(h.Value)
 			}
-			var event model.APMEvent
-			if err := pc.decoder.Decode(msg.Value, &event); err != nil {
-				logger.Error("unable to decode message.Value into model.APMEvent",
-					zap.Error(err),
-					zap.ByteString("message.value", msg.Value),
-					zap.Int64("offset", msg.Offset),
-					zap.Any("headers", meta),
-				)
-				// NOTE(marclop) The decoding has failed, a DLQ may be helpful.
-				continue
-			}
-			ctx := queuecontext.WithMetadata(msg.Context, meta)
-			batch := model.Batch{event}
+			processCtx := queuecontext.WithMetadata(msg.Context, meta)
+			record := apmqueue.Record{Topic: apmqueue.Topic(topic), Value: msg.Value}
 			// If a record can't be processed, no retries are attempted and it
 			// may be lost. https://github.com/elastic/apm-queue/issues/118.
-			if err := pc.processor.ProcessBatch(ctx, &batch); err != nil {
+			if err := pc.processor.Process(processCtx, record); err != nil {
 				logger.Error("data loss: unable to process event",
 					zap.Error(err),
 					zap.Int64("offset", msg.Offset),

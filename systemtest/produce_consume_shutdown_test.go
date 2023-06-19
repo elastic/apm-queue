@@ -25,72 +25,34 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/elastic/apm-data/model"
 	apmqueue "github.com/elastic/apm-queue"
-	"github.com/elastic/apm-queue/codec/json"
 )
-
-type hookedCodec struct {
-	u             universalEncoderDecoder
-	blockEncoding bool
-	blockDecoding bool
-	signal        chan struct{}
-}
-
-func (s *hookedCodec) Encode(e model.APMEvent) ([]byte, error) {
-	if s.blockEncoding {
-		s.signal <- struct{}{}
-	}
-	return s.u.Encode(e)
-}
-
-func (s *hookedCodec) Decode(b []byte, e *model.APMEvent) error {
-	if s.blockDecoding {
-		s.signal <- struct{}{}
-	}
-	return s.u.Decode(b, e)
-}
-
-func newHookedCodec(t *testing.T, blockEncoding bool, blockDecoding bool) (*hookedCodec, chan struct{}) {
-	signal := make(chan struct{})
-	codec := &hookedCodec{
-		u:             json.JSON{},
-		blockDecoding: blockDecoding,
-		blockEncoding: blockEncoding,
-		signal:        signal,
-	}
-	t.Cleanup(func() {
-		close(codec.signal)
-	})
-	return codec, signal
-}
 
 func TestGracefulShutdownProducer(t *testing.T) {
 	forEachProvider(t, func(t *testing.T, pf providerF) {
 		runAsyncAndSync(t, func(t *testing.T, isSync bool) {
 			var processed atomic.Int64
-			processor := model.ProcessBatchFunc(func(ctx context.Context, b *model.Batch) error {
-				processed.Add(1)
+			topic := SuffixTopics(apmqueue.Topic(t.Name()))[0]
+			processor := apmqueue.ProcessorFunc(func(_ context.Context, r ...apmqueue.Record) error {
+				processed.Add(int64(len(r)))
 				return nil
 			})
+			producer, consumer := pf(t,
+				withProcessor(processor),
+				withSync(isSync),
+				withTopic(func(t testing.TB) apmqueue.Topic { return topic }),
+			)
 
-			codec, signal := newHookedCodec(t, true, false)
-			producer, consumer := pf(t, withProcessor(processor), withSync(isSync), withEncoderDecoder(codec))
-
-			go func() {
-				assert.NoError(t, producer.ProcessBatch(context.Background(), &model.Batch{
-					model.APMEvent{Transaction: &model.Transaction{ID: "1"}},
-				}))
-			}()
-
-			// wait for events to be encoded and then try to close the producer
-			<-signal
+			assert.NoError(t, producer.Produce(context.Background(), apmqueue.Record{
+				Topic: topic,
+				Value: []byte("content"),
+			}))
 			assert.NoError(t, producer.Close())
 
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
-
 			go func() { consumer.Run(ctx) }()
+
 			assert.Eventually(t, func() bool {
 				return processed.Load() == 1
 			}, defaultConsumerWaitTimeout, time.Second, processed)
@@ -101,26 +63,35 @@ func TestGracefulShutdownProducer(t *testing.T) {
 func TestGracefulShutdownConsumer(t *testing.T) {
 	forEachProvider(t, func(t *testing.T, pf providerF) {
 		forEachDeliveryType(t, func(t *testing.T, dt apmqueue.DeliveryType) {
-			var processed atomic.Int32
-			processor := model.ProcessBatchFunc(func(ctx context.Context, b *model.Batch) error {
-				processed.Add(1)
+			var processed atomic.Int64
+			signal := make(chan struct{})
+			processor := apmqueue.ProcessorFunc(func(ctx context.Context, r ...apmqueue.Record) error {
+				select {
+				case <-ctx.Done():
+					return ctx.Err()
+				case signal <- struct{}{}:
+				}
+				processed.Add(int64(len(r)))
 				return nil
 			})
+			topic := SuffixTopics(apmqueue.Topic(t.Name()))[0]
+			producer, consumer := pf(t,
+				withProcessor(processor),
+				withDeliveryType(dt),
+				withTopic(func(t testing.TB) apmqueue.Topic { return topic }),
+			)
 
-			codec, signal := newHookedCodec(t, false, true)
-			producer, consumer := pf(t, withProcessor(processor), withDeliveryType(dt), withEncoderDecoder(codec))
-
-			assert.NoError(t, producer.ProcessBatch(context.Background(), &model.Batch{
-				model.APMEvent{Transaction: &model.Transaction{ID: "1"}},
+			assert.NoError(t, producer.Produce(context.Background(), apmqueue.Record{
+				Topic: topic,
+				Value: []byte("content"),
 			}))
 			assert.NoError(t, producer.Close())
 
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
-
 			go func() { consumer.Run(ctx) }()
 
-			// wait for the event to be decoded, cancel the context and close the consumer
+			// wait for the event to be received, cancel the context and close the consumer
 			<-signal
 			cancel()
 			consumer.Close()

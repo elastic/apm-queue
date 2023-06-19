@@ -31,9 +31,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 
-	"github.com/elastic/apm-data/model"
 	apmqueue "github.com/elastic/apm-queue"
-	"github.com/elastic/apm-queue/codec/json"
 	"github.com/elastic/apm-queue/queuecontext"
 )
 
@@ -44,12 +42,12 @@ func TestProducerMetrics(t *testing.T) {
 		rdr sdkmetric.Reader,
 		want metricdata.Metrics,
 	) {
-		err := producer.ProcessBatch(ctx, &model.Batch{
-			model.APMEvent{Transaction: &model.Transaction{ID: "1"}},
-			model.APMEvent{Transaction: &model.Transaction{ID: "2"}},
-			model.APMEvent{Span: &model.Span{ID: "3"}},
-		})
-		assert.NoError(t, err)
+		topic := apmqueue.Topic("default-topic")
+		producer.Produce(ctx,
+			apmqueue.Record{Topic: topic, Value: []byte("1")},
+			apmqueue.Record{Topic: topic, Value: []byte("2")},
+			apmqueue.Record{Topic: topic, Value: []byte("3")},
+		)
 
 		var rm metricdata.ResourceMetrics
 		assert.NoError(t, rdr.Collect(context.Background(), &rm))
@@ -211,11 +209,7 @@ func setupTestProducer(t testing.TB) (*Producer, sdkmetric.Reader) {
 				sdkmetric.WithReader(rdr),
 			),
 		},
-		Sync:    true,
-		Encoder: json.JSON{},
-		TopicRouter: func(event model.APMEvent) apmqueue.Topic {
-			return topic
-		},
+		Sync: true,
 	})
 	require.NoError(t, err)
 	require.NotNil(t, producer)

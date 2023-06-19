@@ -20,7 +20,6 @@ package systemtest
 import (
 	"context"
 	"errors"
-	"strconv"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -28,7 +27,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/elastic/apm-data/model"
 	apmqueue "github.com/elastic/apm-queue"
 )
 
@@ -131,18 +129,18 @@ func TestConsumerDelivery(t *testing.T) {
 				var processed atomic.Int32
 				var errored atomic.Int32
 
-				processor := model.ProcessBatchFunc(func(ctx context.Context, b *model.Batch) error {
+				processor := apmqueue.ProcessorFunc(func(ctx context.Context, r ...apmqueue.Record) error {
 					select {
 					// Records are marked as processed on receive processRecord.
 					case <-processRecord:
-						processed.Add(int32(len(*b)))
+						processed.Add(int32(len(r)))
 					// Records are marked as failed when ctx is canceled, or
 					// on receive failRecord.
 					case <-failRecord:
-						errored.Add(int32(len(*b)))
+						errored.Add(int32(len(r)))
 						return errors.New("failed processing record")
 					case <-ctx.Done():
-						errored.Add(int32(len(*b)))
+						errored.Add(int32(len(r)))
 						return ctx.Err()
 					}
 					return nil
@@ -157,11 +155,13 @@ func TestConsumerDelivery(t *testing.T) {
 					withMaxPollRecords(tc.maxPollRecords),
 				)
 
-				batch := make(model.Batch, 0, tc.initialRecords)
+				records := make([]apmqueue.Record, 0, tc.initialRecords)
 				for i := 0; i < int(tc.initialRecords); i++ {
-					batch = append(batch, model.APMEvent{Transaction: &model.Transaction{ID: strconv.Itoa(i)}})
+					records = append(records, apmqueue.Record{
+						Topic: topic, Value: []byte("content"),
+					})
 				}
-				require.NoError(t, producer.ProcessBatch(context.Background(), &batch))
+				require.NoError(t, producer.Produce(context.Background(), records...))
 				require.NoError(t, producer.Close())
 
 				// Context used for the consumer
@@ -181,7 +181,7 @@ func TestConsumerDelivery(t *testing.T) {
 					}
 				}()
 
-				// Wait until the batch processor function is called.
+				// Wait until the processor function is called.
 				// The first event is processed and after the context is canceled,
 				// the partition consumers are also stopped. Fetching and record
 				// processing is decoupled. The consumer may have fetched more
@@ -211,11 +211,13 @@ func TestConsumerDelivery(t *testing.T) {
 				)
 
 				// Produce tc.lastRecords.
-				batch = make(model.Batch, 0, tc.lastRecords)
+				records = make([]apmqueue.Record, 0, tc.lastRecords)
 				for i := 0; i < int(tc.lastRecords); i++ {
-					batch = append(batch, model.APMEvent{Transaction: &model.Transaction{ID: strconv.Itoa(i)}})
+					records = append(records, apmqueue.Record{
+						Topic: topic, Value: []byte("content"),
+					})
 				}
-				producer.ProcessBatch(context.Background(), &batch)
+				producer.Produce(context.Background(), records...)
 				require.NoError(t, producer.Close())
 
 				ctx, cancel = context.WithCancel(context.Background())

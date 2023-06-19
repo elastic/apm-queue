@@ -39,9 +39,7 @@ import (
 	"go.uber.org/zap/zapcore"
 	"go.uber.org/zap/zaptest"
 
-	"github.com/elastic/apm-data/model"
 	apmqueue "github.com/elastic/apm-queue"
-	"github.com/elastic/apm-queue/codec/json"
 	"github.com/elastic/apm-queue/queuecontext"
 )
 
@@ -52,8 +50,6 @@ func TestNewProducer(t *testing.T) {
 		assert.EqualError(t, err, "kafka: invalid producer config: "+strings.Join([]string{
 			"kafka: at least one broker must be set",
 			"kafka: logger must be set",
-			"kafka: encoder cannot be nil",
-			"kafka: topic router must be set",
 		}, "\n"))
 	})
 
@@ -62,8 +58,6 @@ func TestNewProducer(t *testing.T) {
 			Brokers: []string{"broker"},
 			Logger:  zap.NewNop(),
 		},
-		Encoder:     json.JSON{},
-		TopicRouter: func(event model.APMEvent) apmqueue.Topic { return "" },
 	}
 
 	t.Run("valid", func(t *testing.T) {
@@ -106,23 +100,17 @@ func TestNewProducerBasic(t *testing.T) {
 	// * Producing to a single topic
 	// * Producing a set number of records
 	// * Content contains headers from arbitrary metadata.
-	// * Record.Value can be decoded with the same codec.
 	test := func(t *testing.T, sync bool) {
 		t.Run(fmt.Sprintf("sync_%t", sync), func(t *testing.T) {
 			topic := apmqueue.Topic("default-topic")
 			client, brokers := newClusterWithTopics(t, 1, topic)
-			codec := json.JSON{}
 			producer, err := NewProducer(ProducerConfig{
 				CommonConfig: CommonConfig{
 					Brokers:        brokers,
 					Logger:         zap.NewNop(),
 					TracerProvider: tp,
 				},
-				Sync:    sync,
-				Encoder: codec,
-				TopicRouter: func(event model.APMEvent) apmqueue.Topic {
-					return topic
-				},
+				Sync: sync,
 			})
 			require.NoError(t, err)
 
@@ -130,21 +118,18 @@ func TestNewProducerBasic(t *testing.T) {
 			defer cancel()
 
 			ctx = queuecontext.WithMetadata(ctx, map[string]string{"a": "b", "c": "d"})
-			batch := model.Batch{
-				{Transaction: &model.Transaction{ID: "1"}},
-				{Transaction: &model.Transaction{ID: "2"}},
+			batch := []apmqueue.Record{
+				{Topic: topic, Value: []byte("1")},
+				{Topic: topic, Value: []byte("2")},
 			}
-
 			spanCount := len(exp.GetSpans())
 			if !sync {
-				// Cancel the context before calling processBatch
-				var c func()
-				var ctxCancelled context.Context
-				ctxCancelled, c = context.WithCancel(ctx)
-				c()
-				require.NoError(t, producer.ProcessBatch(ctxCancelled, &batch))
+				// Cancel the context before calling Produce
+				ctxCancelled, cancelProduce := context.WithCancel(ctx)
+				cancelProduce()
+				producer.Produce(ctxCancelled, batch...)
 			} else {
-				require.NoError(t, producer.ProcessBatch(ctx, &batch))
+				producer.Produce(ctx, batch...)
 			}
 
 			client.AddConsumeTopics(string(topic))
@@ -152,20 +137,16 @@ func TestNewProducerBasic(t *testing.T) {
 				fetches := client.PollRecords(ctx, 1)
 				require.NoError(t, fetches.Err())
 
+				// Assert contents.
+				assert.Equal(t,
+					apmqueue.Record{Topic: topic, Value: []byte(fmt.Sprint(i + 1))},
+					batch[i],
+				)
+
 				// Assert length.
 				records := fetches.Records()
 				assert.Len(t, records, 1)
-
-				var event model.APMEvent
 				record := records[0]
-				err := codec.Decode(record.Value, &event)
-				require.NoError(t, err)
-
-				// Assert contents and decoding.
-				assert.Equal(t, model.APMEvent{
-					Transaction: &model.Transaction{ID: fmt.Sprint(i + 1)},
-				}, event)
-
 				// Sort headers and assert their existence.
 				sort.Slice(record.Headers, func(i, j int) bool {
 					return record.Headers[i].Key < record.Headers[j].Key
@@ -189,15 +170,15 @@ func TestNewProducerBasic(t *testing.T) {
 
 			var span tracetest.SpanStub
 			for _, s := range exp.GetSpans() {
-				if s.Name == "producer.ProcessBatch" {
+				if s.Name == "producer.Produce" {
 					span = s
 				}
 			}
 
-			assert.Equal(t, "producer.ProcessBatch", span.Name)
+			assert.Equal(t, "producer.Produce", span.Name)
 			assert.Equal(t, []attribute.KeyValue{
 				attribute.Bool("sync", sync),
-				attribute.Int("batch.size", 2),
+				attribute.Int("record.count", 2),
 			}, span.Attributes)
 
 			exp.Reset()
@@ -207,32 +188,18 @@ func TestNewProducerBasic(t *testing.T) {
 	test(t, false)
 }
 
-type stub struct {
-	wait   chan struct{}
-	signal chan struct{}
-}
-
-func (s *stub) MarshalJSON() ([]byte, error) {
-	close(s.signal)
-	<-s.wait
-	return []byte("null"), nil
-}
-
 func TestProducerGracefulShutdown(t *testing.T) {
 	test := func(t testing.TB, dt apmqueue.DeliveryType, syncProducer bool) {
 		_, brokers := newClusterWithTopics(t, 1, "topic")
-		var codec json.JSON
 		var processed atomic.Int64
+		wait := make(chan struct{})
+		// signal := make(chan struct{})
 		producer := newProducer(t, ProducerConfig{
 			CommonConfig: CommonConfig{
 				Brokers: brokers,
 				Logger:  zaptest.NewLogger(t, zaptest.Level(zapcore.DebugLevel)),
 			},
-			Encoder: codec,
-			Sync:    syncProducer,
-			TopicRouter: func(event model.APMEvent) apmqueue.Topic {
-				return apmqueue.Topic("topic")
-			},
+			Sync: syncProducer,
 		})
 		consumer := newConsumer(t, ConsumerConfig{
 			CommonConfig: CommonConfig{
@@ -241,10 +208,10 @@ func TestProducerGracefulShutdown(t *testing.T) {
 			},
 			GroupID:  "group",
 			Topics:   []apmqueue.Topic{"topic"},
-			Decoder:  codec,
 			Delivery: dt,
-			Processor: model.ProcessBatchFunc(func(_ context.Context, _ *model.Batch) error {
-				processed.Add(1)
+			Processor: apmqueue.ProcessorFunc(func(_ context.Context, r ...apmqueue.Record) error {
+				<-wait
+				processed.Add(int64(len(r)))
 				return nil
 			}),
 		})
@@ -253,34 +220,17 @@ func TestProducerGracefulShutdown(t *testing.T) {
 		defer cancel()
 
 		// This is a workaround to hook into the processing code using json marshalling.
-		// The goal is try to close the producer before the batch is sent to kafka but after the ProcessBatch
+		// The goal is try to close the producer before the batch is sent to kafka but after the Produce
 		// method is called.
-		// We are using two goroutines because both ProcessBatch and Close will block waiting on each other.
+		// We are using two goroutines because both Produce and Close will block waiting on each other.
 		// Brief walkthrough:
 		// - Call the producer and start processing the batch
 		// - json encoding will block and a signal will be sent so that we know processing started
 		// - wait for the signal and then try to close the producer in a separate goroutine.
 		// - closing will block until processing finished to avoid losing events
-		var wg sync.WaitGroup
-		wg.Add(2)
-		wait := make(chan struct{})
-		signal := make(chan struct{})
-		go func() {
-			defer wg.Done()
-			assert.NoError(t, producer.ProcessBatch(ctx, &model.Batch{
-				model.APMEvent{Transaction: &model.Transaction{ID: "1", Custom: map[string]any{"foo": &stub{wait: wait, signal: signal}}}},
-			}))
-		}()
-		<-signal
-		go func() {
-			defer wg.Done()
-			close(wait)
-			assert.NoError(t, producer.Close())
-		}()
-
-		// Wait for both goroutines to finish
-		// Ideally the close goroutine is waiting for the producer to finish publishing the events.
-		wg.Wait()
+		producer.Produce(ctx, apmqueue.Record{Topic: "topic"})
+		close(wait)
+		assert.NoError(t, producer.Close())
 
 		// Run a consumer that fetches from kafka to verify that the events are there.
 		go func() { consumer.Run(ctx) }()
@@ -316,10 +266,6 @@ func TestProducerConcurrentClose(t *testing.T) {
 		CommonConfig: CommonConfig{
 			Brokers: brokers,
 			Logger:  zap.NewNop(),
-		},
-		Encoder: json.JSON{},
-		TopicRouter: func(event model.APMEvent) apmqueue.Topic {
-			return "topic"
 		},
 	})
 

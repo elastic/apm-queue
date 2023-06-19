@@ -25,7 +25,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
 
-	"github.com/elastic/apm-data/model"
 	apmqueue "github.com/elastic/apm-queue"
 )
 
@@ -38,21 +37,18 @@ func TestNewConsumer(t *testing.T) {
 			"pubsublite: logger must be set",
 			"pubsublite: at least one topic must be set",
 			"pubsublite: consumer name must be set",
-			"pubsublite: decoder must be set",
 			"pubsublite: processor must be set",
 		}, "\n"))
 	})
 
 	validConfig := func() ConsumerConfig {
-		var validDecoder struct{ Decoder }
-		var validProcessor struct{ model.BatchProcessor }
+		var validProcessor struct{ apmqueue.Processor }
 		return ConsumerConfig{
 			CommonConfig: CommonConfig{
 				Project: "project_name",
 				Region:  "region_name",
 				Logger:  zap.NewNop(),
 			},
-			Decoder:      validDecoder,
 			Processor:    validProcessor,
 			Topics:       []apmqueue.Topic{"topic_name"},
 			ConsumerName: "consumer_name",

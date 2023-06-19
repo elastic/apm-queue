@@ -15,6 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// Package pubsublite abstracts the production and consumption of model.Batch
+// Package pubsublite abstracts the production and consumption of records
 // to and from GCP PubSub Lite.
 package pubsublite

@@ -16,15 +16,12 @@
 // under the License.
 
 // Package apmqueue provides an abstraction layer for producing and consuming
-// model.Batch es from and to Kafka and GCP PubSub Lite.
+// Records from and to Kafka and GCP PubSub Lite.
 package apmqueue
 
 import (
 	"context"
 	"errors"
-	"strings"
-
-	"github.com/elastic/apm-data/model"
 )
 
 var (
@@ -39,7 +36,7 @@ const (
 	AtMostOnceDeliveryType DeliveryType = iota
 	// AtLeastOnceDeliveryType acknowledges the message after it has been
 	// processed. It may or may not create duplicates, depending on how batches
-	// are processed by the underlying model.BatchProcessor.
+	// are processed by the underlying Processor.
 	AtLeastOnceDeliveryType
 )
 
@@ -47,6 +44,7 @@ const (
 type DeliveryType uint8
 
 // Consumer wraps the implementation details of the consumer implementation.
+// Consumer implementations must support the defined delivery types.
 type Consumer interface {
 	// Run executes the consumer in a blocking manner. Returns
 	// ErrConsumerAlreadyRunning when it has already been called.
@@ -57,50 +55,47 @@ type Consumer interface {
 	Close() error
 }
 
-// Producer wraps the producer implementation details
+// Producer wraps the producer implementation details. Producer implementations
+// must support sync and async production.
 type Producer interface {
-	model.BatchProcessor
+	// Produce produces N records. If the Producer is synchronous, waits until
+	// all records are produced, otherwise, returns as soon as the records are
+	// stored in the producer buffer, or when the records are produced to the
+	// queue if sync producing is configured.
+	// If the context has been enriched with metadata, each entry will be added
+	// as a record's header.
+	// Produce takes ownership of Record and any modifications after Produce is
+	// called may cause an unhandled exception.
+	Produce(ctx context.Context, rs ...Record) error
 	// Healthy returns an error if the producer isn't healthy.
 	Healthy(ctx context.Context) error
 	// Close closes the producer.
 	Close() error
 }
 
+// Record wraps a record's value with the topic where it's produced / consumed.
+type Record struct {
+	// Topics holds the topic where the record will be produced.
+	Topic Topic
+	// Value holds the record's content. It must not be mutated after Produce.
+	Value []byte
+}
+
+// Processor defines record processing signature.
+type Processor interface {
+	// Process processes one or more records within the passed context.
+	// Process takes ownership of the passed records, callers must not mutate
+	// a record after Process has been called.
+	Process(context.Context, ...Record) error
+}
+
+// ProcessorFunc is a function type that implements the Processor interface.
+type ProcessorFunc func(context.Context, ...Record) error
+
+// Process returns f(ctx, records...).
+func (f ProcessorFunc) Process(ctx context.Context, rs ...Record) error {
+	return f(ctx, rs...)
+}
+
 // Topic represents a destination topic where to produce a message/record.
 type Topic string
-
-// TopicRouter is used to determine the destination topic for an model.APMEvent.
-type TopicRouter func(event model.APMEvent) Topic
-
-// NewEventTypeTopicRouter returns a topic router which routes events based on
-// an optional prefix, and the event.Processor.Event field for an event.
-func NewEventTypeTopicRouter(prefix string) TopicRouter {
-	txTopic := joinPrefix(prefix, model.TransactionProcessor.Event)
-	spanTopic := joinPrefix(prefix, model.SpanProcessor.Event)
-	errorTopic := joinPrefix(prefix, model.ErrorProcessor.Event)
-	metricTopic := joinPrefix(prefix, model.MetricsetProcessor.Event)
-	logTopic := joinPrefix(prefix, model.LogProcessor.Event)
-	return func(event model.APMEvent) Topic {
-		switch event.Processor {
-		case model.TransactionProcessor:
-			return Topic(txTopic)
-		case model.SpanProcessor:
-			return Topic(spanTopic)
-		case model.ErrorProcessor:
-			return Topic(errorTopic)
-		case model.MetricsetProcessor:
-			return Topic(metricTopic)
-		case model.LogProcessor:
-			return Topic(logTopic)
-		default:
-			return "unknown"
-		}
-	}
-}
-
-func joinPrefix(prefix, name string) string {
-	if prefix == "" {
-		return name
-	}
-	return strings.Join([]string{prefix, name}, ".")
-}

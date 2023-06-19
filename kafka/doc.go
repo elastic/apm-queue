@@ -15,6 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// Package kafka abstracts the production and consumption of model.Batch
+// Package kafka abstracts the production and consumption of records
 // to and from Kafka.
 package kafka

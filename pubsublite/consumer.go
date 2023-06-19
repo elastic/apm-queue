@@ -32,17 +32,10 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/elastic/apm-data/model"
 	apmqueue "github.com/elastic/apm-queue"
 	"github.com/elastic/apm-queue/pubsublite/internal/telemetry"
 	"github.com/elastic/apm-queue/queuecontext"
 )
-
-// Decoder decodes a []byte into a model.APMEvent
-type Decoder interface {
-	// Decode decodes an encoded model.APM Event into its struct form.
-	Decode([]byte, *model.APMEvent) error
-}
 
 // ConsumerConfig defines the configuration for the PubSub Lite consumer.
 type ConsumerConfig struct {
@@ -53,12 +46,10 @@ type ConsumerConfig struct {
 	// the topic names to identify Pub/Sub Lite subscriptions, and must
 	// be unique per consuming service.
 	ConsumerName string
-	// Decoder holds an encoding.Decoder for decoding events.
-	Decoder Decoder
 	// Processor that will be used to process each event individually.
 	// Processor may be called from multiple goroutines and needs to be
 	// safe for concurrent use.
-	Processor model.BatchProcessor
+	Processor apmqueue.Processor
 	// Delivery mechanism to use to acknowledge the messages.
 	// AtMostOnceDeliveryType and AtLeastOnceDeliveryType are supported.
 	Delivery apmqueue.DeliveryType
@@ -76,9 +67,6 @@ func (cfg ConsumerConfig) Validate() error {
 	if cfg.ConsumerName == "" {
 		errs = append(errs, errors.New("pubsublite: consumer name must be set"))
 	}
-	if cfg.Decoder == nil {
-		errs = append(errs, errors.New("pubsublite: decoder must be set"))
-	}
 	if cfg.Processor == nil {
 		errs = append(errs, errors.New("pubsublite: processor must be set"))
 	}
@@ -90,6 +78,8 @@ func (cfg ConsumerConfig) Validate() error {
 	}
 	return errors.Join(errs...)
 }
+
+var _ apmqueue.Consumer = &Consumer{}
 
 // Consumer receives PubSub Lite messages from a existing subscription(s). The
 // underlying library processes messages concurrently per subscription and
@@ -145,7 +135,7 @@ func NewConsumer(ctx context.Context, cfg ConsumerConfig) (*Consumer, error) {
 			SubscriberClient: client,
 			delivery:         cfg.Delivery,
 			processor:        cfg.Processor,
-			decoder:          cfg.Decoder,
+			topic:            topic,
 			logger: cfg.Logger.With(
 				zap.String("subscription", subscriptionName),
 				zap.String("topic", string(topic)),
@@ -220,32 +210,18 @@ type consumer struct {
 	*pscompat.SubscriberClient
 	logger              *zap.Logger
 	delivery            apmqueue.DeliveryType
-	processor           model.BatchProcessor
-	decoder             Decoder
+	processor           apmqueue.Processor
+	topic               apmqueue.Topic
 	telemetryAttributes []attribute.KeyValue
 	failed              sync.Map
 }
 
 func (c *consumer) processMessage(ctx context.Context, msg *pubsub.Message) {
-	var event model.APMEvent
-	if err := c.decoder.Decode(msg.Data, &event); err != nil {
-		defer msg.Nack()
-		partition, offset := partitionOffset(msg.ID)
-		c.logger.Error("unable to decode message.Data into model.APMEvent",
-			zap.Error(err),
-			zap.ByteString("message.value", msg.Data),
-			zap.Int64("offset", offset),
-			zap.Int("partition", partition),
-			zap.Any("headers", msg.Attributes),
-		)
-		return
-	}
-	batch := model.Batch{event}
 	ctx = queuecontext.WithMetadata(ctx, msg.Attributes)
 	var err error
 	switch c.delivery {
 	case apmqueue.AtMostOnceDeliveryType:
-		msg.Ack()
+		msg.Ack() // (message may be lost on crash/error).
 	case apmqueue.AtLeastOnceDeliveryType:
 		defer func() {
 			// If processing fails, the message will not be Nacked until the 3rd
@@ -256,12 +232,16 @@ func (c *consumer) processMessage(ctx context.Context, msg *pubsub.Message) {
 					attempt += a.(int)
 				}
 				if attempt > 2 {
-					c.logger.Warn("re-processing limit exceeded, discarding event", zap.Int("attempt", attempt))
+					c.logger.Warn("re-processing limit exceeded, discarding event",
+						zap.Int("attempt", attempt),
+					)
 					msg.Nack()
 					c.failed.Delete(msg.ID)
 					return
 				}
-				c.logger.Info("storing message id for re-processing", zap.Int("attempt", attempt))
+				c.logger.Info("storing message id for re-processing",
+					zap.Int("attempt", attempt),
+				)
 				c.failed.Store(msg.ID, attempt)
 				return
 			}
@@ -276,7 +256,8 @@ func (c *consumer) processMessage(ctx context.Context, msg *pubsub.Message) {
 			}
 		}()
 	}
-	if err = c.processor.ProcessBatch(ctx, &batch); err != nil {
+	record := apmqueue.Record{Topic: c.topic, Value: msg.Data}
+	if err = c.processor.Process(ctx, record); err != nil {
 		partition, offset := partitionOffset(msg.ID)
 		c.logger.Error("unable to process event",
 			zap.Error(err),
