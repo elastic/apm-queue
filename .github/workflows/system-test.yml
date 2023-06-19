@@ -19,6 +19,8 @@ jobs:
       pull-requests: read
     steps:
       - uses: elastic/apm-pipeline-library/.github/actions/is-pr-approved@current
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
   run-system-tests:
     needs:
       - is-pr-approved
