@@ -21,42 +21,86 @@ package telemetry
 
 import (
 	"context"
+	"fmt"
 
 	"cloud.google.com/go/pubsub"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/propagation"
 	semconv "go.opentelemetry.io/otel/semconv/v1.18.0"
 	"go.opentelemetry.io/otel/trace"
+
+	"github.com/elastic/apm-queue/pubsublite/internal/pubsubabs"
 )
 
-type consumerHandler = func(context.Context, *pubsub.Message)
+// ConsumerMetrics holds the metrics that are recorded for consumers
+type ConsumerMetrics struct {
+	fetched metric.Int64Counter
+}
 
-// Consumer adds telemetry data to messages received
-func Consumer(tracer trace.Tracer, h consumerHandler, attrs []attribute.KeyValue) consumerHandler {
+// NewConsumerMetrics instantiates the producer metrics.
+func NewConsumerMetrics(mp metric.MeterProvider) (cm ConsumerMetrics, err error) {
+	m := mp.Meter(instrumentName)
+	cm.fetched, err = m.Int64Counter("consumer.messages.fetched",
+		metric.WithDescription("The number of messages fetched"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		return cm, fmt.Errorf(
+			"telemetry: cannot create 'consumer.messages.fetched' metric: %w", err,
+		)
+	}
+	return
+}
+
+// Consumer decorates an existing publisher with tracing and metering.
+func Consumer(
+	receive pubsubabs.ReceiveFunc,
+	tracer trace.Tracer,
+	metrics ConsumerMetrics,
+	commonAttrs []attribute.KeyValue,
+) pubsubabs.ReceiveFunc {
+	commonAttrs = append(commonAttrs,
+		semconv.MessagingSystem("pubsublite"),
+		semconv.MessagingSourceKindTopic,
+		semconv.MessagingOperationProcess,
+	)
 	return func(ctx context.Context, msg *pubsub.Message) {
 		if msg == nil {
 			return
+		}
+
+		attrs := commonAttrs
+		if len(msg.Attributes) > 0 {
+			_, hasTraceparent := msg.Attributes["traceparent"]
+			if (hasTraceparent && len(msg.Attributes) > 1) || !hasTraceparent {
+				attrs = make([]attribute.KeyValue, 0, len(commonAttrs)+len(msg.Attributes))
+				attrs = append(attrs, commonAttrs...)
+			}
+			for key, v := range msg.Attributes {
+				if key == "traceparent" { // Ignore traceparent header.
+					continue
+				}
+				attrs = append(attrs, attribute.String(key, v))
+			}
 		}
 
 		if msg.Attributes != nil {
 			propagator := otel.GetTextMapPropagator()
 			ctx = propagator.Extract(ctx, propagation.MapCarrier(msg.Attributes))
 		}
-
-		attrs = append(attrs,
-			semconv.MessagingSystemKey.String("pubsublite"),
-			semconv.MessagingSourceKindTopic,
-			semconv.MessagingOperationProcess,
-			semconv.MessagingMessageIDKey.String(msg.ID),
-		)
-
-		ctx, span := tracer.Start(ctx, "pubsublite.Receive",
+		ctx, span := tracer.Start(ctx, "pubsublite.Receive", // PubSub name.
 			trace.WithSpanKind(trace.SpanKindConsumer),
-			trace.WithAttributes(attrs...),
+			trace.WithAttributes(append(attrs,
+				semconv.MessagingMessageIDKey.String(msg.ID),
+			)...),
 		)
 		defer span.End()
 
-		h(ctx, msg)
+		metrics.fetched.Add(context.Background(), 1, metric.WithAttributes(
+			attrs...,
+		))
+		receive(ctx, msg)
 	}
 }

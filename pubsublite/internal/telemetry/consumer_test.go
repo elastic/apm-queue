@@ -24,11 +24,15 @@ import (
 
 	"cloud.google.com/go/pubsub"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/sdk/instrumentation"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata/metricdatatest"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	semconv "go.opentelemetry.io/otel/semconv/v1.18.0"
@@ -53,6 +57,7 @@ func TestConsumer(t *testing.T) {
 		parentSpanID [8]byte
 
 		expectedSpans tracetest.SpanStubs
+		expectMetrics metricdata.Metrics
 	}{
 		{
 			name:          "with no message",
@@ -79,11 +84,9 @@ func TestConsumer(t *testing.T) {
 		},
 		{
 			name: "with attributes that don't match a parent span",
-			msg: &pubsub.Message{
-				Attributes: map[string]string{
-					"hello": "world",
-				},
-			},
+			msg: &pubsub.Message{Attributes: map[string]string{
+				"hello": "world",
+			}},
 			attributes: []attribute.KeyValue{
 				attribute.String("project", "project_name"),
 			},
@@ -96,6 +99,7 @@ func TestConsumer(t *testing.T) {
 						semconv.MessagingSystemKey.String("pubsublite"),
 						semconv.MessagingSourceKindTopic,
 						semconv.MessagingOperationProcess,
+						attribute.String("hello", "world"),
 						semconv.MessagingMessageIDKey.String(""),
 					},
 					InstrumentationLibrary: instrumentation.Library{
@@ -103,14 +107,31 @@ func TestConsumer(t *testing.T) {
 					},
 				},
 			},
+			expectMetrics: metricdata.Metrics{
+				Name:        "consumer.messages.fetched",
+				Description: "The number of messages fetched",
+				Unit:        "1",
+				Data: metricdata.Sum[int64]{
+					IsMonotonic: true,
+					Temporality: metricdata.CumulativeTemporality,
+					DataPoints: []metricdata.DataPoint[int64]{{
+						Value: 1,
+						Attributes: attribute.NewSet(
+							attribute.String("project", "project_name"),
+							semconv.MessagingSystemKey.String("pubsublite"),
+							semconv.MessagingSourceKindTopic,
+							semconv.MessagingOperationProcess,
+							attribute.String("hello", "world"),
+						),
+					}},
+				},
+			},
 		},
 		{
 			name: "with attributes that matches a parent span",
-			msg: &pubsub.Message{
-				Attributes: map[string]string{
-					"traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
-				},
-			},
+			msg: &pubsub.Message{Attributes: map[string]string{
+				"traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+			}},
 			traceID: mustTraceIDFromHex(t, "4bf92f3577b34da6a3ce929d0e0e4736"),
 			expectedSpans: tracetest.SpanStubs{
 				tracetest.SpanStub{
@@ -134,14 +155,38 @@ func TestConsumer(t *testing.T) {
 					},
 				},
 			},
+			expectMetrics: metricdata.Metrics{
+				Name:        "consumer.messages.fetched",
+				Description: "The number of messages fetched",
+				Unit:        "1",
+				Data: metricdata.Sum[int64]{
+					IsMonotonic: true,
+					Temporality: metricdata.CumulativeTemporality,
+					DataPoints: []metricdata.DataPoint[int64]{{
+						Value: 1,
+						Attributes: attribute.NewSet(
+							semconv.MessagingSystemKey.String("pubsublite"),
+							semconv.MessagingSourceKindTopic,
+							semconv.MessagingOperationProcess,
+						),
+					}},
+				},
+			},
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			h := Consumer(tp.Tracer("test"), func(ctx context.Context, msg *pubsub.Message) {
-				// No need to do anything here
-			}, tt.attributes)
+			defer exp.Reset() // Reset for next tests
 
-			h(context.Background(), tt.msg)
+			rdr := sdkmetric.NewManualReader()
+			cm, err := NewConsumerMetrics(sdkmetric.NewMeterProvider(
+				sdkmetric.WithReader(rdr),
+			))
+			require.NoError(t, err)
+			recive := Consumer(func(ctx context.Context, msg *pubsub.Message) {
+				// No need to do anything here
+			}, tp.Tracer("test"), cm, tt.attributes)
+
+			recive(context.Background(), tt.msg)
 
 			spans := exp.GetSpans()
 			for i := range spans {
@@ -161,8 +206,20 @@ func TestConsumer(t *testing.T) {
 
 			assert.Equal(t, tt.expectedSpans, spans)
 
-			// Reset for next tests
-			exp.Reset()
+			if tt.expectMetrics == (metricdata.Metrics{}) {
+				return
+			}
+
+			var rm metricdata.ResourceMetrics
+			assert.NoError(t, rdr.Collect(context.Background(), &rm))
+			require.Len(t, rm.ScopeMetrics, 1)
+
+			assert.Len(t, rm.ScopeMetrics[0].Metrics, 1)
+			metricdatatest.AssertEqual(t,
+				tt.expectMetrics,
+				rm.ScopeMetrics[0].Metrics[0],
+				metricdatatest.IgnoreTimestamp(),
+			)
 		})
 	}
 }

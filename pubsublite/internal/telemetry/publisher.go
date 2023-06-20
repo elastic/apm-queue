@@ -143,7 +143,7 @@ func NewProducer(
 		tracer:  tracer,
 		metrics: metrics,
 		attrs: append(attrs,
-			semconv.MessagingSystemKey.String("pubsublite"),
+			semconv.MessagingSystem("pubsublite"),
 			semconv.MessagingDestinationKindTopic,
 		),
 	}
