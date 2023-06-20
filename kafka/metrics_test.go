@@ -19,10 +19,14 @@ package kafka
 
 import (
 	"context"
+	"fmt"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/twmb/franz-go/pkg/kgo"
 	"go.opentelemetry.io/otel/attribute"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
@@ -182,6 +186,69 @@ func TestProducerMetrics(t *testing.T) {
 	})
 }
 
+func TestConsumerMetrics(t *testing.T) {
+	topic := apmqueue.Topic(t.Name())
+	records := 10
+
+	done := make(chan struct{})
+	var processed atomic.Int64
+	proc := apmqueue.ProcessorFunc(func(_ context.Context, r ...apmqueue.Record) error {
+		processed.Add(int64(len(r)))
+		if processed.Load() == int64(records) {
+			close(done)
+		}
+		return nil
+	})
+	tc := setupTestConsumer(t, proc, topic)
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	go func() { tc.consumer.Run(ctx) }() // Run Consumer.
+	for i := 0; i < records; i++ {       // Produce records.
+		produceRecord(ctx, t, tc.client, &kgo.Record{
+			Topic: string(topic),
+			Value: []byte(fmt.Sprint(i)),
+			Headers: []kgo.RecordHeader{
+				{Key: "header", Value: []byte("included")},
+				{Key: "traceparent", Value: []byte("excluded")},
+			},
+		})
+	}
+
+	select {
+	case <-ctx.Done():
+		t.Error("Timed out while waiting for records to be consumed")
+		return
+	case <-done:
+	}
+
+	var rm metricdata.ResourceMetrics
+	assert.NoError(t, tc.reader.Collect(context.Background(), &rm))
+
+	metrics := filterMetrics(t, rm.ScopeMetrics)
+	assert.Len(t, metrics, 1)
+	metricdatatest.AssertEqual(t, metricdata.Metrics{
+		Name:        msgFetchedKey,
+		Description: "The number of messages that were fetched from a kafka topic",
+		Unit:        "1",
+		Data: metricdata.Sum[int64]{
+			Temporality: metricdata.CumulativeTemporality,
+			IsMonotonic: true,
+			DataPoints: []metricdata.DataPoint[int64]{
+				{
+					Value: int64(records),
+					Attributes: attribute.NewSet(
+						semconv.MessagingDestinationName(t.Name()),
+						semconv.MessagingKafkaDestinationPartition(0),
+						attribute.String("header", "included"),
+					),
+				},
+			},
+		},
+	}, metrics[0], metricdatatest.IgnoreTimestamp())
+}
+
 func filterMetrics(t testing.TB, sm []metricdata.ScopeMetrics) []metricdata.Metrics {
 	t.Helper()
 
@@ -214,4 +281,31 @@ func setupTestProducer(t testing.TB) (*Producer, sdkmetric.Reader) {
 	require.NoError(t, err)
 	require.NotNil(t, producer)
 	return producer, rdr
+}
+
+type testMetricConsumer struct {
+	consumer *Consumer
+	client   *kgo.Client
+	reader   sdkmetric.Reader
+}
+
+func setupTestConsumer(t testing.TB, p apmqueue.Processor, topics ...apmqueue.Topic) (mc testMetricConsumer) {
+	t.Helper()
+
+	mc.reader = sdkmetric.NewManualReader()
+	cfg := ConsumerConfig{
+		Topics:    topics,
+		GroupID:   t.Name(),
+		Processor: p,
+		CommonConfig: CommonConfig{
+			Logger:         zap.NewNop(),
+			TracerProvider: trace.NewNoopTracerProvider(),
+			MeterProvider: sdkmetric.NewMeterProvider(
+				sdkmetric.WithReader(mc.reader),
+			),
+		},
+	}
+	mc.client, cfg.Brokers = newClusterWithTopics(t, 1, topics...)
+	mc.consumer = newConsumer(t, cfg)
+	return
 }
