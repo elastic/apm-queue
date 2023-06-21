@@ -61,7 +61,7 @@ func InitKafka() (ProvisionInfraFunc, DestroyInfraFunc, error) {
 		nop := func(context.Context) error { return nil }
 		return nop, nil, nil
 	}
-	//logger().Infof("managing Redpanda in namespace %q", kafkaNamespace)
+	logger().Infof("managing Redpanda in Docker")
 	return ProvisionKafka, DestroyKafka, nil
 }
 
