@@ -56,8 +56,8 @@ jobs:
           location: 'us-central1'
       - uses: actions/setup-go@v4
         with:
-          go-version-file: 'systemtest/go.mod'
-          cache-dependency-path: 'systemtest/go.mod'
+          go-version-file: 'go.mod'
+          cache: true
       - name: Test
         working-directory: systemtest
         env:
