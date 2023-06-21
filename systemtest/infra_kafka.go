@@ -20,6 +20,8 @@ package systemtest
 import (
 	"bytes"
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -27,22 +29,24 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/elastic/apm-queue/kafka"
-	"github.com/elastic/apm-queue/systemtest/portforwarder"
-
 	apmqueue "github.com/elastic/apm-queue"
+	"github.com/elastic/apm-queue/kafka"
+)
+
+const (
+	redpandaContainerName  = "redpanda-apm-queue"
+	redpandaContainerImage = "docker.redpanda.com/redpandadata/redpanda:v23.1.11"
 )
 
 var (
-	kafkaBrokers   []string
-	kafkaNamespace = "kafka"
+	kafkaBrokers     []string
+	redpandaHostPort string
 )
 
 // InitKafka initialises Kafka configuration, and returns a pair of
@@ -57,47 +61,82 @@ func InitKafka() (ProvisionInfraFunc, DestroyInfraFunc, error) {
 		nop := func(context.Context) error { return nil }
 		return nop, nil, nil
 	}
-	if v := os.Getenv("KAFKA_NAMESPACE"); v != "" {
-		kafkaNamespace = v
-	}
-	logger().Infof("managing Redpanda in namespace %q", kafkaNamespace)
+	logger().Infof("managing Redpanda in Docker")
 	return ProvisionKafka, DestroyKafka, nil
 }
 
-// ProvisionKafka provisions Redpanda in the current Kubernetes context,
-// and configures Kafka clients to communicate with the broker by forwarding
-// the necessary port(s).
+// ProvisionKafka starts a single node Redpanda broker running as a local
+// Docker container, and configures Kafka clients to communicate with the
+// broker by forwarding the necessary port(s).
 func ProvisionKafka(ctx context.Context) error {
-	// Create the namespace if it doesn't already exist.
-	namespaceYAML := fmt.Sprintf(`
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: %q
-`, kafkaNamespace)
-	if err := execCommandStdin(ctx, strings.NewReader(namespaceYAML), "kubectl", "apply", "-f", "-"); err != nil {
-		return fmt.Errorf("failed to create Kafka namespace: %w", err)
+	if err := DestroyKafka(ctx); err != nil {
+		return err
 	}
-	if err := execCommand(ctx, "kubectl", "apply", "-n", kafkaNamespace, "-f", "redpanda.yaml"); err != nil {
-		return fmt.Errorf("failed to create Kafka cluster: %w", err)
+
+	if err := execCommand(ctx,
+		"docker", "run", "--detach", "--name", redpandaContainerName,
+		"--publish=0:9093", "--health-cmd", "rpk cluster health | grep 'Healthy:.*true'",
+		redpandaContainerImage, "redpanda", "start",
+		"--kafka-addr=internal://0.0.0.0:9092,external://0.0.0.0:9093",
+		"--smp=1", "--memory=1G",
+		"--mode=dev-container",
+	); err != nil {
+		return fmt.Errorf("failed to create Redpanda container: %w", err)
 	}
 
 	logger().Info("waiting for Redpanda to be ready...")
-	if err := execCommand(ctx,
-		"kubectl", "--namespace", kafkaNamespace,
-		"wait", "--timeout=240s",
-		"--for=condition=Ready=True",
-		"pod/redpanda",
-	); err != nil {
-		return fmt.Errorf("error waiting for Redpanda broker to be ready: %w", err)
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+	for {
+		cmd := exec.CommandContext(ctx, "docker", "inspect", redpandaContainerName)
+		cmd.Stderr = os.Stderr
+		output, err := cmd.Output()
+		if err != nil {
+			return fmt.Errorf("'docker inspect' failed: %w", err)
+		}
+		var containers []struct {
+			State struct {
+				Health struct {
+					Status string
+				}
+			}
+			NetworkSettings struct {
+				Ports map[string][]struct {
+					HostIP   string
+					HostPort string
+				}
+			}
+		}
+		if err := json.Unmarshal(output, &containers); err != nil {
+			return fmt.Errorf("failed to decode 'docker inspect' output: %w", err)
+		}
+		if n := len(containers); n != 1 {
+			return fmt.Errorf("expected 1 container, got %d", n)
+		}
+		c := containers[0]
+		if c.State.Health.Status == "healthy" {
+			portMapping, ok := c.NetworkSettings.Ports["9093/tcp"]
+			if !ok || len(portMapping) == 0 {
+				return errors.New("missing port mapping in 'docker inspect' output")
+			}
+			redpandaHostPort = portMapping[0].HostPort
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf(
+				"context cancelled while waiting for Redpanda to become healthy: %w",
+				ctx.Err(),
+			)
+		case <-ticker.C:
+		}
 	}
-	return nil
 }
 
-// DestroyKafka destroys a Kafka cluster in the current Kubernetes context.
+// DestroyKafka destroys the Redpanda Docker container.
 func DestroyKafka(ctx context.Context) error {
-	if err := execCommand(ctx, "kubectl", "delete", "--ignore-not-found", "namespace", kafkaNamespace); err != nil {
-		return fmt.Errorf("error deleting Kafka namespace %q: %w", kafkaNamespace, err)
+	if err := execCommand(ctx, "docker", "rm", "-f", redpandaContainerName); err != nil {
+		return fmt.Errorf("failed to delete Redpanda container: %w", err)
 	}
 	return nil
 }
@@ -148,39 +187,6 @@ func execCommandStdin(ctx context.Context, stdin io.Reader, command string, args
 	return nil
 }
 
-// portforwardKafka forwards an ephemeral port to the Redpanda broker running
-// in Kubernetes, and returns the localhost address.
-func portforwardKafka(t testing.TB) string {
-	var wg sync.WaitGroup
-	stopCh := make(chan struct{})
-	pfReq := portforwarder.Request{
-		KubeCfg:     getEnvOrDefault("KUBE_CONFIG_PATH", "~/.kube/config"),
-		Pod:         "redpanda",
-		Namespace:   kafkaNamespace,
-		PortMapping: "0:9093",
-	}
-	pf, err := pfReq.New(context.Background(), stopCh)
-	require.NoError(t, err)
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		if err := pf.ForwardPorts(); err != nil {
-			t.Fatalf("port forwarder terminated unexpectedly: %v", err)
-		}
-	}()
-	t.Cleanup(func() {
-		close(stopCh)
-		wg.Wait()
-	})
-
-	// wait for port forward to be ready
-	<-pf.Ready
-	ports, err := pf.GetPorts()
-	require.NoError(t, err)
-	fmt.Println(ports[0])
-	return fmt.Sprintf("127.0.0.1:%d", ports[0].Local)
-}
-
 // NewKafkaManager returns a new kafka.Manager for the configured broker.
 func NewKafkaManager(t testing.TB) (*kafka.Manager, error) {
 	return kafka.NewManager(kafka.ManagerConfig{
@@ -193,28 +199,20 @@ func NewKafkaManager(t testing.TB) (*kafka.Manager, error) {
 // KafkaCommonConfig returns a kafka.CommonConfig suitable for connecting to
 // the configured Kafka broker in tests.
 //
-// When Kafka is running in Kubernetes, this will take care of forwarding the
-// necessary port(s) to connect to the broker, and clean up on test completion.
+// When Redpanda is running locally in Docker, this will ignore the advertised
+// address and use the forwarded port.
 func KafkaCommonConfig(t testing.TB, cfg kafka.CommonConfig) kafka.CommonConfig {
 	cfg.Brokers = append([]string{}, kafkaBrokers...)
 	if len(cfg.Brokers) == 0 {
-		brokerAddress := portforwardKafka(t)
+		brokerAddress := fmt.Sprintf("127.0.0.1:%s", redpandaHostPort)
 		netDialer := &net.Dialer{Timeout: 10 * time.Second}
 		cfg.Brokers = []string{brokerAddress}
 		cfg.Dialer = func(ctx context.Context, network, addr string) (net.Conn, error) {
-			// The advertised broker address is only reachable within
-			// the Kubernetes cluster; replace it with the localhost
-			// port-forwarded address.
+			// The advertised broker address is not reachable from
+			// the host; replace it with the port-forwarded address.
 			addr = brokerAddress
 			return netDialer.DialContext(ctx, network, addr)
 		}
 	}
 	return cfg
-}
-
-func getEnvOrDefault(key, fallback string) string {
-	if value, ok := os.LookupEnv(key); ok {
-		return value
-	}
-	return fallback
 }
