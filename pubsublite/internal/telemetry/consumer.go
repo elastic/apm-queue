@@ -54,11 +54,12 @@ func NewConsumerMetrics(mp metric.MeterProvider) (cm ConsumerMetrics, err error)
 	return
 }
 
-// Consumer decorates an existing publisher with tracing and metering.
+// Consumer decorates an existing consumer with tracing and metering.
 func Consumer(
 	receive pubsubabs.ReceiveFunc,
 	tracer trace.Tracer,
 	metrics ConsumerMetrics,
+	topic string,
 	commonAttrs []attribute.KeyValue,
 ) pubsubabs.ReceiveFunc {
 	commonAttrs = append(commonAttrs,
@@ -66,6 +67,8 @@ func Consumer(
 		semconv.MessagingSourceKindTopic,
 		semconv.MessagingOperationProcess,
 	)
+	// https://opentelemetry.io/docs/specs/otel/trace/semantic_conventions/messaging/#span-name
+	operation := topic + " process"
 	return func(ctx context.Context, msg *pubsub.Message) {
 		if msg == nil {
 			return
@@ -75,8 +78,9 @@ func Consumer(
 		if len(msg.Attributes) > 0 {
 			_, hasTraceparent := msg.Attributes["traceparent"]
 			if (hasTraceparent && len(msg.Attributes) > 1) || !hasTraceparent {
-				attrs = make([]attribute.KeyValue, 0, len(commonAttrs)+len(msg.Attributes))
-				attrs = append(attrs, commonAttrs...)
+				attrs = append(make([]attribute.KeyValue, 0,
+					len(commonAttrs)+len(msg.Attributes), // Create a new slice
+				), commonAttrs...)
 			}
 			for key, v := range msg.Attributes {
 				if key == "traceparent" { // Ignore traceparent header.
@@ -86,21 +90,21 @@ func Consumer(
 			}
 		}
 
+		metrics.fetched.Add(context.Background(), 1, metric.WithAttributes(
+			attrs...,
+		))
 		if msg.Attributes != nil {
 			propagator := otel.GetTextMapPropagator()
 			ctx = propagator.Extract(ctx, propagation.MapCarrier(msg.Attributes))
 		}
-		ctx, span := tracer.Start(ctx, "pubsublite.Receive", // PubSub name.
+		ctx, span := tracer.Start(ctx, operation, // PubSub name.
 			trace.WithSpanKind(trace.SpanKindConsumer),
 			trace.WithAttributes(append(attrs,
 				semconv.MessagingMessageIDKey.String(msg.ID),
+				semconv.MessageUncompressedSize(len(msg.Data)),
 			)...),
 		)
 		defer span.End()
-
-		metrics.fetched.Add(context.Background(), 1, metric.WithAttributes(
-			attrs...,
-		))
 		receive(ctx, msg)
 	}
 }

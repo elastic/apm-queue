@@ -189,7 +189,8 @@ func (c *Consumer) Run(ctx context.Context) error {
 		consumer := consumer
 		g.Go(func() error {
 			receiveFunc := telemetry.Consumer(consumer.processMessage,
-				c.tracer, c.metrics, consumer.telemetryAttributes,
+				c.tracer, c.metrics, string(consumer.topic),
+				consumer.telemetryAttributes,
 			)
 			for {
 				err := consumer.Receive(ctx, receiveFunc)

@@ -52,9 +52,7 @@ func TestConsumer(t *testing.T) {
 		msg        *pubsub.Message
 		attributes []attribute.KeyValue
 
-		traceID      [16]byte
-		spanID       [8]byte
-		parentSpanID [8]byte
+		traceID [16]byte
 
 		expectedSpans tracetest.SpanStubs
 		expectMetrics metricdata.Metrics
@@ -68,13 +66,14 @@ func TestConsumer(t *testing.T) {
 			msg:  &pubsub.Message{},
 			expectedSpans: tracetest.SpanStubs{
 				tracetest.SpanStub{
-					Name:     "pubsublite.Receive",
+					Name:     "topic process",
 					SpanKind: trace.SpanKindConsumer,
 					Attributes: []attribute.KeyValue{
 						semconv.MessagingSystemKey.String("pubsublite"),
 						semconv.MessagingSourceKindTopic,
 						semconv.MessagingOperationProcess,
 						semconv.MessagingMessageIDKey.String(""),
+						semconv.MessageUncompressedSize(0),
 					},
 					InstrumentationLibrary: instrumentation.Library{
 						Name: "test",
@@ -92,7 +91,7 @@ func TestConsumer(t *testing.T) {
 			},
 			expectedSpans: tracetest.SpanStubs{
 				tracetest.SpanStub{
-					Name:     "pubsublite.Receive",
+					Name:     "topic process",
 					SpanKind: trace.SpanKindConsumer,
 					Attributes: []attribute.KeyValue{
 						attribute.String("project", "project_name"),
@@ -101,6 +100,7 @@ func TestConsumer(t *testing.T) {
 						semconv.MessagingOperationProcess,
 						attribute.String("hello", "world"),
 						semconv.MessagingMessageIDKey.String(""),
+						semconv.MessageUncompressedSize(0),
 					},
 					InstrumentationLibrary: instrumentation.Library{
 						Name: "test",
@@ -135,7 +135,7 @@ func TestConsumer(t *testing.T) {
 			traceID: mustTraceIDFromHex(t, "4bf92f3577b34da6a3ce929d0e0e4736"),
 			expectedSpans: tracetest.SpanStubs{
 				tracetest.SpanStub{
-					Name:     "pubsublite.Receive",
+					Name:     "topic process",
 					SpanKind: trace.SpanKindConsumer,
 					SpanContext: trace.NewSpanContext(trace.SpanContextConfig{
 						TraceID: mustTraceIDFromHex(t, "4bf92f3577b34da6a3ce929d0e0e4736"),
@@ -149,6 +149,7 @@ func TestConsumer(t *testing.T) {
 						semconv.MessagingSourceKindTopic,
 						semconv.MessagingOperationProcess,
 						semconv.MessagingMessageIDKey.String(""),
+						semconv.MessageUncompressedSize(0),
 					},
 					InstrumentationLibrary: instrumentation.Library{
 						Name: "test",
@@ -184,27 +185,10 @@ func TestConsumer(t *testing.T) {
 			require.NoError(t, err)
 			recive := Consumer(func(ctx context.Context, msg *pubsub.Message) {
 				// No need to do anything here
-			}, tp.Tracer("test"), cm, tt.attributes)
+			}, tp.Tracer("test"), cm, "topic", tt.attributes)
 
 			recive(context.Background(), tt.msg)
-
-			spans := exp.GetSpans()
-			for i := range spans {
-				// Nullify data we don't use/can't set manually
-				spans[i].SpanContext = spans[i].SpanContext.
-					WithTraceID(tt.traceID).
-					WithSpanID(tt.spanID).
-					WithTraceFlags(0)
-				spans[i].Parent = spans[i].Parent.
-					WithTraceID(tt.traceID).
-					WithSpanID(tt.parentSpanID).
-					WithTraceFlags(0)
-				spans[i].Resource = nil
-				spans[i].StartTime = time.Time{}
-				spans[i].EndTime = time.Time{}
-			}
-
-			assert.Equal(t, tt.expectedSpans, spans)
+			assertSpans(t, tt.traceID, tt.expectedSpans, exp.GetSpans())
 
 			if tt.expectMetrics == (metricdata.Metrics{}) {
 				return
@@ -224,7 +208,110 @@ func TestConsumer(t *testing.T) {
 	}
 }
 
-func mustTraceIDFromHex(t *testing.T, s string) (tr trace.TraceID) {
+func TestConsumerMultipleEvents(t *testing.T) {
+	exp := tracetest.NewInMemoryExporter()
+	tp := sdktrace.NewTracerProvider(
+		sdktrace.WithSyncer(exp),
+	)
+	otel.SetTextMapPropagator(propagation.TraceContext{})
+	defer tp.Shutdown(context.Background())
+
+	rdr := sdkmetric.NewManualReader()
+	cm, err := NewConsumerMetrics(sdkmetric.NewMeterProvider(
+		sdkmetric.WithReader(rdr),
+	))
+	require.NoError(t, err)
+
+	sharedAttrs := []attribute.KeyValue{semconv.MessagingSourceName("topic")}
+	var events int
+	consume := Consumer(func(context.Context, *pubsub.Message) {
+		events++
+	}, tp.Tracer("test"), cm, "topic", sharedAttrs)
+
+	msgs := []*pubsub.Message{
+		{ID: "1", Attributes: map[string]string{"a": "b"}, Data: []byte("1")},
+		{ID: "2", Attributes: map[string]string{"c": "d"}, Data: []byte("2")},
+		{ID: "3", Attributes: map[string]string{"e": "f"}, Data: []byte("3")},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	for _, msg := range msgs {
+		consume(ctx, msg)
+	}
+
+	assert.Equal(t, len(msgs), events) // Assert messages processed
+	assert.Equal(t,
+		[]attribute.KeyValue{semconv.MessagingSourceName("topic")}, sharedAttrs,
+	) // Assert the shared attribute slice hasn't been modified.
+
+	// Assert the attribute slice isn't mutated between events.
+	assertSpans(t, [16]byte{}, tracetest.SpanStubs{
+		{
+			Name:     "topic process",
+			SpanKind: trace.SpanKindConsumer,
+			Attributes: []attribute.KeyValue{
+				semconv.MessagingSourceName("topic"),
+				semconv.MessagingSystemKey.String("pubsublite"),
+				semconv.MessagingSourceKindTopic,
+				semconv.MessagingOperationProcess,
+				attribute.String("a", "b"),
+				semconv.MessagingMessageIDKey.String("1"),
+				semconv.MessageUncompressedSize(1),
+			},
+			InstrumentationLibrary: instrumentation.Library{Name: "test"},
+		},
+		{
+			Name:     "topic process",
+			SpanKind: trace.SpanKindConsumer,
+			Attributes: []attribute.KeyValue{
+				semconv.MessagingSourceName("topic"),
+				semconv.MessagingSystemKey.String("pubsublite"),
+				semconv.MessagingSourceKindTopic,
+				semconv.MessagingOperationProcess,
+				attribute.String("c", "d"),
+				semconv.MessagingMessageIDKey.String("2"),
+				semconv.MessageUncompressedSize(1),
+			},
+			InstrumentationLibrary: instrumentation.Library{Name: "test"},
+		},
+		{
+			Name:     "topic process",
+			SpanKind: trace.SpanKindConsumer,
+			Attributes: []attribute.KeyValue{
+				semconv.MessagingSourceName("topic"),
+				semconv.MessagingSystemKey.String("pubsublite"),
+				semconv.MessagingSourceKindTopic,
+				semconv.MessagingOperationProcess,
+				attribute.String("e", "f"),
+				semconv.MessagingMessageIDKey.String("3"),
+				semconv.MessageUncompressedSize(1),
+			},
+			InstrumentationLibrary: instrumentation.Library{Name: "test"},
+		},
+	}, exp.GetSpans())
+}
+
+func assertSpans(t testing.TB, traceID [16]byte, expected, actual tracetest.SpanStubs) {
+	for i := range actual {
+		// Nullify data we don't use/can't set manually
+		actual[i].SpanContext = actual[i].SpanContext.
+			WithTraceID(traceID).
+			WithSpanID([8]byte{}).
+			WithTraceFlags(0)
+		actual[i].Parent = actual[i].Parent.
+			WithTraceID(traceID).
+			WithSpanID([8]byte{}).
+			WithTraceFlags(0)
+		actual[i].Resource = nil
+		actual[i].StartTime = time.Time{}
+		actual[i].EndTime = time.Time{}
+	}
+	assert.Equal(t, expected, actual)
+}
+
+func mustTraceIDFromHex(t testing.TB, s string) (tr trace.TraceID) {
 	t.Helper()
 
 	tr, err := trace.TraceIDFromHex(s)
