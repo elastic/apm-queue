@@ -72,7 +72,7 @@ func InitPubSubLite() (ProvisionInfraFunc, DestroyInfraFunc, error) {
 		pubsubliteReservationPrefix = "systemtest-" + sanitizePubSubSuffix(googleAccount) + "-"
 	}
 
-	pubsubliteReservation = pubsubliteReservationPrefix + persistentSuffix
+	pubsubliteReservation = pubsubliteReservationPrefix + RandomSuffix()
 	logger().Infof(
 		"managing Pub/Sub Lite throughput reservation %q in project %q, region %q, account %q",
 		pubsubliteReservation, googleProject, googleRegion, googleAccount,

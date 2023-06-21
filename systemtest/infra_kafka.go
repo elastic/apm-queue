@@ -207,10 +207,10 @@ func KafkaCommonConfig(t testing.TB, cfg kafka.CommonConfig) kafka.CommonConfig 
 		brokerAddress := fmt.Sprintf("127.0.0.1:%s", redpandaHostPort)
 		netDialer := &net.Dialer{Timeout: 10 * time.Second}
 		cfg.Brokers = []string{brokerAddress}
-		cfg.Dialer = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		cfg.Dialer = func(ctx context.Context, network, _ string) (net.Conn, error) {
 			// The advertised broker address is not reachable from
 			// the host; replace it with the port-forwarded address.
-			addr = brokerAddress
+			addr := brokerAddress
 			return netDialer.DialContext(ctx, network, addr)
 		}
 	}
