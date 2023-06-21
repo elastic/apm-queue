@@ -69,8 +69,8 @@ func InitKafka() (ProvisionInfraFunc, DestroyInfraFunc, error) {
 // Docker container, and configures Kafka clients to communicate with the
 // broker by forwarding the necessary port(s).
 func ProvisionKafka(ctx context.Context) error {
-	if err := execCommand(ctx, "docker", "rm", "-f", redpandaContainerName); err != nil {
-		return fmt.Errorf("failed to delete Redpanda container: %w", err)
+	if err := DestroyKafka(ctx); err != nil {
+		return err
 	}
 
 	if err := execCommand(ctx,
