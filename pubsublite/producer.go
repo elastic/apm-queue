@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"cloud.google.com/go/pubsub"
 	"cloud.google.com/go/pubsublite/pscompat"
@@ -150,16 +151,21 @@ func (p *Producer) Produce(ctx context.Context, rs ...apmqueue.Record) error {
 	default:
 	}
 	responses := make([]resTopic, 0, len(rs))
+	now := time.Now().Format(time.RFC3339)
+
 	for _, record := range rs {
 		msg := pubsub.Message{Data: record.Value}
+		if msg.Attributes == nil {
+			msg.Attributes = make(map[string]string)
+		}
+
 		if meta, ok := queuecontext.MetadataFromContext(ctx); ok {
 			for k, v := range meta {
-				if msg.Attributes == nil {
-					msg.Attributes = make(map[string]string)
-				}
 				msg.Attributes[k] = v
 			}
 		}
+		msg.Attributes[apmqueue.EventTimeKey] = now
+
 		publisher, err := p.getPublisher(record.Topic)
 		if err != nil {
 			return fmt.Errorf("pubsublite: failed to get publisher: %w", err)

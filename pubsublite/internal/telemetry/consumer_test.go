@@ -26,6 +26,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	apmqueue "github.com/elastic/apm-queue"
+
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/propagation"
@@ -55,7 +57,7 @@ func TestConsumer(t *testing.T) {
 		traceID [16]byte
 
 		expectedSpans tracetest.SpanStubs
-		expectMetrics metricdata.Metrics
+		expectMetrics []metricdata.Metrics
 	}{
 		{
 			name:          "with no message",
@@ -107,23 +109,25 @@ func TestConsumer(t *testing.T) {
 					},
 				},
 			},
-			expectMetrics: metricdata.Metrics{
-				Name:        "consumer.messages.fetched",
-				Description: "The number of messages fetched",
-				Unit:        "1",
-				Data: metricdata.Sum[int64]{
-					IsMonotonic: true,
-					Temporality: metricdata.CumulativeTemporality,
-					DataPoints: []metricdata.DataPoint[int64]{{
-						Value: 1,
-						Attributes: attribute.NewSet(
-							attribute.String("project", "project_name"),
-							semconv.MessagingSystemKey.String("pubsublite"),
-							semconv.MessagingSourceKindTopic,
-							semconv.MessagingOperationProcess,
-							attribute.String("hello", "world"),
-						),
-					}},
+			expectMetrics: []metricdata.Metrics{
+				{
+					Name:        "consumer.messages.fetched",
+					Description: "The number of messages fetched",
+					Unit:        "1",
+					Data: metricdata.Sum[int64]{
+						IsMonotonic: true,
+						Temporality: metricdata.CumulativeTemporality,
+						DataPoints: []metricdata.DataPoint[int64]{{
+							Value: 1,
+							Attributes: attribute.NewSet(
+								attribute.String("project", "project_name"),
+								semconv.MessagingSystemKey.String("pubsublite"),
+								semconv.MessagingSourceKindTopic,
+								semconv.MessagingOperationProcess,
+								attribute.String("hello", "world"),
+							),
+						}},
+					},
 				},
 			},
 		},
@@ -156,21 +160,88 @@ func TestConsumer(t *testing.T) {
 					},
 				},
 			},
-			expectMetrics: metricdata.Metrics{
-				Name:        "consumer.messages.fetched",
-				Description: "The number of messages fetched",
-				Unit:        "1",
-				Data: metricdata.Sum[int64]{
-					IsMonotonic: true,
-					Temporality: metricdata.CumulativeTemporality,
-					DataPoints: []metricdata.DataPoint[int64]{{
-						Value: 1,
-						Attributes: attribute.NewSet(
-							semconv.MessagingSystemKey.String("pubsublite"),
-							semconv.MessagingSourceKindTopic,
-							semconv.MessagingOperationProcess,
-						),
-					}},
+			expectMetrics: []metricdata.Metrics{
+				{
+					Name:        "consumer.messages.fetched",
+					Description: "The number of messages fetched",
+					Unit:        "1",
+					Data: metricdata.Sum[int64]{
+						IsMonotonic: true,
+						Temporality: metricdata.CumulativeTemporality,
+						DataPoints: []metricdata.DataPoint[int64]{{
+							Value: 1,
+							Attributes: attribute.NewSet(
+								semconv.MessagingSystemKey.String("pubsublite"),
+								semconv.MessagingSourceKindTopic,
+								semconv.MessagingOperationProcess,
+							),
+						}},
+					},
+				},
+			},
+		},
+		{
+			name: "with an event time attribute",
+			msg: &pubsub.Message{Attributes: map[string]string{
+				apmqueue.EventTimeKey: time.Now().Format(time.RFC3339),
+			}},
+			attributes: []attribute.KeyValue{
+				attribute.String("project", "project_name"),
+			},
+			expectedSpans: tracetest.SpanStubs{
+				tracetest.SpanStub{
+					Name:     "topic process",
+					SpanKind: trace.SpanKindConsumer,
+					Attributes: []attribute.KeyValue{
+						attribute.String("project", "project_name"),
+						semconv.MessagingSystemKey.String("pubsublite"),
+						semconv.MessagingSourceKindTopic,
+						semconv.MessagingOperationProcess,
+						semconv.MessagingMessageIDKey.String(""),
+						semconv.MessageUncompressedSize(0),
+					},
+					InstrumentationLibrary: instrumentation.Library{
+						Name: "test",
+					},
+				},
+			},
+			expectMetrics: []metricdata.Metrics{
+				{
+					Name:        "consumer.messages.fetched",
+					Description: "The number of messages fetched",
+					Unit:        "1",
+					Data: metricdata.Sum[int64]{
+						IsMonotonic: true,
+						Temporality: metricdata.CumulativeTemporality,
+						DataPoints: []metricdata.DataPoint[int64]{{
+							Value: 1,
+							Attributes: attribute.NewSet(
+								attribute.String("project", "project_name"),
+								semconv.MessagingSystemKey.String("pubsublite"),
+								semconv.MessagingSourceKindTopic,
+								semconv.MessagingOperationProcess,
+							),
+						}},
+					},
+				},
+				{
+					Name:        "consumer.messages.delay",
+					Description: "The delay between producing messages and reading them",
+					Unit:        "1",
+					Data: metricdata.Histogram[int64]{
+						Temporality: metricdata.CumulativeTemporality,
+						DataPoints: []metricdata.HistogramDataPoint[int64]{{
+							Attributes: attribute.NewSet(
+								attribute.String("project", "project_name"),
+								semconv.MessagingSystemKey.String("pubsublite"),
+								semconv.MessagingSourceKindTopic,
+								semconv.MessagingOperationProcess,
+							),
+
+							Bounds: []float64{0, 5, 10, 25, 50, 75, 100, 250, 500, 750, 1000, 2500, 5000, 7500, 10000},
+							Count:  uint64(1),
+						}},
+					},
 				},
 			},
 		},
@@ -190,20 +261,37 @@ func TestConsumer(t *testing.T) {
 			recive(context.Background(), tt.msg)
 			assertSpans(t, tt.traceID, tt.expectedSpans, exp.GetSpans())
 
-			if tt.expectMetrics == (metricdata.Metrics{}) {
+			if len(tt.expectMetrics) == 0 {
 				return
 			}
 
 			var rm metricdata.ResourceMetrics
 			assert.NoError(t, rdr.Collect(context.Background(), &rm))
-			require.Len(t, rm.ScopeMetrics, 1)
 
-			assert.Len(t, rm.ScopeMetrics[0].Metrics, 1)
-			metricdatatest.AssertEqual(t,
-				tt.expectMetrics,
-				rm.ScopeMetrics[0].Metrics[0],
-				metricdatatest.IgnoreTimestamp(),
-			)
+			require.Len(t, rm.ScopeMetrics, 1)
+			assert.Len(t, rm.ScopeMetrics[0].Metrics, len(tt.expectMetrics))
+
+			for k, m := range tt.expectMetrics {
+				metric := rm.ScopeMetrics[0].Metrics[k]
+
+				// Remove time-specific data for histograms
+				if dp, ok := metric.Data.(metricdata.Histogram[int64]); ok {
+					for k := range dp.DataPoints {
+						dp.DataPoints[k].Min = m.Data.(metricdata.Histogram[int64]).DataPoints[k].Min
+						dp.DataPoints[k].Max = m.Data.(metricdata.Histogram[int64]).DataPoints[k].Max
+						dp.DataPoints[k].Sum = 0
+						dp.DataPoints[k].BucketCounts = nil
+					}
+					metric.Data = dp
+				}
+
+				metricdatatest.AssertEqual(t,
+					m,
+					metric,
+					metricdatatest.IgnoreTimestamp(),
+					metricdatatest.IgnoreExemplars(),
+				)
+			}
 		})
 	}
 }

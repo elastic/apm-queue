@@ -22,6 +22,7 @@ package telemetry
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"cloud.google.com/go/pubsub"
 	"go.opentelemetry.io/otel"
@@ -31,27 +32,44 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.18.0"
 	"go.opentelemetry.io/otel/trace"
 
+	apmqueue "github.com/elastic/apm-queue"
 	"github.com/elastic/apm-queue/pubsublite/internal/pubsubabs"
+)
+
+const (
+	msgFetchedKey = "consumer.messages.fetched"
+	msgDelayKey   = "consumer.messages.delay"
 )
 
 // ConsumerMetrics holds the metrics that are recorded for consumers
 type ConsumerMetrics struct {
-	fetched metric.Int64Counter
+	fetched     metric.Int64Counter
+	queuedDelay metric.Int64Histogram
 }
 
 // NewConsumerMetrics instantiates the producer metrics.
 func NewConsumerMetrics(mp metric.MeterProvider) (cm ConsumerMetrics, err error) {
 	m := mp.Meter(instrumentName)
-	cm.fetched, err = m.Int64Counter("consumer.messages.fetched",
+	cm.fetched, err = m.Int64Counter(msgFetchedKey,
 		metric.WithDescription("The number of messages fetched"),
 		metric.WithUnit("1"),
 	)
 	if err != nil {
-		return cm, fmt.Errorf(
-			"telemetry: cannot create 'consumer.messages.fetched' metric: %w", err,
-		)
+		return cm, formatMetricError(msgFetchedKey, err)
+	}
+
+	cm.queuedDelay, err = m.Int64Histogram(msgDelayKey,
+		metric.WithDescription("The delay between producing messages and reading them"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		return cm, formatMetricError(msgDelayKey, err)
 	}
 	return
+}
+
+func formatMetricError(name string, err error) error {
+	return fmt.Errorf("telemetry: cannot create %s metric: %w", name, err)
 }
 
 // Consumer decorates an existing consumer with tracing and metering.
@@ -84,7 +102,7 @@ func Consumer(
 				), commonAttrs...)
 			}
 			for key, v := range msg.Attributes {
-				if key == "traceparent" { // Ignore traceparent header.
+				if key == "traceparent" || key == apmqueue.EventTimeKey { // Ignore traceparent and event time headers.
 					continue
 				}
 				attrs = append(attrs, attribute.String(key, v))
@@ -94,7 +112,17 @@ func Consumer(
 		metrics.fetched.Add(context.Background(), 1, metric.WithAttributes(
 			attrs...,
 		))
+
 		if msg.Attributes != nil {
+			if msg.Attributes[apmqueue.EventTimeKey] != "" {
+				if since, err := time.Parse(time.RFC3339, msg.Attributes[apmqueue.EventTimeKey]); err == nil {
+					delay := time.Since(since).Milliseconds()
+					metrics.queuedDelay.Record(context.Background(), delay, metric.WithAttributes(
+						attrs...,
+					))
+				}
+			}
+
 			propagator := otel.GetTextMapPropagator()
 			ctx = propagator.Extract(ctx, propagation.MapCarrier(msg.Attributes))
 		}
