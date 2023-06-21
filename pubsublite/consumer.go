@@ -90,6 +90,7 @@ type Consumer struct {
 	consumers      []*consumer
 	stopSubscriber context.CancelFunc
 	tracer         trace.Tracer
+	metrics        telemetry.ConsumerMetrics
 }
 
 // NewConsumer creates a new consumer instance for a single subscription.
@@ -143,16 +144,21 @@ func NewConsumer(ctx context.Context, cfg ConsumerConfig) (*Consumer, error) {
 				zap.String("project", cfg.Project),
 			),
 			telemetryAttributes: []attribute.KeyValue{
-				semconv.MessagingSourceNameKey.String(string(topic)),
+				semconv.MessagingSourceName((string(topic))),
 				semconv.CloudRegion(cfg.Region),
 				semconv.CloudAccountID(cfg.Project),
 			},
 		})
 	}
+	metrics, err := telemetry.NewConsumerMetrics(cfg.meterProvider())
+	if err != nil {
+		return nil, err
+	}
 	return &Consumer{
 		cfg:       cfg,
 		consumers: consumers,
 		tracer:    cfg.tracerProvider().Tracer("pubsublite"),
+		metrics:   metrics,
 	}, nil
 }
 
@@ -182,12 +188,12 @@ func (c *Consumer) Run(ctx context.Context) error {
 	for _, consumer := range c.consumers {
 		consumer := consumer
 		g.Go(func() error {
+			receiveFunc := telemetry.Consumer(consumer.processMessage,
+				c.tracer, c.metrics, string(consumer.topic),
+				consumer.telemetryAttributes,
+			)
 			for {
-				err := consumer.Receive(ctx, telemetry.Consumer(
-					c.tracer,
-					consumer.processMessage,
-					consumer.telemetryAttributes,
-				))
+				err := consumer.Receive(ctx, receiveFunc)
 				// Keep attempting to receive until a fatal error is received.
 				if errors.Is(err, pscompat.ErrBackendUnavailable) {
 					c.cfg.Logger.Info("transient error found, re-starting consumer...", zap.Error(err))
