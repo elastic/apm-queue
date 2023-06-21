@@ -174,12 +174,6 @@ func withMaxPollRecords(max int) option {
 	}
 }
 
-func withLogger(f func(testing.TB) *zap.Logger) option {
-	return func(c *config) {
-		c.loggerF = f
-	}
-}
-
 func withTopic(topicsGenerator func(testing.TB) apmqueue.Topic) option {
 	return func(c *config) {
 		c.topicsF = func(t testing.TB) []apmqueue.Topic {

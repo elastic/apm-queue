@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"math/rand"
 	"strings"
+	"sync"
 	"time"
 
 	apmqueue "github.com/elastic/apm-queue"
@@ -35,20 +36,20 @@ type ProvisionInfraFunc func(context.Context) error
 // destroying infrastructure.
 type DestroyInfraFunc func(context.Context) error
 
-var persistentSuffix string
-
-func init() {
-	rand.Seed(time.Now().Unix())
-	persistentSuffix = RandomSuffix()
-}
+var (
+	rngMu sync.Mutex
+	rng   = rand.New(rand.NewSource(time.Now().Unix()))
+)
 
 const letterBytes = "abcdefghijklmnopqrstuvwxyz"
 
 // RandomSuffix generates a lowercase alphabetic 8 character random string
 func RandomSuffix() string {
+	rngMu.Lock()
+	defer rngMu.Unlock()
 	b := make([]byte, 8)
 	for i := range b {
-		b[i] = letterBytes[rand.Int63()%int64(len(letterBytes))]
+		b[i] = letterBytes[rng.Int63()%int64(len(letterBytes))]
 	}
 	return string(b)
 }
