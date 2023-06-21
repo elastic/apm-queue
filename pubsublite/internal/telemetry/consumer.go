@@ -74,6 +74,7 @@ func Consumer(
 			return
 		}
 
+		// Ensure cap == len to avoid mutating commonAttrs.
 		attrs := commonAttrs[0:len(commonAttrs):len(commonAttrs)]
 		if len(msg.Attributes) > 0 {
 			_, hasTraceparent := msg.Attributes["traceparent"]
