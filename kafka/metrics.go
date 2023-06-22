@@ -113,6 +113,7 @@ func (h *metricHooks) OnFetchRecordUnbuffered(r *kgo.Record, _ bool) {
 func attributesFromRecord(r *kgo.Record) []attribute.KeyValue {
 	attrs := make([]attribute.KeyValue, 0, 5) // Preallocate 5 elements.
 	attrs = append(attrs,
+		semconv.MessagingSystem("kafka"),
 		semconv.MessagingDestinationName(r.Topic),
 		semconv.MessagingKafkaDestinationPartition(int(r.Partition)),
 	)
