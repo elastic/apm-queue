@@ -22,11 +22,18 @@ import (
 	"errors"
 	"fmt"
 	"path"
+	"strconv"
+	"time"
 
+	monitoring "cloud.google.com/go/monitoring/apiv3/v2"
+	"cloud.google.com/go/monitoring/apiv3/v2/monitoringpb"
 	"cloud.google.com/go/pubsublite"
 	"github.com/googleapis/gax-go/v2/apierror"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 	"go.uber.org/zap"
 	"google.golang.org/api/iterator"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 // ManagerConfig holds configuration for managing GCP Pub/Sub Lite resources.
@@ -47,6 +54,10 @@ func (cfg ManagerConfig) Validate() error {
 type Manager struct {
 	cfg    ManagerConfig
 	client *pubsublite.AdminClient
+
+	monitoringClient    *monitoring.MetricClient
+	metricsRegistration metric.Registration
+	backlogMessageCount metric.Int64ObservableGauge
 }
 
 // NewManager returns a new Manager with the given config.
@@ -63,12 +74,33 @@ func NewManager(cfg ManagerConfig) (*Manager, error) {
 	if err != nil {
 		return nil, fmt.Errorf("pubsublite: failed creating admin client: %w", err)
 	}
-	return &Manager{cfg: cfg, client: client}, nil
+	m := &Manager{cfg: cfg, client: client}
+
+	m.monitoringClient, err = monitoring.NewMetricClient(context.Background())
+	if err != nil {
+		return nil, fmt.Errorf("pubsublite: failed creating monitoring client: %w", err)
+	}
+
+	mp := cfg.meterProvider()
+	meter := mp.Meter("github.com/elastic/apm-queue/pubsublite")
+	consumerGroupLagMetric, err := meter.Int64ObservableGauge("pubsublite.backlog_message_count")
+	if err != nil {
+		return nil, fmt.Errorf("pubsublite: failed to create backlog_message_count metric: %w", err)
+	}
+	m.backlogMessageCount = consumerGroupLagMetric
+	metricsRegistration, err := meter.RegisterCallback(m.gatherMetrics,
+		m.backlogMessageCount,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("pubsublite: failed to register metrics callback: %w", err)
+	}
+	m.metricsRegistration = metricsRegistration
+	return m, nil
 }
 
 // Close closes the manager's resources.
 func (m *Manager) Close() error {
-	return m.client.Close()
+	return errors.Join(m.monitoringClient.Close(), m.client.Close())
 }
 
 // ListReservations lists reservations in the configured project and region.
@@ -238,5 +270,58 @@ func (m *Manager) DeleteSubscription(ctx context.Context, subscription string) e
 		return fmt.Errorf("failed to delete pubsublite subscription %q: %w", subscription, err)
 	}
 	logger.Info("deleted pubsublite subscription")
+	return nil
+}
+
+func (m *Manager) gatherMetrics(ctx context.Context, o metric.Observer) error {
+	it := m.monitoringClient.ListTimeSeries(ctx, &monitoringpb.ListTimeSeriesRequest{
+		Name:   fmt.Sprintf("projects/%s", m.cfg.Project),
+		Filter: "metric.type = \"pubsublite.googleapis.com/subscription/backlog_message_count\"",
+		Interval: &monitoringpb.TimeInterval{
+			StartTime: &timestamppb.Timestamp{Seconds: time.Now().Add(-5 * time.Minute).Unix()},
+			EndTime:   &timestamppb.Timestamp{Seconds: time.Now().Unix()},
+		},
+		View: monitoringpb.ListTimeSeriesRequest_FULL,
+	})
+	for {
+		resp, err := it.Next()
+		if err == iterator.Done {
+			break
+		}
+		if err != nil {
+			m.cfg.Logger.Warn("error reading from monitoring time series iterator", zap.Error(err))
+			continue
+		}
+
+		subscriptionID := resp.Resource.Labels["subscription_id"]
+		partition, err := strconv.Atoi(resp.Resource.Labels["partition"])
+		if err != nil {
+			m.cfg.Logger.Warn("error parsing partition id",
+				zap.Error(err),
+				zap.String("subscription_id", subscriptionID),
+				zap.String("partition_string", resp.Resource.Labels["partition"]),
+			)
+			partition = -1
+		}
+
+		points := resp.GetPoints()
+		if len(points) == 0 {
+			m.cfg.Logger.Warn("empty points in monitoring time series",
+				zap.Error(err),
+				zap.String("subscription_id", subscriptionID),
+				zap.Int("partition", partition),
+			)
+			continue
+		}
+		lag := points[0].Value.GetInt64Value()
+
+		o.ObserveInt64(
+			m.backlogMessageCount, lag,
+			metric.WithAttributes(
+				attribute.String("subscription_id", subscriptionID),
+				attribute.Int("partition", partition),
+			),
+		)
+	}
 	return nil
 }

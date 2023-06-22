@@ -3,6 +3,7 @@ module github.com/elastic/apm-queue
 go 1.20
 
 require (
+	cloud.google.com/go/monitoring v1.13.0
 	cloud.google.com/go/pubsub v1.31.0
 	cloud.google.com/go/pubsublite v1.8.1
 	github.com/googleapis/gax-go/v2 v2.11.0
