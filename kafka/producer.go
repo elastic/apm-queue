@@ -191,7 +191,7 @@ func (p *Producer) Produce(ctx context.Context, rs ...apmqueue.Record) error {
 		}
 	}
 	headers = append(headers, kgo.RecordHeader{
-		Key:   "timestamp",
+		Key:   apmqueue.EventTimeKey,
 		Value: []byte(now),
 	})
 
