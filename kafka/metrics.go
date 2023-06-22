@@ -27,6 +27,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 	semconv "go.opentelemetry.io/otel/semconv/v1.17.0"
+	"go.opentelemetry.io/otel/trace"
 
 	apmqueue "github.com/elastic/apm-queue"
 )
@@ -122,18 +123,23 @@ func (h *metricHooks) OnProduceRecordUnbuffered(r *kgo.Record, err error) {
 func (h *metricHooks) OnFetchRecordUnbuffered(r *kgo.Record, _ bool) {
 	attrs := attributesFromRecord(r)
 
-	h.messageFetched.Add(context.Background(), 1,
+	h.messageFetched.Add(r.Context, 1,
 		metric.WithAttributes(attrs...),
 	)
 
+	span := trace.SpanFromContext(r.Context)
 	for _, v := range r.Headers {
 		if v.Key == apmqueue.EventTimeKey {
-			if since, err := time.Parse(time.RFC3339, string(v.Value)); err == nil {
-				delay := time.Since(since).Seconds()
-				h.messageDelay.Record(context.Background(), delay, metric.WithAttributes(
-					attrs...,
-				))
+			since, err := time.Parse(time.RFC3339, string(v.Value))
+			if err != nil {
+				span.RecordError(err)
+				return
 			}
+
+			delay := time.Since(since).Seconds()
+			h.messageDelay.Record(r.Context, delay, metric.WithAttributes(
+				attrs...,
+			))
 		}
 	}
 }

@@ -109,23 +109,15 @@ func Consumer(
 			}
 		}
 
-		metrics.fetched.Add(context.Background(), 1, metric.WithAttributes(
+		metrics.fetched.Add(ctx, 1, metric.WithAttributes(
 			attrs...,
 		))
 
 		if msg.Attributes != nil {
-			if msg.Attributes[apmqueue.EventTimeKey] != "" {
-				if since, err := time.Parse(time.RFC3339, msg.Attributes[apmqueue.EventTimeKey]); err == nil {
-					delay := time.Since(since).Seconds()
-					metrics.queuedDelay.Record(context.Background(), delay, metric.WithAttributes(
-						attrs...,
-					))
-				}
-			}
-
 			propagator := otel.GetTextMapPropagator()
 			ctx = propagator.Extract(ctx, propagation.MapCarrier(msg.Attributes))
 		}
+
 		ctx, span := tracer.Start(ctx, operation, // PubSub name.
 			trace.WithSpanKind(trace.SpanKindConsumer),
 			trace.WithAttributes(append(attrs,
@@ -134,6 +126,22 @@ func Consumer(
 			)...),
 		)
 		defer span.End()
+
+		if msg.Attributes != nil {
+			if msg.Attributes[apmqueue.EventTimeKey] != "" {
+				since, err := time.Parse(time.RFC3339, msg.Attributes[apmqueue.EventTimeKey])
+
+				if err != nil {
+					span.RecordError(err)
+				} else {
+					delay := time.Since(since).Seconds()
+					metrics.queuedDelay.Record(ctx, delay, metric.WithAttributes(
+						attrs...,
+					))
+				}
+			}
+		}
+
 		receive(ctx, msg)
 	}
 }
