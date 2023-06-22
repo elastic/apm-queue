@@ -244,6 +244,7 @@ func TestConsumerMetrics(t *testing.T) {
 					{
 						Value: int64(records),
 						Attributes: attribute.NewSet(
+							semconv.MessagingSystem("kafka"),
 							semconv.MessagingDestinationName(t.Name()),
 							semconv.MessagingKafkaDestinationPartition(0),
 							attribute.String("header", "included"),
