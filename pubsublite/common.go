@@ -60,6 +60,9 @@ type CommonConfig struct {
 	// MeterProvider allows specifying a custom otel meter provider.
 	// Defaults to the global one.
 	MeterProvider metric.MeterProvider
+
+	// MonitoringClientOptions holds arbitrary Google monitoring API client options.
+	MonitoringClientOptions []option.ClientOption
 }
 
 // Validate ensures the configuration is valid, otherwise, returns an error.

@@ -76,7 +76,7 @@ func NewManager(cfg ManagerConfig) (*Manager, error) {
 	}
 	m := &Manager{cfg: cfg, client: client}
 
-	m.monitoringClient, err = monitoring.NewMetricClient(context.Background())
+	m.monitoringClient, err = monitoring.NewMetricClient(context.Background(), cfg.MonitoringClientOptions...)
 	if err != nil {
 		return nil, fmt.Errorf("pubsublite: failed creating monitoring client: %w", err)
 	}

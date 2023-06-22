@@ -25,6 +25,7 @@ import (
 	"strings"
 	"testing"
 
+	"cloud.google.com/go/monitoring/apiv3/v2/monitoringpb"
 	pubsublitepb "cloud.google.com/go/pubsublite/apiv1/pubsublitepb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -414,6 +415,9 @@ func newTestAdminService(t testing.TB) (*adminServiceServer, CommonConfig) {
 	t.Cleanup(func() { lis.Close() })
 
 	go s.Serve(lis)
+
+	_, monitoringClientOpts := newTestMetricService(t)
+
 	return server, CommonConfig{
 		Project: "project",
 		Region:  "region-1",
@@ -425,6 +429,7 @@ func newTestAdminService(t testing.TB) (*adminServiceServer, CommonConfig) {
 			option.WithEndpoint(lis.Addr().String()),
 			option.WithoutAuthentication(),
 		},
+		MonitoringClientOptions: monitoringClientOpts,
 	}
 }
 
@@ -550,4 +555,32 @@ func (s *adminServiceServer) DeleteSubscription(
 ) (*emptypb.Empty, error) {
 	s.deleteSubscriptionRequest = req
 	return &emptypb.Empty{}, s.err
+}
+
+func newTestMetricService(t testing.TB) (*metricServiceServer, []option.ClientOption) {
+	s := grpc.NewServer()
+	t.Cleanup(s.Stop)
+	server := &metricServiceServer{}
+	monitoringpb.RegisterMetricServiceServer(s, server)
+
+	lis, err := net.Listen("tcp", "localhost:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { lis.Close() })
+
+	go s.Serve(lis)
+	return server, []option.ClientOption{
+		option.WithGRPCDialOption(grpc.WithUnaryInterceptor(otelgrpc.UnaryClientInterceptor())),
+		option.WithGRPCDialOption(grpc.WithStreamInterceptor(otelgrpc.StreamClientInterceptor())),
+		option.WithGRPCDialOption(grpc.WithTransportCredentials(insecure.NewCredentials())),
+		option.WithEndpoint(lis.Addr().String()),
+		option.WithoutAuthentication(),
+	}
+}
+
+type metricServiceServer struct {
+	monitoringpb.UnimplementedMetricServiceServer
+}
+
+func (s *metricServiceServer) ListTimeSeries(context.Context, *monitoringpb.ListTimeSeriesRequest) (*monitoringpb.ListTimeSeriesResponse, error) {
+	return &monitoringpb.ListTimeSeriesResponse{}, nil
 }
