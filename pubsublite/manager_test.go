@@ -22,8 +22,16 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
+
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata/metricdatatest"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 
 	"cloud.google.com/go/monitoring/apiv3/v2/monitoringpb"
 	pubsublitepb "cloud.google.com/go/pubsublite/apiv1/pubsublitepb"
@@ -32,6 +40,8 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"go.uber.org/zap/zaptest/observer"
+	metricpb "google.golang.org/genproto/googleapis/api/metric"
+	monitoredres "google.golang.org/genproto/googleapis/api/monitoredres"
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	spb "google.golang.org/genproto/googleapis/rpc/status"
 	"google.golang.org/protobuf/types/known/anypb"
@@ -582,5 +592,90 @@ type metricServiceServer struct {
 }
 
 func (s *metricServiceServer) ListTimeSeries(context.Context, *monitoringpb.ListTimeSeriesRequest) (*monitoringpb.ListTimeSeriesResponse, error) {
-	return &monitoringpb.ListTimeSeriesResponse{}, nil
+	return &monitoringpb.ListTimeSeriesResponse{
+		TimeSeries: []*monitoringpb.TimeSeries{
+			{
+				Metric: &metricpb.Metric{
+					Type: "pubsublite.googleapis.com/subscription/backlog_message_count",
+				},
+				Resource: &monitoredres.MonitoredResource{
+					Labels: map[string]string{
+						"subscription_id": "sub_id_1",
+						"partition":       "1",
+					},
+				},
+				Metadata:   nil,
+				MetricKind: metricpb.MetricDescriptor_GAUGE,
+				ValueType:  metricpb.MetricDescriptor_INT64,
+				Points:     []*monitoringpb.Point{{Value: &monitoringpb.TypedValue{Value: &monitoringpb.TypedValue_Int64Value{Int64Value: 1}}}},
+				Unit:       "",
+			},
+			{
+				Metric: &metricpb.Metric{
+					Type: "pubsublite.googleapis.com/subscription/backlog_message_count",
+				},
+				Resource: &monitoredres.MonitoredResource{
+					Labels: map[string]string{
+						"subscription_id": "sub_id_2",
+						"partition":       "2",
+					},
+				},
+				Metadata:   nil,
+				MetricKind: metricpb.MetricDescriptor_GAUGE,
+				ValueType:  metricpb.MetricDescriptor_INT64,
+				Points: []*monitoringpb.Point{{Value: &monitoringpb.TypedValue{Value: &monitoringpb.TypedValue_Int64Value{Int64Value: 2},
+				}}},
+				Unit: "",
+			},
+		},
+	}, nil
+}
+
+func TestManagerMetrics(t *testing.T) {
+	exp := tracetest.NewInMemoryExporter()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exp))
+	reader := metric.NewManualReader()
+	mp := metric.NewMeterProvider(metric.WithReader(reader))
+	defer tp.Shutdown(context.Background())
+	defer mp.Shutdown(context.Background())
+
+	_, commonConfig := newTestAdminService(t)
+	core, _ := observer.New(zapcore.DebugLevel)
+	commonConfig.Logger = zap.New(core)
+	commonConfig.TracerProvider = tp
+	commonConfig.MeterProvider = mp
+	m, err := NewManager(ManagerConfig{CommonConfig: commonConfig})
+	require.NoError(t, err)
+	t.Cleanup(func() { m.Close() })
+
+	rm := metricdata.ResourceMetrics{}
+	err = reader.Collect(context.Background(), &rm)
+	require.NoError(t, err)
+	require.Len(t, rm.ScopeMetrics, 1)
+	sort.Slice(rm.ScopeMetrics, func(i, j int) bool {
+		return rm.ScopeMetrics[i].Scope.Name < rm.ScopeMetrics[j].Scope.Name
+	})
+	assert.Equal(t, "github.com/elastic/apm-queue/pubsublite", rm.ScopeMetrics[0].Scope.Name)
+
+	metrics := rm.ScopeMetrics[0].Metrics
+	require.Len(t, metrics, 1)
+	assert.Equal(t, "pubsublite.backlog_message_count", metrics[0].Name)
+	metricdatatest.AssertAggregationsEqual(t, metricdata.Gauge[int64]{
+		DataPoints: []metricdata.DataPoint[int64]{
+			{
+				Attributes: attribute.NewSet(
+					attribute.String("subscription_id", "sub_id_1"),
+					attribute.Int("partition", 1),
+				),
+				Value: 1,
+			},
+			{
+				Attributes: attribute.NewSet(
+					attribute.String("subscription_id", "sub_id_2"),
+					attribute.Int("partition", 2),
+				),
+				Value: 2,
+			},
+		},
+	}, metrics[0].Data, metricdatatest.IgnoreTimestamp())
 }
