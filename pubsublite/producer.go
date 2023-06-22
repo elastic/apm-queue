@@ -154,9 +154,9 @@ func (p *Producer) Produce(ctx context.Context, rs ...apmqueue.Record) error {
 	now := time.Now().Format(time.RFC3339)
 
 	for _, record := range rs {
-		msg := pubsub.Message{Data: record.Value}
-		if msg.Attributes == nil {
-			msg.Attributes = make(map[string]string)
+		msg := pubsub.Message{
+			Data:       record.Value,
+			Attributes: make(map[string]string),
 		}
 
 		if meta, ok := queuecontext.MetadataFromContext(ctx); ok {
