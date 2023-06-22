@@ -137,6 +137,9 @@ func (h *metricHooks) OnFetchRecordUnbuffered(r *kgo.Record, _ bool) {
 			}
 
 			delay := time.Since(since).Seconds()
+			span.SetAttributes(
+				attribute.Float64(apmqueue.EventTimeKey, delay),
+			)
 			h.messageDelay.Record(r.Context, delay, metric.WithAttributes(
 				attrs...,
 			))

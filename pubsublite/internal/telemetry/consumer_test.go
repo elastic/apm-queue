@@ -199,6 +199,7 @@ func TestConsumer(t *testing.T) {
 						semconv.MessagingOperationProcess,
 						semconv.MessagingMessageIDKey.String(""),
 						semconv.MessageUncompressedSize(0),
+						attribute.Float64("timestamp", 1.0),
 					},
 					InstrumentationLibrary: instrumentation.Library{
 						Name: "test",
@@ -382,6 +383,8 @@ func TestConsumerMultipleEvents(t *testing.T) {
 }
 
 func assertSpans(t testing.TB, traceID [16]byte, expected, actual tracetest.SpanStubs) {
+	t.Helper()
+
 	for i := range actual {
 		// Nullify data we don't use/can't set manually
 		actual[i].SpanContext = actual[i].SpanContext.
@@ -395,6 +398,12 @@ func assertSpans(t testing.TB, traceID [16]byte, expected, actual tracetest.Span
 		actual[i].Resource = nil
 		actual[i].StartTime = time.Time{}
 		actual[i].EndTime = time.Time{}
+
+		for j, v := range actual[i].Attributes {
+			if v.Key == apmqueue.EventTimeKey {
+				actual[i].Attributes[j].Value = attribute.Float64Value(1.0)
+			}
+		}
 	}
 	assert.Equal(t, expected, actual)
 }

@@ -135,6 +135,9 @@ func Consumer(
 					span.RecordError(err)
 				} else {
 					delay := time.Since(since).Seconds()
+					span.SetAttributes(
+						attribute.Float64(apmqueue.EventTimeKey, delay),
+					)
 					metrics.queuedDelay.Record(ctx, delay, metric.WithAttributes(
 						attrs...,
 					))
