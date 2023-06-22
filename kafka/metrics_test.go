@@ -217,6 +217,7 @@ func TestConsumerMetrics(t *testing.T) {
 			Headers: []kgo.RecordHeader{
 				{Key: "header", Value: []byte("included")},
 				{Key: "traceparent", Value: []byte("excluded")},
+				{Key: "timestamp", Value: []byte(time.Now().Format(time.RFC3339))},
 			},
 		})
 	}
@@ -231,28 +232,72 @@ func TestConsumerMetrics(t *testing.T) {
 	var rm metricdata.ResourceMetrics
 	assert.NoError(t, tc.reader.Collect(context.Background(), &rm))
 
-	metrics := filterMetrics(t, rm.ScopeMetrics)
-	assert.Len(t, metrics, 1)
-	metricdatatest.AssertEqual(t, metricdata.Metrics{
-		Name:        msgFetchedKey,
-		Description: "The number of messages that were fetched from a kafka topic",
-		Unit:        "1",
-		Data: metricdata.Sum[int64]{
-			Temporality: metricdata.CumulativeTemporality,
-			IsMonotonic: true,
-			DataPoints: []metricdata.DataPoint[int64]{
-				{
-					Value: int64(records),
+	wantMetrics := []metricdata.Metrics{
+		{
+			Name:        msgFetchedKey,
+			Description: "The number of messages that were fetched from a kafka topic",
+			Unit:        "1",
+			Data: metricdata.Sum[int64]{
+				Temporality: metricdata.CumulativeTemporality,
+				IsMonotonic: true,
+				DataPoints: []metricdata.DataPoint[int64]{
+					{
+						Value: int64(records),
+						Attributes: attribute.NewSet(
+							semconv.MessagingSystem("kafka"),
+							semconv.MessagingDestinationName(t.Name()),
+							semconv.MessagingKafkaDestinationPartition(0),
+							attribute.String("header", "included"),
+						),
+					},
+				},
+			},
+		},
+		{
+			Name:        "consumer.messages.delay",
+			Description: "The delay between producing messages and reading them",
+			Unit:        "s",
+			Data: metricdata.Histogram[float64]{
+				Temporality: metricdata.CumulativeTemporality,
+				DataPoints: []metricdata.HistogramDataPoint[float64]{{
 					Attributes: attribute.NewSet(
 						semconv.MessagingSystem("kafka"),
 						semconv.MessagingDestinationName(t.Name()),
 						semconv.MessagingKafkaDestinationPartition(0),
 						attribute.String("header", "included"),
 					),
-				},
+
+					Bounds: []float64{0, 5, 10, 25, 50, 75, 100, 250, 500, 750, 1000, 2500, 5000, 7500, 10000},
+					Count:  uint64(records),
+				}},
 			},
 		},
-	}, metrics[0], metricdatatest.IgnoreTimestamp())
+	}
+
+	metrics := filterMetrics(t, rm.ScopeMetrics)
+	assert.Len(t, metrics, len(wantMetrics))
+
+	for k, m := range wantMetrics {
+		metric := metrics[k]
+
+		// Remove time-specific data for histograms
+		if dp, ok := metric.Data.(metricdata.Histogram[float64]); ok {
+			for k := range dp.DataPoints {
+				dp.DataPoints[k].Min = m.Data.(metricdata.Histogram[float64]).DataPoints[k].Min
+				dp.DataPoints[k].Max = m.Data.(metricdata.Histogram[float64]).DataPoints[k].Max
+				dp.DataPoints[k].Sum = 0
+				dp.DataPoints[k].BucketCounts = nil
+			}
+			metric.Data = dp
+		}
+
+		metricdatatest.AssertEqual(t,
+			m,
+			metric,
+			metricdatatest.IgnoreTimestamp(),
+			metricdatatest.IgnoreExemplars(),
+		)
+	}
 }
 
 func filterMetrics(t testing.TB, sm []metricdata.ScopeMetrics) []metricdata.Metrics {
