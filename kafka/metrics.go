@@ -46,7 +46,7 @@ type metricHooks struct {
 	messageProduced metric.Int64Counter
 	messageErrored  metric.Int64Counter
 	messageFetched  metric.Int64Counter
-	messageDelay    metric.Int64Histogram
+	messageDelay    metric.Float64Histogram
 }
 
 func newKgoHooks(mp metric.MeterProvider) (*metricHooks, error) {
@@ -73,9 +73,9 @@ func newKgoHooks(mp metric.MeterProvider) (*metricHooks, error) {
 		return nil, formatMetricError(msgFetchedKey, err)
 	}
 
-	messageDelayHistogram, err := m.Int64Histogram(msgDelayKey,
+	messageDelayHistogram, err := m.Float64Histogram(msgDelayKey,
 		metric.WithDescription("The delay between producing messages and reading them"),
-		metric.WithUnit(unitCount),
+		metric.WithUnit("s"),
 	)
 	if err != nil {
 		return nil, formatMetricError(msgDelayKey, err)
@@ -129,7 +129,7 @@ func (h *metricHooks) OnFetchRecordUnbuffered(r *kgo.Record, _ bool) {
 	for _, v := range r.Headers {
 		if v.Key == apmqueue.EventTimeKey {
 			if since, err := time.Parse(time.RFC3339, string(v.Value)); err == nil {
-				delay := time.Since(since).Milliseconds()
+				delay := time.Since(since).Seconds()
 				h.messageDelay.Record(context.Background(), delay, metric.WithAttributes(
 					attrs...,
 				))

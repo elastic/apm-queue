@@ -227,10 +227,10 @@ func TestConsumer(t *testing.T) {
 				{
 					Name:        "consumer.messages.delay",
 					Description: "The delay between producing messages and reading them",
-					Unit:        "1",
-					Data: metricdata.Histogram[int64]{
+					Unit:        "s",
+					Data: metricdata.Histogram[float64]{
 						Temporality: metricdata.CumulativeTemporality,
-						DataPoints: []metricdata.HistogramDataPoint[int64]{{
+						DataPoints: []metricdata.HistogramDataPoint[float64]{{
 							Attributes: attribute.NewSet(
 								attribute.String("project", "project_name"),
 								semconv.MessagingSystemKey.String("pubsublite"),
@@ -275,10 +275,10 @@ func TestConsumer(t *testing.T) {
 				metric := rm.ScopeMetrics[0].Metrics[k]
 
 				// Remove time-specific data for histograms
-				if dp, ok := metric.Data.(metricdata.Histogram[int64]); ok {
+				if dp, ok := metric.Data.(metricdata.Histogram[float64]); ok {
 					for k := range dp.DataPoints {
-						dp.DataPoints[k].Min = m.Data.(metricdata.Histogram[int64]).DataPoints[k].Min
-						dp.DataPoints[k].Max = m.Data.(metricdata.Histogram[int64]).DataPoints[k].Max
+						dp.DataPoints[k].Min = m.Data.(metricdata.Histogram[float64]).DataPoints[k].Min
+						dp.DataPoints[k].Max = m.Data.(metricdata.Histogram[float64]).DataPoints[k].Max
 						dp.DataPoints[k].Sum = 0
 						dp.DataPoints[k].BucketCounts = nil
 					}

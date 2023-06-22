@@ -44,7 +44,7 @@ const (
 // ConsumerMetrics holds the metrics that are recorded for consumers
 type ConsumerMetrics struct {
 	fetched     metric.Int64Counter
-	queuedDelay metric.Int64Histogram
+	queuedDelay metric.Float64Histogram
 }
 
 // NewConsumerMetrics instantiates the producer metrics.
@@ -58,9 +58,9 @@ func NewConsumerMetrics(mp metric.MeterProvider) (cm ConsumerMetrics, err error)
 		return cm, formatMetricError(msgFetchedKey, err)
 	}
 
-	cm.queuedDelay, err = m.Int64Histogram(msgDelayKey,
+	cm.queuedDelay, err = m.Float64Histogram(msgDelayKey,
 		metric.WithDescription("The delay between producing messages and reading them"),
-		metric.WithUnit("1"),
+		metric.WithUnit("s"),
 	)
 	if err != nil {
 		return cm, formatMetricError(msgDelayKey, err)
@@ -116,7 +116,7 @@ func Consumer(
 		if msg.Attributes != nil {
 			if msg.Attributes[apmqueue.EventTimeKey] != "" {
 				if since, err := time.Parse(time.RFC3339, msg.Attributes[apmqueue.EventTimeKey]); err == nil {
-					delay := time.Since(since).Milliseconds()
+					delay := time.Since(since).Seconds()
 					metrics.queuedDelay.Record(context.Background(), delay, metric.WithAttributes(
 						attrs...,
 					))
