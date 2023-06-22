@@ -75,6 +75,7 @@ func TestProducerMetrics(t *testing.T) {
 					{
 						Value: 3, Attributes: attribute.NewSet(
 							attribute.String("error", "timeout"),
+							semconv.MessagingSystem("kafka"),
 							semconv.MessagingDestinationName("default-topic"),
 							semconv.MessagingKafkaDestinationPartition(0),
 						),
@@ -99,6 +100,7 @@ func TestProducerMetrics(t *testing.T) {
 					{
 						Value: 3, Attributes: attribute.NewSet(
 							attribute.String("error", "canceled"),
+							semconv.MessagingSystem("kafka"),
 							semconv.MessagingDestinationName("default-topic"),
 							semconv.MessagingKafkaDestinationPartition(0),
 						),
@@ -124,6 +126,7 @@ func TestProducerMetrics(t *testing.T) {
 						Value: 3,
 						Attributes: attribute.NewSet(
 							attribute.String("error", "other"),
+							semconv.MessagingSystem("kafka"),
 							semconv.MessagingDestinationName("default-topic"),
 							semconv.MessagingKafkaDestinationPartition(0),
 						),
@@ -147,6 +150,7 @@ func TestProducerMetrics(t *testing.T) {
 					{
 						Value: 3,
 						Attributes: attribute.NewSet(
+							semconv.MessagingSystem("kafka"),
 							semconv.MessagingDestinationName("default-topic"),
 							semconv.MessagingKafkaDestinationPartition(0),
 						),
@@ -169,6 +173,7 @@ func TestProducerMetrics(t *testing.T) {
 					{
 						Value: 3,
 						Attributes: attribute.NewSet(
+							semconv.MessagingSystem("kafka"),
 							semconv.MessagingDestinationName("default-topic"),
 							semconv.MessagingKafkaDestinationPartition(0),
 							attribute.String("key", "value"),
@@ -239,6 +244,7 @@ func TestConsumerMetrics(t *testing.T) {
 				{
 					Value: int64(records),
 					Attributes: attribute.NewSet(
+						semconv.MessagingSystem("kafka"),
 						semconv.MessagingDestinationName(t.Name()),
 						semconv.MessagingKafkaDestinationPartition(0),
 						attribute.String("header", "included"),
