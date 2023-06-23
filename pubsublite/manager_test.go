@@ -623,9 +623,8 @@ func (s *metricServiceServer) ListTimeSeries(context.Context, *monitoringpb.List
 				Metadata:   nil,
 				MetricKind: metricpb.MetricDescriptor_GAUGE,
 				ValueType:  metricpb.MetricDescriptor_INT64,
-				Points: []*monitoringpb.Point{{Value: &monitoringpb.TypedValue{Value: &monitoringpb.TypedValue_Int64Value{Int64Value: 2},
-				}}},
-				Unit: "",
+				Points:     []*monitoringpb.Point{{Value: &monitoringpb.TypedValue{Value: &monitoringpb.TypedValue_Int64Value{Int64Value: 2}}}},
+				Unit:       "",
 			},
 		},
 	}, nil
