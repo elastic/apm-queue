@@ -467,7 +467,10 @@ func TestConsumerContextPropagation(t *testing.T) {
 		Logger:  zap.NewNop(),
 	}
 	processed := make(chan struct{})
-	expectedMeta := map[string]string{"key": "value"}
+	expectedMeta := map[string]string{
+		"key":       "value",
+		"timestamp": time.Now().Format(time.RFC3339),
+	}
 	consumer := newConsumer(t, ConsumerConfig{
 		CommonConfig: commonCfg,
 		GroupID:      "ctx_prop",

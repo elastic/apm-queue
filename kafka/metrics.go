@@ -21,11 +21,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/twmb/franz-go/pkg/kgo"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 	semconv "go.opentelemetry.io/otel/semconv/v1.17.0"
+	"go.opentelemetry.io/otel/trace"
+
+	apmqueue "github.com/elastic/apm-queue"
 )
 
 const (
@@ -36,12 +40,14 @@ const (
 	msgProducedKey = "producer.messages.produced"
 	msgErroredKey  = "producer.messages.errored"
 	msgFetchedKey  = "consumer.messages.fetched"
+	msgDelayKey    = "consumer.messages.delay"
 )
 
 type metricHooks struct {
 	messageProduced metric.Int64Counter
 	messageErrored  metric.Int64Counter
 	messageFetched  metric.Int64Counter
+	messageDelay    metric.Float64Histogram
 }
 
 func newKgoHooks(mp metric.MeterProvider) (*metricHooks, error) {
@@ -67,12 +73,22 @@ func newKgoHooks(mp metric.MeterProvider) (*metricHooks, error) {
 	if err != nil {
 		return nil, formatMetricError(msgFetchedKey, err)
 	}
+
+	messageDelayHistogram, err := m.Float64Histogram(msgDelayKey,
+		metric.WithDescription("The delay between producing messages and reading them"),
+		metric.WithUnit("s"),
+	)
+	if err != nil {
+		return nil, formatMetricError(msgDelayKey, err)
+	}
+
 	return &metricHooks{
 		// Producer
 		messageProduced: messageProducedCounter,
 		messageErrored:  messageErroredCounter,
 		// Consumer
 		messageFetched: messageFetchedCounter,
+		messageDelay:   messageDelayHistogram,
 	}, nil
 }
 
@@ -105,9 +121,30 @@ func (h *metricHooks) OnProduceRecordUnbuffered(r *kgo.Record, err error) {
 // OnFetchRecordUnbuffered records the number of fetched messages.
 // https://pkg.go.dev/github.com/twmb/franz-go/pkg/kgo#HookFetchRecordUnbuffered
 func (h *metricHooks) OnFetchRecordUnbuffered(r *kgo.Record, _ bool) {
-	h.messageFetched.Add(context.Background(), 1,
-		metric.WithAttributes(attributesFromRecord(r)...),
+	attrs := attributesFromRecord(r)
+
+	h.messageFetched.Add(r.Context, 1,
+		metric.WithAttributes(attrs...),
 	)
+
+	span := trace.SpanFromContext(r.Context)
+	for _, v := range r.Headers {
+		if v.Key == apmqueue.EventTimeKey {
+			since, err := time.Parse(time.RFC3339, string(v.Value))
+			if err != nil {
+				span.RecordError(err)
+				return
+			}
+
+			delay := time.Since(since).Seconds()
+			span.SetAttributes(
+				attribute.Float64(apmqueue.EventTimeKey, delay),
+			)
+			h.messageDelay.Record(r.Context, delay, metric.WithAttributes(
+				attrs...,
+			))
+		}
+	}
 }
 
 func attributesFromRecord(r *kgo.Record) []attribute.KeyValue {
@@ -118,7 +155,7 @@ func attributesFromRecord(r *kgo.Record) []attribute.KeyValue {
 		semconv.MessagingKafkaDestinationPartition(int(r.Partition)),
 	)
 	for _, v := range r.Headers {
-		if v.Key == "traceparent" { // Ignore traceparent header.
+		if v.Key == "traceparent" || v.Key == apmqueue.EventTimeKey { // Ignore traceparent and event time headers.
 			continue
 		}
 		attrs = append(attrs, attribute.String(v.Key, string(v.Value)))

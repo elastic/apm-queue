@@ -24,6 +24,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
@@ -180,6 +181,7 @@ func (p *Producer) Produce(ctx context.Context, rs ...apmqueue.Record) error {
 	defer p.mu.RUnlock()
 
 	var headers []kgo.RecordHeader
+	now := time.Now().Format(time.RFC3339)
 	if m, ok := queuecontext.MetadataFromContext(ctx); ok {
 		headers = make([]kgo.RecordHeader, 0, len(m))
 		for k, v := range m {
@@ -188,6 +190,10 @@ func (p *Producer) Produce(ctx context.Context, rs ...apmqueue.Record) error {
 			})
 		}
 	}
+	headers = append(headers, kgo.RecordHeader{
+		Key:   apmqueue.EventTimeKey,
+		Value: []byte(now),
+	})
 
 	var wg sync.WaitGroup
 	wg.Add(len(rs))
