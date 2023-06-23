@@ -80,7 +80,7 @@ func NewManager(cfg ManagerConfig) (*Manager, error) {
 
 	mp := cfg.meterProvider()
 	meter := mp.Meter("github.com/elastic/apm-queue/kafka")
-	consumerGroupLagMetric, err := meter.Int64ObservableGauge("kafka.consumer_group_lag")
+	consumerGroupLagMetric, err := meter.Int64ObservableGauge("consumer_group_lag")
 	if err != nil {
 		return nil, fmt.Errorf("kafka: failed to create consumer_group_lag metric: %w", err)
 	}

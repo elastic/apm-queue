@@ -600,7 +600,7 @@ func (s *metricServiceServer) ListTimeSeries(context.Context, *monitoringpb.List
 				},
 				Resource: &monitoredres.MonitoredResource{
 					Labels: map[string]string{
-						"subscription_id": "sub_id_1",
+						"subscription_id": "topic1+consumer1",
 						"partition":       "1",
 					},
 				},
@@ -616,7 +616,7 @@ func (s *metricServiceServer) ListTimeSeries(context.Context, *monitoringpb.List
 				},
 				Resource: &monitoredres.MonitoredResource{
 					Labels: map[string]string{
-						"subscription_id": "sub_id_2",
+						"subscription_id": "topic2+consumer1",
 						"partition":       "2",
 					},
 				},
@@ -658,19 +658,21 @@ func TestManagerMetrics(t *testing.T) {
 
 	metrics := rm.ScopeMetrics[0].Metrics
 	require.Len(t, metrics, 1)
-	assert.Equal(t, "pubsublite.backlog_message_count", metrics[0].Name)
+	assert.Equal(t, "consumer_group_lag", metrics[0].Name)
 	metricdatatest.AssertAggregationsEqual(t, metricdata.Gauge[int64]{
 		DataPoints: []metricdata.DataPoint[int64]{
 			{
 				Attributes: attribute.NewSet(
-					attribute.String("subscription_id", "sub_id_1"),
+					attribute.String("topic", "topic1"),
+					attribute.String("group", "consumer1"),
 					attribute.Int("partition", 1),
 				),
 				Value: 1,
 			},
 			{
 				Attributes: attribute.NewSet(
-					attribute.String("subscription_id", "sub_id_2"),
+					attribute.String("topic", "topic2"),
+					attribute.String("group", "consumer1"),
 					attribute.Int("partition", 2),
 				),
 				Value: 2,

@@ -57,7 +57,7 @@ type Manager struct {
 
 	monitoringClient    *monitoring.MetricClient
 	metricsRegistration metric.Registration
-	backlogMessageCount metric.Int64ObservableGauge
+	consumerGroupLag    metric.Int64ObservableGauge
 }
 
 // NewManager returns a new Manager with the given config.
@@ -83,13 +83,13 @@ func NewManager(cfg ManagerConfig) (*Manager, error) {
 
 	mp := cfg.meterProvider()
 	meter := mp.Meter("github.com/elastic/apm-queue/pubsublite")
-	consumerGroupLagMetric, err := meter.Int64ObservableGauge("pubsublite.backlog_message_count")
+	consumerGroupLagMetric, err := meter.Int64ObservableGauge("consumer_group_lag")
 	if err != nil {
-		return nil, fmt.Errorf("pubsublite: failed to create backlog_message_count metric: %w", err)
+		return nil, fmt.Errorf("pubsublite: failed to create consumer_group_lag metric: %w", err)
 	}
-	m.backlogMessageCount = consumerGroupLagMetric
+	m.consumerGroupLag = consumerGroupLagMetric
 	metricsRegistration, err := meter.RegisterCallback(m.gatherMetrics,
-		m.backlogMessageCount,
+		m.consumerGroupLag,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("pubsublite: failed to register metrics callback: %w", err)
@@ -289,8 +289,8 @@ func (m *Manager) gatherMetrics(ctx context.Context, o metric.Observer) error {
 			break
 		}
 		if err != nil {
-			m.cfg.Logger.Warn("error reading from monitoring time series iterator", zap.Error(err))
-			continue
+			m.cfg.Logger.Error("error reading from monitoring time series iterator", zap.Error(err))
+			return fmt.Errorf("error reading from monitoring time series iterator: %w", err)
 		}
 
 		subscriptionID := resp.Resource.Labels["subscription_id"]
@@ -315,10 +315,20 @@ func (m *Manager) gatherMetrics(ctx context.Context, o metric.Observer) error {
 		}
 		lag := points[0].Value.GetInt64Value()
 
+		topic, consumer, err := TopicAndConsumer(subscriptionID)
+		if err != nil {
+			m.cfg.Logger.Warn("error parsing topic and consumer from subscription name",
+				zap.Error(err),
+				zap.String("subscription_id", subscriptionID),
+			)
+			continue
+		}
+
 		o.ObserveInt64(
-			m.backlogMessageCount, lag,
+			m.consumerGroupLag, lag,
 			metric.WithAttributes(
-				attribute.String("subscription_id", subscriptionID),
+				attribute.String("topic", string(topic)),
+				attribute.String("group", consumer),
 				attribute.Int("partition", partition),
 			),
 		)

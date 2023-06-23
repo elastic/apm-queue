@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/metric"
@@ -139,4 +140,17 @@ func (cfg *CommonConfig) meterProvider() metric.MeterProvider {
 // for the given topic and consumer name.
 func SubscriptionName(topic apmqueue.Topic, consumer string) string {
 	return fmt.Sprintf("%s+%s", topic, consumer)
+}
+
+// TopicAndConsumer does the opposite of SubscriptionName
+// by parsing topic ane consumer out of a subscription name.
+// Returns an error if subscription name is not in an expected format.
+func TopicAndConsumer(subscriptionName string) (topic apmqueue.Topic, consumer string, err error) {
+	parts := strings.Split(subscriptionName, "+")
+	if len(parts) != 2 {
+		return "", "", fmt.Errorf("malformed subscription name")
+	}
+	topic = apmqueue.Topic(parts[0])
+	consumer = parts[1]
+	return
 }

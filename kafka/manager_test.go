@@ -304,7 +304,7 @@ func TestManagerMetrics(t *testing.T) {
 
 	metrics := rm.ScopeMetrics[0].Metrics
 	require.Len(t, metrics, 1)
-	assert.Equal(t, "kafka.consumer_group_lag", metrics[0].Name)
+	assert.Equal(t, "consumer_group_lag", metrics[0].Name)
 	metricdatatest.AssertAggregationsEqual(t, metricdata.Gauge[int64]{
 		DataPoints: []metricdata.DataPoint[int64]{{
 			Attributes: attribute.NewSet(
