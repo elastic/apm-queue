@@ -61,6 +61,8 @@ type Manager struct {
 
 	metricsRegistration metric.Registration
 	consumerGroupLag    metric.Int64ObservableGauge
+
+	monitorTopics map[string]struct{}
 }
 
 // NewManager returns a new Manager with the given config.
@@ -77,6 +79,11 @@ func NewManager(cfg ManagerConfig) (*Manager, error) {
 		client:      client,
 		adminClient: kadm.NewClient(client),
 		tracer:      cfg.tracerProvider().Tracer("kafka"),
+	}
+
+	m.monitorTopics = make(map[string]struct{}, len(cfg.MonitorTopics))
+	for _, t := range cfg.MonitorTopics {
+		m.monitorTopics[string(t)] = struct{}{}
 	}
 
 	mp := cfg.meterProvider()
@@ -152,8 +159,6 @@ func (m *Manager) gatherMetrics(ctx context.Context, o metric.Observer) error {
 	defer span.End()
 
 	// Fetch commits for consumer groups.
-	//
-	// TODO(axw) pass in a list of group names?
 	groups, err := m.adminClient.DescribeGroups(ctx)
 	if err != nil {
 		span.RecordError(err)
@@ -195,6 +200,10 @@ func (m *Manager) gatherMetrics(ctx context.Context, o metric.Observer) error {
 		}
 		groupLag := kadm.CalculateGroupLag(group, commits[group.Group].Fetched, endOffsets)
 		for topic, partitions := range groupLag {
+			if _, ok := m.monitorTopics[topic]; !ok {
+				// Ignore unmonitored topics.
+				continue
+			}
 			for partition, lag := range partitions {
 				if lag.Err != nil {
 					m.cfg.Logger.Warn(
