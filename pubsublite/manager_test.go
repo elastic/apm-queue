@@ -53,6 +53,8 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
+
+	apmqueue "github.com/elastic/apm-queue"
 )
 
 func TestNewManager(t *testing.T) {
@@ -643,7 +645,7 @@ func TestManagerMetrics(t *testing.T) {
 	commonConfig.Logger = zap.New(core)
 	commonConfig.TracerProvider = tp
 	commonConfig.MeterProvider = mp
-	m, err := NewManager(ManagerConfig{CommonConfig: commonConfig})
+	m, err := NewManager(ManagerConfig{CommonConfig: commonConfig, MonitorTopics: []apmqueue.Topic{"topic1"}})
 	require.NoError(t, err)
 	t.Cleanup(func() { m.Close() })
 

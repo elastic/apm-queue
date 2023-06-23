@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"path"
 	"strconv"
+	"strings"
 	"time"
 
 	monitoring "cloud.google.com/go/monitoring/apiv3/v2"
@@ -34,11 +35,14 @@ import (
 	"go.uber.org/zap"
 	"google.golang.org/api/iterator"
 	"google.golang.org/protobuf/types/known/timestamppb"
+
+	apmqueue "github.com/elastic/apm-queue"
 )
 
 // ManagerConfig holds configuration for managing GCP Pub/Sub Lite resources.
 type ManagerConfig struct {
 	CommonConfig
+	MonitorTopics []apmqueue.Topic
 }
 
 // Validate checks that cfg is valid, and returns an error otherwise.
@@ -274,9 +278,17 @@ func (m *Manager) DeleteSubscription(ctx context.Context, subscription string) e
 }
 
 func (m *Manager) gatherMetrics(ctx context.Context, o metric.Observer) error {
+	topicFilters := make([]string, len(m.cfg.MonitorTopics))
+	for i, topic := range m.cfg.MonitorTopics {
+		// Append + to topic so that it matches subscription id in expected format
+		topicFilters[i] = fmt.Sprintf("resource.labels.subscription_id = starts_with(\"%s+\")", topic)
+	}
+
+	filter := "metric.type = \"pubsublite.googleapis.com/subscription/backlog_message_count\""
+	filter += fmt.Sprintf(" AND (%s)", strings.Join(topicFilters, " OR "))
 	it := m.monitoringClient.ListTimeSeries(ctx, &monitoringpb.ListTimeSeriesRequest{
 		Name:   fmt.Sprintf("projects/%s", m.cfg.Project),
-		Filter: "metric.type = \"pubsublite.googleapis.com/subscription/backlog_message_count\"",
+		Filter: filter,
 		Interval: &monitoringpb.TimeInterval{
 			StartTime: &timestamppb.Timestamp{Seconds: time.Now().Add(-5 * time.Minute).Unix()},
 			EndTime:   &timestamppb.Timestamp{Seconds: time.Now().Unix()},

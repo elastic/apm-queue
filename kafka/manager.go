@@ -38,6 +38,7 @@ import (
 // ManagerConfig holds configuration for managing Kafka topics.
 type ManagerConfig struct {
 	CommonConfig
+	MonitorTopics []apmqueue.Topic
 }
 
 // finalize ensures the configuration is valid, setting default values from
