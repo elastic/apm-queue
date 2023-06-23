@@ -32,7 +32,6 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.18.0"
 	"go.opentelemetry.io/otel/trace"
 
-	apmqueue "github.com/elastic/apm-queue"
 	"github.com/elastic/apm-queue/pubsublite/internal/pubsubabs"
 )
 
@@ -102,7 +101,7 @@ func Consumer(
 				), commonAttrs...)
 			}
 			for key, v := range msg.Attributes {
-				if key == "traceparent" || key == apmqueue.EventTimeKey { // Ignore traceparent and event time headers.
+				if key == "traceparent" { // Ignore traceparent.
 					continue
 				}
 				attrs = append(attrs, attribute.String(key, v))
@@ -127,23 +126,13 @@ func Consumer(
 		)
 		defer span.End()
 
-		if msg.Attributes != nil {
-			if msg.Attributes[apmqueue.EventTimeKey] != "" {
-				since, err := time.Parse(time.RFC3339, msg.Attributes[apmqueue.EventTimeKey])
-
-				if err != nil {
-					span.RecordError(err)
-				} else {
-					delay := time.Since(since).Seconds()
-					span.SetAttributes(
-						attribute.Float64(apmqueue.EventTimeKey, delay),
-					)
-					metrics.queuedDelay.Record(ctx, delay, metric.WithAttributes(
-						attrs...,
-					))
-				}
-			}
-		}
+		delay := time.Since(msg.PublishTime).Seconds()
+		span.SetAttributes(
+			attribute.Float64(msgDelayKey, delay),
+		)
+		metrics.queuedDelay.Record(ctx, delay, metric.WithAttributes(
+			attrs...,
+		))
 
 		receive(ctx, msg)
 	}

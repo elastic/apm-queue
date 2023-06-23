@@ -28,8 +28,6 @@ import (
 	"go.opentelemetry.io/otel/metric"
 	semconv "go.opentelemetry.io/otel/semconv/v1.17.0"
 	"go.opentelemetry.io/otel/trace"
-
-	apmqueue "github.com/elastic/apm-queue"
 )
 
 const (
@@ -128,23 +126,13 @@ func (h *metricHooks) OnFetchRecordUnbuffered(r *kgo.Record, _ bool) {
 	)
 
 	span := trace.SpanFromContext(r.Context)
-	for _, v := range r.Headers {
-		if v.Key == apmqueue.EventTimeKey {
-			since, err := time.Parse(time.RFC3339, string(v.Value))
-			if err != nil {
-				span.RecordError(err)
-				return
-			}
-
-			delay := time.Since(since).Seconds()
-			span.SetAttributes(
-				attribute.Float64(apmqueue.EventTimeKey, delay),
-			)
-			h.messageDelay.Record(r.Context, delay, metric.WithAttributes(
-				attrs...,
-			))
-		}
-	}
+	delay := time.Since(r.Timestamp).Seconds()
+	span.SetAttributes(
+		attribute.Float64(msgDelayKey, delay),
+	)
+	h.messageDelay.Record(r.Context, delay, metric.WithAttributes(
+		attrs...,
+	))
 }
 
 func attributesFromRecord(r *kgo.Record) []attribute.KeyValue {
@@ -155,7 +143,7 @@ func attributesFromRecord(r *kgo.Record) []attribute.KeyValue {
 		semconv.MessagingKafkaDestinationPartition(int(r.Partition)),
 	)
 	for _, v := range r.Headers {
-		if v.Key == "traceparent" || v.Key == apmqueue.EventTimeKey { // Ignore traceparent and event time headers.
+		if v.Key == "traceparent" { // Ignore traceparent.
 			continue
 		}
 		attrs = append(attrs, attribute.String(v.Key, string(v.Value)))

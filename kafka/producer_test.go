@@ -123,7 +123,6 @@ func TestNewProducerBasic(t *testing.T) {
 				{Topic: topic, Value: []byte("2")},
 			}
 			spanCount := len(exp.GetSpans())
-			now := time.Now().Format(time.RFC3339)
 			if !sync {
 				// Cancel the context before calling Produce
 				ctxCancelled, cancelProduce := context.WithCancel(ctx)
@@ -155,7 +154,6 @@ func TestNewProducerBasic(t *testing.T) {
 				assert.Equal(t, []kgo.RecordHeader{
 					{Key: "a", Value: []byte("b")},
 					{Key: "c", Value: []byte("d")},
-					{Key: apmqueue.EventTimeKey, Value: []byte(now)},
 				}, record.Headers)
 			}
 
