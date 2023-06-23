@@ -36,8 +36,6 @@ import (
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
 	"google.golang.org/protobuf/types/known/timestamppb"
-
-	apmqueue "github.com/elastic/apm-queue"
 )
 
 // ManagerConfig holds configuration for managing GCP Pub/Sub Lite resources.
@@ -257,7 +255,7 @@ func (m *Manager) DeleteSubscription(ctx context.Context, subscription string) e
 
 // MonitorConsumerLag registers a callback with OpenTelemetry
 // to measure consumer group lag for the given topics.
-func (m *Manager) MonitorConsumerLag(topics ...apmqueue.Topic) (metric.Registration, error) {
+func (m *Manager) MonitorConsumerLag(topics ...string) (metric.Registration, error) {
 	monitoringClient, err := monitoring.NewMetricClient(context.Background(), m.cfg.MonitoringClientOptions...)
 	if err != nil {
 		return nil, fmt.Errorf("pubsublite: failed creating monitoring client: %w", err)

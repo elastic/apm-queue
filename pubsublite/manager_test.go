@@ -53,8 +53,6 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
-
-	apmqueue "github.com/elastic/apm-queue"
 )
 
 func TestNewManager(t *testing.T) {
@@ -428,8 +426,6 @@ func newTestAdminService(t testing.TB) (*adminServiceServer, CommonConfig) {
 
 	go s.Serve(lis)
 
-	_, monitoringClientOpts := newTestMetricService(t)
-
 	return server, CommonConfig{
 		Project: "project",
 		Region:  "region-1",
@@ -441,7 +437,6 @@ func newTestAdminService(t testing.TB) (*adminServiceServer, CommonConfig) {
 			option.WithEndpoint(lis.Addr().String()),
 			option.WithoutAuthentication(),
 		},
-		MonitoringClientOptions: monitoringClientOpts,
 	}
 }
 
@@ -591,9 +586,12 @@ func newTestMetricService(t testing.TB) (*metricServiceServer, []option.ClientOp
 
 type metricServiceServer struct {
 	monitoringpb.UnimplementedMetricServiceServer
+
+	TimeSeriesFilter string
 }
 
-func (s *metricServiceServer) ListTimeSeries(context.Context, *monitoringpb.ListTimeSeriesRequest) (*monitoringpb.ListTimeSeriesResponse, error) {
+func (s *metricServiceServer) ListTimeSeries(ctx context.Context, req *monitoringpb.ListTimeSeriesRequest) (*monitoringpb.ListTimeSeriesResponse, error) {
+	s.TimeSeriesFilter = req.Filter
 	return &monitoringpb.ListTimeSeriesResponse{
 		TimeSeries: []*monitoringpb.TimeSeries{
 			{
@@ -641,13 +639,18 @@ func TestManagerMetrics(t *testing.T) {
 	defer mp.Shutdown(context.Background())
 
 	_, commonConfig := newTestAdminService(t)
+	testMetricService, monitoringClientOpts := newTestMetricService(t)
+
 	core, _ := observer.New(zapcore.DebugLevel)
 	commonConfig.Logger = zap.New(core)
 	commonConfig.TracerProvider = tp
 	commonConfig.MeterProvider = mp
-	m, err := NewManager(ManagerConfig{CommonConfig: commonConfig, MonitorTopics: []apmqueue.Topic{"topic1"}})
+	m, err := NewManager(ManagerConfig{CommonConfig: commonConfig, MonitoringClientOptions: monitoringClientOpts})
 	require.NoError(t, err)
 	t.Cleanup(func() { m.Close() })
+
+	_, err = m.MonitorConsumerLag("topic1", "topic2")
+	require.NoError(t, err)
 
 	rm := metricdata.ResourceMetrics{}
 	err = reader.Collect(context.Background(), &rm)
@@ -681,4 +684,7 @@ func TestManagerMetrics(t *testing.T) {
 			},
 		},
 	}, metrics[0].Data, metricdatatest.IgnoreTimestamp())
+
+	assert.Contains(t, testMetricService.TimeSeriesFilter, "resource.labels.subscription_id = starts_with(\"topic1+\")")
+	assert.Contains(t, testMetricService.TimeSeriesFilter, "resource.labels.subscription_id = starts_with(\"topic2+\")")
 }
