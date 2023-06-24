@@ -81,6 +81,9 @@ type Producer interface {
 type Record struct {
 	// Topics holds the topic where the record will be produced.
 	Topic Topic
+	// OrderingKey is an optional field that is hashed to map to a partition.
+	// Records with same ordering key are routed to the same partition.
+	OrderingKey []byte
 	// Value holds the record's content. It must not be mutated after Produce.
 	Value []byte
 }

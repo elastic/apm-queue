@@ -18,6 +18,7 @@
 package kafka
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"sort"
@@ -27,6 +28,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/twmb/franz-go/pkg/kadm"
@@ -103,7 +106,8 @@ func TestNewProducerBasic(t *testing.T) {
 	test := func(t *testing.T, sync bool) {
 		t.Run(fmt.Sprintf("sync_%t", sync), func(t *testing.T) {
 			topic := apmqueue.Topic("default-topic")
-			client, brokers := newClusterWithTopics(t, 1, topic)
+			partitionCount := 10
+			client, brokers := newClusterWithTopics(t, int32(partitionCount), topic)
 			producer, err := NewProducer(ProducerConfig{
 				CommonConfig: CommonConfig{
 					Brokers:        brokers,
@@ -119,8 +123,14 @@ func TestNewProducerBasic(t *testing.T) {
 
 			ctx = queuecontext.WithMetadata(ctx, map[string]string{"a": "b", "c": "d"})
 			batch := []apmqueue.Record{
-				{Topic: topic, Value: []byte("1")},
-				{Topic: topic, Value: []byte("2")},
+				{Topic: topic, OrderingKey: nil, Value: []byte("1")},
+				{Topic: topic, OrderingKey: nil, Value: []byte("2")},
+				{Topic: topic, OrderingKey: []byte("key_2"), Value: []byte("3")},
+				{Topic: topic, OrderingKey: []byte("key_3"), Value: []byte("4")},
+				{Topic: topic, OrderingKey: []byte("key_1"), Value: []byte("5")},
+				{Topic: topic, OrderingKey: []byte("key_3"), Value: []byte("6")},
+				{Topic: topic, OrderingKey: []byte("key_1"), Value: []byte("7")},
+				{Topic: topic, OrderingKey: []byte("key_2"), Value: []byte("8")},
 			}
 			spanCount := len(exp.GetSpans())
 			now := time.Now().Format(time.RFC3339)
@@ -133,21 +143,36 @@ func TestNewProducerBasic(t *testing.T) {
 				producer.Produce(ctx, batch...)
 			}
 
+			var actual []apmqueue.Record
+			orderingKeyToPartitionM := make(map[string]int32)
 			client.AddConsumeTopics(string(topic))
-			for i := 0; i < len(batch); i++ {
+			for i := 0; i < len(batch)*partitionCount && len(actual) < len(batch); i++ {
 				fetches := client.PollRecords(ctx, 1)
 				require.NoError(t, fetches.Err())
 
-				// Assert contents.
-				assert.Equal(t,
-					apmqueue.Record{Topic: topic, Value: []byte(fmt.Sprint(i + 1))},
-					batch[i],
-				)
-
 				// Assert length.
 				records := fetches.Records()
-				assert.Len(t, records, 1)
+				if len(records) == 0 {
+					continue
+				}
+				require.Len(t, records, 1)
 				record := records[0]
+
+				actual = append(actual, apmqueue.Record{
+					Topic:       apmqueue.Topic(record.Topic),
+					OrderingKey: record.Key,
+					Value:       record.Value,
+				})
+				if record.Key != nil {
+					// Assert that specific ordering key maps to same partition.
+					// If ordering key is unexpectedly nil then it will be caught
+					// in the assertion with expected batch of apmqueue.Record.
+					if p, ok := orderingKeyToPartitionM[string(record.Key)]; ok {
+						assert.Equal(t, p, record.Partition, "each ordering key must map to same partition")
+					} else {
+						orderingKeyToPartitionM[string(record.Key)] = record.Partition
+					}
+				}
 				// Sort headers and assert their existence.
 				sort.Slice(record.Headers, func(i, j int) bool {
 					return record.Headers[i].Key < record.Headers[j].Key
@@ -158,6 +183,12 @@ func TestNewProducerBasic(t *testing.T) {
 					{Key: apmqueue.EventTimeKey, Value: []byte(now)},
 				}, record.Headers)
 			}
+			assert.Empty(t, cmp.Diff(
+				actual, batch,
+				cmpopts.SortSlices(func(a, b apmqueue.Record) bool {
+					return bytes.Compare(a.Value, b.Value) < 0
+				}),
+			))
 
 			// Assert no more records have been produced. A nil context is used to
 			// cause PollRecords to return immediately.
@@ -167,7 +198,7 @@ func TestNewProducerBasic(t *testing.T) {
 
 			// Assert tracing happened properly
 			assert.Eventually(t, func() bool {
-				return len(exp.GetSpans()) == spanCount+3
+				return len(exp.GetSpans()) == spanCount+len(batch)+1
 			}, time.Second, 10*time.Millisecond)
 
 			var span tracetest.SpanStub
@@ -180,7 +211,7 @@ func TestNewProducerBasic(t *testing.T) {
 			assert.Equal(t, "producer.Produce", span.Name)
 			assert.Equal(t, []attribute.KeyValue{
 				attribute.Bool("sync", sync),
-				attribute.Int("record.count", 2),
+				attribute.Int("record.count", len(batch)),
 			}, span.Attributes)
 
 			exp.Reset()
@@ -236,7 +267,7 @@ func TestProducerGracefulShutdown(t *testing.T) {
 		go func() { consumer.Run(ctx) }()
 		assert.Eventually(t, func() bool {
 			return processed.Load() == 1
-		}, 6*time.Second, time.Millisecond, processed)
+		}, 6*time.Second, time.Millisecond, "must process 1 event")
 	}
 
 	// use a variable for readability

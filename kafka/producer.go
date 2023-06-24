@@ -204,6 +204,7 @@ func (p *Producer) Produce(ctx context.Context, rs ...apmqueue.Record) error {
 		kgoRecord := &kgo.Record{
 			Headers: headers,
 			Topic:   string(record.Topic),
+			Key:     record.OrderingKey,
 			Value:   record.Value,
 		}
 		p.client.Produce(ctx, kgoRecord, func(r *kgo.Record, err error) {
