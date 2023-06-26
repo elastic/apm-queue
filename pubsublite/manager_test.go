@@ -67,7 +67,8 @@ func TestNewManager(t *testing.T) {
 	}, "\n"))
 
 	_, commonConfig := newTestAdminService(t)
-	manager, err := NewManager(ManagerConfig{CommonConfig: commonConfig})
+	_, monitoringClientOpts := newTestMetricService(t)
+	manager, err := NewManager(ManagerConfig{CommonConfig: commonConfig, MonitoringClientOptions: monitoringClientOpts})
 	require.NoError(t, err)
 	require.NotNil(t, manager)
 	require.NoError(t, manager.Close())
