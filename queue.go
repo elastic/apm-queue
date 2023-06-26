@@ -103,3 +103,8 @@ func (f ProcessorFunc) Process(ctx context.Context, rs ...Record) error {
 
 // Topic represents a destination topic where to produce a message/record.
 type Topic string
+
+type TopicConsumer struct {
+	Topic    Topic
+	Consumer string
+}

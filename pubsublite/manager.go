@@ -21,6 +21,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	apmqueue "github.com/elastic/apm-queue"
 	"path"
 	"strconv"
 	"strings"
@@ -262,7 +263,7 @@ func (m *Manager) DeleteSubscription(ctx context.Context, subscription string) e
 
 // MonitorConsumerLag registers a callback with OpenTelemetry
 // to measure consumer group lag for the given topics.
-func (m *Manager) MonitorConsumerLag(topics ...string) (metric.Registration, error) {
+func (m *Manager) MonitorConsumerLag(topicConsumers []apmqueue.TopicConsumer) (metric.Registration, error) {
 	mp := m.cfg.meterProvider()
 	meter := mp.Meter("github.com/elastic/apm-queue/pubsublite")
 	consumerGroupLagMetric, err := meter.Int64ObservableGauge("consumer_group_lag")
@@ -270,14 +271,14 @@ func (m *Manager) MonitorConsumerLag(topics ...string) (metric.Registration, err
 		return nil, fmt.Errorf("pubsublite: failed to create consumer_group_lag metric: %w", err)
 	}
 
-	topicFilters := make([]string, len(topics))
-	for i, topic := range topics {
-		// Append + to topic so that it matches subscription id in expected format
-		topicFilters[i] = fmt.Sprintf("resource.labels.subscription_id = starts_with(\"%s+\")", topic)
+	subscriptionIDFilters := make([]string, len(topicConsumers))
+	for i, tc := range topicConsumers {
+		subscriptionIDFilters[i] = fmt.Sprintf("resource.labels.subscription_id = \"%s\"",
+			JoinTopicConsumer(tc.Topic, tc.Consumer))
 	}
 
 	filter := "metric.type = \"pubsublite.googleapis.com/subscription/backlog_message_count\""
-	filter += fmt.Sprintf(" AND (%s)", strings.Join(topicFilters, " OR "))
+	filter += fmt.Sprintf(" AND (%s)", strings.Join(subscriptionIDFilters, " OR "))
 
 	gatherMetrics := func(ctx context.Context, o metric.Observer) error {
 		it := m.monitoringClient.ListTimeSeries(ctx, &monitoringpb.ListTimeSeriesRequest{

@@ -19,6 +19,7 @@ package pubsublite
 
 import (
 	"context"
+	apmqueue "github.com/elastic/apm-queue"
 	"net"
 	"os"
 	"path/filepath"
@@ -649,7 +650,16 @@ func TestManagerMetrics(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { m.Close() })
 
-	_, err = m.MonitorConsumerLag("topic1", "topic2")
+	_, err = m.MonitorConsumerLag([]apmqueue.TopicConsumer{
+		{
+			Topic:    "topic1",
+			Consumer: "consumer1",
+		},
+		{
+			Topic:    "topic2",
+			Consumer: "consumer1",
+		},
+	})
 	require.NoError(t, err)
 
 	rm := metricdata.ResourceMetrics{}
@@ -685,6 +695,6 @@ func TestManagerMetrics(t *testing.T) {
 		},
 	}, metrics[0].Data, metricdatatest.IgnoreTimestamp())
 
-	assert.Contains(t, testMetricService.TimeSeriesFilter, "resource.labels.subscription_id = starts_with(\"topic1+\")")
-	assert.Contains(t, testMetricService.TimeSeriesFilter, "resource.labels.subscription_id = starts_with(\"topic2+\")")
+	assert.Contains(t, testMetricService.TimeSeriesFilter, "resource.labels.subscription_id = \"topic1+consumer1\"")
+	assert.Contains(t, testMetricService.TimeSeriesFilter, "resource.labels.subscription_id = \"topic2+consumer1\"")
 }
