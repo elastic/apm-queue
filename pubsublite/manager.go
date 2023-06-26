@@ -319,6 +319,8 @@ func (m *Manager) MonitorConsumerLag(topics ...string) (metric.Registration, err
 				)
 				continue
 			}
+			// Report the most recent value. Points are returned most recent first.
+			// See https://cloud.google.com/monitoring/api/ref_v3/rest/v3/TimeSeries
 			lag := points[0].Value.GetInt64Value()
 
 			topic, consumer, err := SplitTopicConsumer(subscriptionID)
