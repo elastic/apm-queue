@@ -39,7 +39,8 @@ import (
 
 func TestManagerNewTopicCreator(t *testing.T) {
 	_, commonConfig := newTestAdminService(t)
-	manager, err := NewManager(ManagerConfig{CommonConfig: commonConfig})
+	_, monitoringClientOpts := newTestMetricService(t)
+	manager, err := NewManager(ManagerConfig{CommonConfig: commonConfig, MonitoringClientOptions: monitoringClientOpts})
 	require.NoError(t, err)
 	defer manager.Close()
 
@@ -70,7 +71,8 @@ func TestTopicCreatorCreateTopics(t *testing.T) {
 	server, commonConfig := newTestAdminService(t)
 	core, observedLogs := observer.New(zapcore.DebugLevel)
 	commonConfig.Logger = zap.New(core)
-	manager, err := NewManager(ManagerConfig{CommonConfig: commonConfig})
+	_, monitoringClientOpts := newTestMetricService(t)
+	manager, err := NewManager(ManagerConfig{CommonConfig: commonConfig, MonitoringClientOptions: monitoringClientOpts})
 	require.NoError(t, err)
 	defer manager.Close()
 

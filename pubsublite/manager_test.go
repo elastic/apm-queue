@@ -107,7 +107,8 @@ func TestManagerCreateReservation(t *testing.T) {
 	server, commonConfig := newTestAdminService(t)
 	core, observedLogs := observer.New(zapcore.DebugLevel)
 	commonConfig.Logger = zap.New(core)
-	m, err := NewManager(ManagerConfig{CommonConfig: commonConfig})
+	_, monitoringClientOpts := newTestMetricService(t)
+	m, err := NewManager(ManagerConfig{CommonConfig: commonConfig, MonitoringClientOptions: monitoringClientOpts})
 	require.NoError(t, err)
 	defer m.Close()
 
@@ -159,7 +160,8 @@ func TestManagerCreateSubscription(t *testing.T) {
 	server, commonConfig := newTestAdminService(t)
 	core, observedLogs := observer.New(zapcore.DebugLevel)
 	commonConfig.Logger = zap.New(core)
-	m, err := NewManager(ManagerConfig{CommonConfig: commonConfig})
+	_, monitoringClientOpts := newTestMetricService(t)
+	m, err := NewManager(ManagerConfig{CommonConfig: commonConfig, MonitoringClientOptions: monitoringClientOpts})
 	require.NoError(t, err)
 	defer m.Close()
 
@@ -215,7 +217,8 @@ func TestManagerDeleteReservation(t *testing.T) {
 	server, commonConfig := newTestAdminService(t)
 	core, observedLogs := observer.New(zapcore.DebugLevel)
 	commonConfig.Logger = zap.New(core)
-	m, err := NewManager(ManagerConfig{CommonConfig: commonConfig})
+	_, monitoringClientOpts := newTestMetricService(t)
+	m, err := NewManager(ManagerConfig{CommonConfig: commonConfig, MonitoringClientOptions: monitoringClientOpts})
 	require.NoError(t, err)
 	defer m.Close()
 
@@ -264,7 +267,8 @@ func TestManagerDeleteTopic(t *testing.T) {
 	server, commonConfig := newTestAdminService(t)
 	core, observedLogs := observer.New(zapcore.DebugLevel)
 	commonConfig.Logger = zap.New(core)
-	m, err := NewManager(ManagerConfig{CommonConfig: commonConfig})
+	_, monitoringClientOpts := newTestMetricService(t)
+	m, err := NewManager(ManagerConfig{CommonConfig: commonConfig, MonitoringClientOptions: monitoringClientOpts})
 	require.NoError(t, err)
 	defer m.Close()
 
@@ -313,7 +317,8 @@ func TestManagerDeleteSubscription(t *testing.T) {
 	server, commonConfig := newTestAdminService(t)
 	core, observedLogs := observer.New(zapcore.DebugLevel)
 	commonConfig.Logger = zap.New(core)
-	m, err := NewManager(ManagerConfig{CommonConfig: commonConfig})
+	_, monitoringClientOpts := newTestMetricService(t)
+	m, err := NewManager(ManagerConfig{CommonConfig: commonConfig, MonitoringClientOptions: monitoringClientOpts})
 	require.NoError(t, err)
 	defer m.Close()
 
@@ -360,7 +365,8 @@ func TestManagerDeleteSubscription(t *testing.T) {
 
 func TestManagerListReservations(t *testing.T) {
 	server, commonConfig := newTestAdminService(t)
-	m, err := NewManager(ManagerConfig{CommonConfig: commonConfig})
+	_, monitoringClientOpts := newTestMetricService(t)
+	m, err := NewManager(ManagerConfig{CommonConfig: commonConfig, MonitoringClientOptions: monitoringClientOpts})
 	require.NoError(t, err)
 	defer m.Close()
 
@@ -376,7 +382,8 @@ func TestManagerListReservations(t *testing.T) {
 
 func TestManagerListReservationTopics(t *testing.T) {
 	server, commonConfig := newTestAdminService(t)
-	m, err := NewManager(ManagerConfig{CommonConfig: commonConfig})
+	_, monitoringClientOpts := newTestMetricService(t)
+	m, err := NewManager(ManagerConfig{CommonConfig: commonConfig, MonitoringClientOptions: monitoringClientOpts})
 	require.NoError(t, err)
 	defer m.Close()
 
@@ -398,7 +405,8 @@ func TestManagerListReservationTopics(t *testing.T) {
 
 func TestManagerListTopicSubscriptions(t *testing.T) {
 	server, commonConfig := newTestAdminService(t)
-	m, err := NewManager(ManagerConfig{CommonConfig: commonConfig})
+	_, monitoringClientOpts := newTestMetricService(t)
+	m, err := NewManager(ManagerConfig{CommonConfig: commonConfig, MonitoringClientOptions: monitoringClientOpts})
 	require.NoError(t, err)
 	defer m.Close()
 
