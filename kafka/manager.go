@@ -137,10 +137,10 @@ func (m *Manager) Healthy(ctx context.Context) error {
 
 // MonitorConsumerLag registers a callback with OpenTelemetry
 // to measure consumer group lag for the given topics.
-func (m *Manager) MonitorConsumerLag(topics ...apmqueue.Topic) (metric.Registration, error) {
-	monitorTopics := make(map[string]struct{}, len(topics))
-	for _, t := range topics {
-		monitorTopics[string(t)] = struct{}{}
+func (m *Manager) MonitorConsumerLag(topicConsumers []apmqueue.TopicConsumer) (metric.Registration, error) {
+	monitorTopicConsumers := make(map[apmqueue.TopicConsumer]struct{}, len(topicConsumers))
+	for _, tc := range topicConsumers {
+		monitorTopicConsumers[tc] = struct{}{}
 	}
 
 	mp := m.cfg.meterProvider()
@@ -196,7 +196,10 @@ func (m *Manager) MonitorConsumerLag(topics ...apmqueue.Topic) (metric.Registrat
 			}
 			groupLag := kadm.CalculateGroupLag(group, commits[group.Group].Fetched, endOffsets)
 			for topic, partitions := range groupLag {
-				if _, ok := monitorTopics[topic]; !ok {
+				if _, ok := monitorTopicConsumers[apmqueue.TopicConsumer{
+					Topic:    apmqueue.Topic(topic),
+					Consumer: group.Group,
+				}]; !ok {
 					// Ignore unmonitored topics.
 					continue
 				}

@@ -20,6 +20,7 @@ package kafka
 import (
 	"context"
 	"errors"
+	apmqueue "github.com/elastic/apm-queue"
 	"sort"
 	"strings"
 	"testing"
@@ -149,7 +150,20 @@ func TestManagerMetrics(t *testing.T) {
 	commonConfig.MeterProvider = mp
 	m, err := NewManager(ManagerConfig{CommonConfig: commonConfig})
 	require.NoError(t, err)
-	m.MonitorConsumerLag("topic1", "topic2")
+	m.MonitorConsumerLag([]apmqueue.TopicConsumer{
+		{
+			Topic:    "topic1",
+			Consumer: "consumer1",
+		},
+		{
+			Topic:    "topic1",
+			Consumer: "consumer2",
+		},
+		{
+			Topic:    "topic2",
+			Consumer: "consumer2",
+		},
+	})
 	t.Cleanup(func() { m.Close() })
 
 	var listGroupsRequest *kmsg.ListGroupsRequest
