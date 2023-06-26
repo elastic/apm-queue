@@ -217,7 +217,6 @@ func TestConsumerMetrics(t *testing.T) {
 			Headers: []kgo.RecordHeader{
 				{Key: "header", Value: []byte("included")},
 				{Key: "traceparent", Value: []byte("excluded")},
-				{Key: "timestamp", Value: []byte(time.Now().Format(time.RFC3339))},
 			},
 		})
 	}

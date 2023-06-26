@@ -38,10 +38,6 @@ const (
 	// processed. It may or may not create duplicates, depending on how batches
 	// are processed by the underlying Processor.
 	AtLeastOnceDeliveryType
-
-	// EventTimeKey is a header added to every record which stores the time at
-	// which the event was produced, in RFC3339 format.
-	EventTimeKey = "timestamp"
 )
 
 // DeliveryType for the consumer. For more details See the supported DeliveryTypes.
