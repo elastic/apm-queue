@@ -57,8 +57,9 @@ func (cfg ManagerConfig) Validate() error {
 
 // Manager manages GCP Pub/Sub topics.
 type Manager struct {
-	cfg    ManagerConfig
-	client *pubsublite.AdminClient
+	cfg              ManagerConfig
+	client           *pubsublite.AdminClient
+	monitoringClient *monitoring.MetricClient
 }
 
 // NewManager returns a new Manager with the given config.
@@ -75,12 +76,18 @@ func NewManager(cfg ManagerConfig) (*Manager, error) {
 	if err != nil {
 		return nil, fmt.Errorf("pubsublite: failed creating admin client: %w", err)
 	}
-	return &Manager{cfg: cfg, client: client}, nil
+
+	monitoringClient, err := monitoring.NewMetricClient(context.Background(), cfg.MonitoringClientOptions...)
+	if err != nil {
+		return nil, fmt.Errorf("pubsublite: failed creating monitoring client: %w", err)
+	}
+
+	return &Manager{cfg: cfg, client: client, monitoringClient: monitoringClient}, nil
 }
 
 // Close closes the manager's resources.
 func (m *Manager) Close() error {
-	return m.client.Close()
+	return errors.Join(m.client.Close(), m.monitoringClient.Close())
 }
 
 // ListReservations lists reservations in the configured project and region.
@@ -256,11 +263,6 @@ func (m *Manager) DeleteSubscription(ctx context.Context, subscription string) e
 // MonitorConsumerLag registers a callback with OpenTelemetry
 // to measure consumer group lag for the given topics.
 func (m *Manager) MonitorConsumerLag(topics ...string) (metric.Registration, error) {
-	monitoringClient, err := monitoring.NewMetricClient(context.Background(), m.cfg.MonitoringClientOptions...)
-	if err != nil {
-		return nil, fmt.Errorf("pubsublite: failed creating monitoring client: %w", err)
-	}
-
 	mp := m.cfg.meterProvider()
 	meter := mp.Meter("github.com/elastic/apm-queue/pubsublite")
 	consumerGroupLagMetric, err := meter.Int64ObservableGauge("consumer_group_lag")
@@ -278,7 +280,7 @@ func (m *Manager) MonitorConsumerLag(topics ...string) (metric.Registration, err
 	filter += fmt.Sprintf(" AND (%s)", strings.Join(topicFilters, " OR "))
 
 	gatherMetrics := func(ctx context.Context, o metric.Observer) error {
-		it := monitoringClient.ListTimeSeries(ctx, &monitoringpb.ListTimeSeriesRequest{
+		it := m.monitoringClient.ListTimeSeries(ctx, &monitoringpb.ListTimeSeriesRequest{
 			Name:   fmt.Sprintf("projects/%s", m.cfg.Project),
 			Filter: filter,
 			Interval: &monitoringpb.TimeInterval{
