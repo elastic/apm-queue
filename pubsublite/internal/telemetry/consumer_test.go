@@ -26,8 +26,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	apmqueue "github.com/elastic/apm-queue"
-
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/propagation"
@@ -76,6 +74,7 @@ func TestConsumer(t *testing.T) {
 						semconv.MessagingOperationProcess,
 						semconv.MessagingMessageIDKey.String(""),
 						semconv.MessageUncompressedSize(0),
+						attribute.Float64("consumer.messages.delay", 1.0),
 					},
 					InstrumentationLibrary: instrumentation.Library{
 						Name: "test",
@@ -103,6 +102,7 @@ func TestConsumer(t *testing.T) {
 						attribute.String("hello", "world"),
 						semconv.MessagingMessageIDKey.String(""),
 						semconv.MessageUncompressedSize(0),
+						attribute.Float64("consumer.messages.delay", 1.0),
 					},
 					InstrumentationLibrary: instrumentation.Library{
 						Name: "test",
@@ -126,6 +126,26 @@ func TestConsumer(t *testing.T) {
 								semconv.MessagingOperationProcess,
 								attribute.String("hello", "world"),
 							),
+						}},
+					},
+				},
+				{
+					Name:        "consumer.messages.delay",
+					Description: "The delay between producing messages and reading them",
+					Unit:        "s",
+					Data: metricdata.Histogram[float64]{
+						Temporality: metricdata.CumulativeTemporality,
+						DataPoints: []metricdata.HistogramDataPoint[float64]{{
+							Attributes: attribute.NewSet(
+								attribute.String("project", "project_name"),
+								semconv.MessagingSystemKey.String("pubsublite"),
+								semconv.MessagingSourceKindTopic,
+								semconv.MessagingOperationProcess,
+								attribute.String("hello", "world"),
+							),
+
+							Bounds: []float64{0, 5, 10, 25, 50, 75, 100, 250, 500, 750, 1000, 2500, 5000, 7500, 10000},
+							Count:  uint64(1),
 						}},
 					},
 				},
@@ -154,6 +174,7 @@ func TestConsumer(t *testing.T) {
 						semconv.MessagingOperationProcess,
 						semconv.MessagingMessageIDKey.String(""),
 						semconv.MessageUncompressedSize(0),
+						attribute.Float64("consumer.messages.delay", 1.0),
 					},
 					InstrumentationLibrary: instrumentation.Library{
 						Name: "test",
@@ -178,13 +199,29 @@ func TestConsumer(t *testing.T) {
 						}},
 					},
 				},
+				{
+					Name:        "consumer.messages.delay",
+					Description: "The delay between producing messages and reading them",
+					Unit:        "s",
+					Data: metricdata.Histogram[float64]{
+						Temporality: metricdata.CumulativeTemporality,
+						DataPoints: []metricdata.HistogramDataPoint[float64]{{
+							Attributes: attribute.NewSet(
+								semconv.MessagingSystemKey.String("pubsublite"),
+								semconv.MessagingSourceKindTopic,
+								semconv.MessagingOperationProcess,
+							),
+
+							Bounds: []float64{0, 5, 10, 25, 50, 75, 100, 250, 500, 750, 1000, 2500, 5000, 7500, 10000},
+							Count:  uint64(1),
+						}},
+					},
+				},
 			},
 		},
 		{
 			name: "with an event time attribute",
-			msg: &pubsub.Message{Attributes: map[string]string{
-				apmqueue.EventTimeKey: time.Now().Format(time.RFC3339),
-			}},
+			msg:  &pubsub.Message{Attributes: map[string]string{}},
 			attributes: []attribute.KeyValue{
 				attribute.String("project", "project_name"),
 			},
@@ -199,7 +236,7 @@ func TestConsumer(t *testing.T) {
 						semconv.MessagingOperationProcess,
 						semconv.MessagingMessageIDKey.String(""),
 						semconv.MessageUncompressedSize(0),
-						attribute.Float64("timestamp", 1.0),
+						attribute.Float64("consumer.messages.delay", 1.0),
 					},
 					InstrumentationLibrary: instrumentation.Library{
 						Name: "test",
@@ -348,6 +385,7 @@ func TestConsumerMultipleEvents(t *testing.T) {
 				attribute.String("a", "b"),
 				semconv.MessagingMessageIDKey.String("1"),
 				semconv.MessageUncompressedSize(1),
+				attribute.Float64("consumer.messages.delay", 1),
 			},
 			InstrumentationLibrary: instrumentation.Library{Name: "test"},
 		},
@@ -362,6 +400,7 @@ func TestConsumerMultipleEvents(t *testing.T) {
 				attribute.String("c", "d"),
 				semconv.MessagingMessageIDKey.String("2"),
 				semconv.MessageUncompressedSize(1),
+				attribute.Float64("consumer.messages.delay", 1),
 			},
 			InstrumentationLibrary: instrumentation.Library{Name: "test"},
 		},
@@ -376,6 +415,7 @@ func TestConsumerMultipleEvents(t *testing.T) {
 				attribute.String("e", "f"),
 				semconv.MessagingMessageIDKey.String("3"),
 				semconv.MessageUncompressedSize(1),
+				attribute.Float64("consumer.messages.delay", 1),
 			},
 			InstrumentationLibrary: instrumentation.Library{Name: "test"},
 		},
@@ -400,8 +440,8 @@ func assertSpans(t testing.TB, traceID [16]byte, expected, actual tracetest.Span
 		actual[i].EndTime = time.Time{}
 
 		for j, v := range actual[i].Attributes {
-			if v.Key == apmqueue.EventTimeKey {
-				actual[i].Attributes[j].Value = attribute.Float64Value(1.0)
+			if v.Key == "consumer.messages.delay" {
+				actual[i].Attributes[j].Value = attribute.Float64Value(1)
 			}
 		}
 	}
