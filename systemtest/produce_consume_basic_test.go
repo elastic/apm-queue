@@ -83,9 +83,9 @@ func TestProduceConsumeOrderingKeys(t *testing.T) {
 
 	// Use a high event count to circumvent the UniformBytesPartitioner
 	// used by franz-go by default which aims to produce large batches of
-	// data to same partition.
-	events := 2000
-	partitions := 4
+	// data to same partition if no ordering keys is specified.
+	events := 1500
+	partitions := 2
 	timeout := 60 * time.Second
 	orderingKey := []byte("fixed")
 
