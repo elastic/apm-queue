@@ -80,7 +80,12 @@ func TestProduceConsumeMultipleTopics(t *testing.T) {
 func TestProduceConsumeOrderingKeys(t *testing.T) {
 	// The test asserts that messages are consumed in sequence given that
 	// they are produced with a specific ordering key.
-	events := 50
+
+	// Use a high event count to circumvent the UniformBytesPartitioner
+	// used by franz-go by default which aims to produce large batches of
+	// data to same partition.
+	events := 2000
+	partitions := 4
 	timeout := 60 * time.Second
 	orderingKey := []byte("fixed")
 
@@ -104,13 +109,13 @@ func TestProduceConsumeOrderingKeys(t *testing.T) {
 				withTopicsGenerator(func(t testing.TB) []apmqueue.Topic {
 					return topics
 				}),
+				withPartitions(partitions),
 			)
 
 			ctx, cancel := context.WithTimeout(context.Background(), timeout)
 			defer cancel()
 			events := map[apmqueue.Topic]int{
 				topics[0]: events,
-				topics[1]: events,
 			}
 			var expectedCount int
 			for _, c := range events {
@@ -188,9 +193,12 @@ func assertProcessor(t testing.TB, assertions consumerAssertions) apmqueue.Proce
 	})
 }
 
+// sequenceConsumerAssertions asserts that records are consumed in sequence
+// assuming that all records are sent to same partitions. If records are
+// not sent to same partition then it will result in failures.
 type sequenceConsumerAssertions struct {
 	consumerAssertions
-	lastSeen int
+	lastSeen atomic.Int32
 }
 
 func sequenceConsumerAssertionProcessor(
@@ -200,9 +208,11 @@ func sequenceConsumerAssertionProcessor(
 ) apmqueue.Processor {
 	return apmqueue.ProcessorFunc(func(_ context.Context, r ...apmqueue.Record) error {
 		for _, record := range r {
-			if assert.Equal(t, assertions.lastSeen+1, sequenceExtractor(record)) {
-				assertions.lastSeen++
-			}
+			seq := sequenceExtractor(record)
+			assert.True(
+				t, assertions.lastSeen.CompareAndSwap(int32(seq), int32(seq+1)),
+				"all records should be sent to same partition and consumed in sequence",
+			)
 		}
 		assert.Greater(t, len(r), 0)
 		assertions.records.Add(int64(len(r)))

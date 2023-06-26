@@ -144,8 +144,8 @@ func DestroyKafka(ctx context.Context) error {
 // CreateKafkaTopics interacts with the Kafka broker to create topics,
 // deleting them when the test completes.
 //
-// Topics are created with 1 partition and 1 hour of retention.
-func CreateKafkaTopics(ctx context.Context, t testing.TB, topics ...apmqueue.Topic) {
+// Topics are created with given partitions and 1 hour of retention.
+func CreateKafkaTopics(ctx context.Context, t testing.TB, partitions int, topics ...apmqueue.Topic) {
 	manager, err := NewKafkaManager(t)
 	require.NoError(t, err)
 	t.Cleanup(func() {
@@ -153,7 +153,7 @@ func CreateKafkaTopics(ctx context.Context, t testing.TB, topics ...apmqueue.Top
 	})
 
 	topicCreator, err := manager.NewTopicCreator(kafka.TopicCreatorConfig{
-		PartitionCount: 1,
+		PartitionCount: partitions,
 		TopicConfigs: map[string]string{
 			"retention.ms": strconv.FormatInt(time.Hour.Milliseconds(), 10),
 		},

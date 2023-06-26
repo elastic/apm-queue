@@ -38,6 +38,7 @@ type config struct {
 	maxPollRecords int
 	loggerF        func(testing.TB) *zap.Logger
 	topicsF        func(testing.TB) []apmqueue.Topic
+	partitions     int
 }
 
 const (
@@ -54,6 +55,7 @@ var (
 			topics := SuffixTopics(apmqueue.Topic(t.Name()))
 			return topics
 		},
+		partitions: 1,
 	}
 )
 
@@ -105,7 +107,7 @@ func kafkaTypes(t testing.TB, opts ...option) (apmqueue.Producer, apmqueue.Consu
 
 	logger := cfg.loggerF(t)
 	topics := cfg.topicsF(t)
-	CreateKafkaTopics(ctx, t, topics...)
+	CreateKafkaTopics(ctx, t, cfg.partitions, topics...)
 
 	producer := newKafkaProducer(t, kafka.ProducerConfig{
 		CommonConfig: kafka.CommonConfig{Logger: logger.Named("producer")},
@@ -133,7 +135,7 @@ func pubSubTypes(t testing.TB, opts ...option) (apmqueue.Producer, apmqueue.Cons
 	logger := cfg.loggerF(t)
 	topics := cfg.topicsF(t)
 	consumerName := "test_consumer"
-	CreatePubsubTopics(ctx, t, topics...)
+	CreatePubsubTopics(ctx, t, cfg.partitions, topics...)
 	CreatePubsubTopicSubscriptions(ctx, t, consumerName, topics...)
 
 	producer := newPubSubLiteProducer(t, pubsublite.ProducerConfig{
@@ -185,5 +187,11 @@ func withTopic(topicsGenerator func(testing.TB) apmqueue.Topic) option {
 func withTopicsGenerator(topicsGenerator func(testing.TB) []apmqueue.Topic) option {
 	return func(c *config) {
 		c.topicsF = topicsGenerator
+	}
+}
+
+func withPartitions(count int) option {
+	return func(c *config) {
+		c.partitions = count
 	}
 }

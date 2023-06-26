@@ -464,7 +464,11 @@ func (pc partitionConsumer) consume(ctx context.Context, topic string, partition
 				meta[h.Key] = string(h.Value)
 			}
 			processCtx := queuecontext.WithMetadata(msg.Context, meta)
-			record := apmqueue.Record{Topic: apmqueue.Topic(topic), Value: msg.Value}
+			record := apmqueue.Record{
+				Topic:       apmqueue.Topic(topic),
+				OrderingKey: msg.Key,
+				Value:       msg.Value,
+			}
 			// If a record can't be processed, no retries are attempted and it
 			// may be lost. https://github.com/elastic/apm-queue/issues/118.
 			if err := pc.processor.Process(processCtx, record); err != nil {
