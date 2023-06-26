@@ -660,7 +660,7 @@ func TestManagerMetrics(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { m.Close() })
 
-	_, err = m.MonitorConsumerLag([]apmqueue.TopicConsumer{
+	registration, err := m.MonitorConsumerLag([]apmqueue.TopicConsumer{
 		{
 			Topic:    "topic1",
 			Consumer: "consumer1",
@@ -671,6 +671,7 @@ func TestManagerMetrics(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
+	t.Cleanup(func() { registration.Unregister() })
 
 	rm := metricdata.ResourceMetrics{}
 	err = reader.Collect(context.Background(), &rm)

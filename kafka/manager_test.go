@@ -151,7 +151,9 @@ func TestManagerMetrics(t *testing.T) {
 	commonConfig.MeterProvider = mp
 	m, err := NewManager(ManagerConfig{CommonConfig: commonConfig})
 	require.NoError(t, err)
-	m.MonitorConsumerLag([]apmqueue.TopicConsumer{
+	t.Cleanup(func() { m.Close() })
+
+	registration, err := m.MonitorConsumerLag([]apmqueue.TopicConsumer{
 		{
 			Topic:    "topic1",
 			Consumer: "consumer1",
@@ -165,7 +167,8 @@ func TestManagerMetrics(t *testing.T) {
 			Consumer: "consumer2",
 		},
 	})
-	t.Cleanup(func() { m.Close() })
+	require.NoError(t, err)
+	t.Cleanup(func() { registration.Unregister() })
 
 	var listGroupsRequest *kmsg.ListGroupsRequest
 	cluster.ControlKey(kmsg.ListGroups.Int16(), func(req kmsg.Request) (kmsg.Response, error, bool) {
