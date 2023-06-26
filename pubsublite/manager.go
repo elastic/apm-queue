@@ -319,7 +319,7 @@ func (m *Manager) MonitorConsumerLag(topics ...string) (metric.Registration, err
 			}
 			lag := points[0].Value.GetInt64Value()
 
-			topic, consumer, err := TopicAndConsumer(subscriptionID)
+			topic, consumer, err := SplitTopicConsumer(subscriptionID)
 			if err != nil {
 				m.cfg.Logger.Warn("error parsing topic and consumer from subscription name",
 					zap.Error(err),

@@ -133,16 +133,16 @@ func (cfg *CommonConfig) meterProvider() metric.MeterProvider {
 
 // TODO(axw) method for producing common option.ClientOptions, such as otelgrpc interceptors.
 
-// SubscriptionName returns a Pub/Sub Lite subscription name
+// JoinTopicConsumer returns a Pub/Sub Lite subscription name
 // for the given topic and consumer name.
-func SubscriptionName(topic apmqueue.Topic, consumer string) string {
+func JoinTopicConsumer(topic apmqueue.Topic, consumer string) string {
 	return fmt.Sprintf("%s+%s", topic, consumer)
 }
 
-// TopicAndConsumer does the opposite of SubscriptionName
-// by parsing topic ane consumer out of a subscription name.
+// SplitTopicConsumer does the opposite of JoinTopicConsumer
+// by parsing topic and consumer out of a subscription name.
 // Returns an error if subscription name is not in an expected format.
-func TopicAndConsumer(subscriptionName string) (topic apmqueue.Topic, consumer string, err error) {
+func SplitTopicConsumer(subscriptionName string) (topic apmqueue.Topic, consumer string, err error) {
 	parts := strings.Split(subscriptionName, "+")
 	if len(parts) != 2 {
 		return "", "", fmt.Errorf("malformed subscription name")
