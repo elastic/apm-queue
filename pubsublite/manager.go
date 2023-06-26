@@ -277,8 +277,11 @@ func (m *Manager) MonitorConsumerLag(topicConsumers []apmqueue.TopicConsumer) (m
 			JoinTopicConsumer(tc.Topic, tc.Consumer))
 	}
 
-	filter := "metric.type = \"pubsublite.googleapis.com/subscription/backlog_message_count\""
-	filter += fmt.Sprintf(" AND (%s)", strings.Join(subscriptionIDFilters, " OR "))
+	filter := fmt.Sprintf("metric.type = \"pubsublite.googleapis.com/subscription/backlog_message_count\""+
+		" AND resource.labels.location = \"%s\""+
+		" AND (%s)",
+		m.cfg.Region,
+		strings.Join(subscriptionIDFilters, " OR "))
 
 	gatherMetrics := func(ctx context.Context, o metric.Observer) error {
 		it := m.monitoringClient.ListTimeSeries(ctx, &monitoringpb.ListTimeSeriesRequest{
