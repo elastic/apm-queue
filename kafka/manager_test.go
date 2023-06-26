@@ -20,7 +20,6 @@ package kafka
 import (
 	"context"
 	"errors"
-	apmqueue "github.com/elastic/apm-queue"
 	"sort"
 	"strings"
 	"testing"
@@ -41,6 +40,8 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"go.uber.org/zap/zaptest/observer"
+
+	apmqueue "github.com/elastic/apm-queue"
 )
 
 func TestNewManager(t *testing.T) {

@@ -19,7 +19,6 @@ package pubsublite
 
 import (
 	"context"
-	apmqueue "github.com/elastic/apm-queue"
 	"net"
 	"os"
 	"path/filepath"
@@ -54,6 +53,8 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
+
+	apmqueue "github.com/elastic/apm-queue"
 )
 
 func TestNewManager(t *testing.T) {

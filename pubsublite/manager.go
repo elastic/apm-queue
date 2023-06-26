@@ -21,7 +21,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	apmqueue "github.com/elastic/apm-queue"
 	"path"
 	"strconv"
 	"strings"
@@ -37,6 +36,8 @@ import (
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
 	"google.golang.org/protobuf/types/known/timestamppb"
+
+	apmqueue "github.com/elastic/apm-queue"
 )
 
 // ManagerConfig holds configuration for managing GCP Pub/Sub Lite resources.
