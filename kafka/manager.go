@@ -154,8 +154,17 @@ func (m *Manager) MonitorConsumerLag(topicConsumers []apmqueue.TopicConsumer) (m
 		ctx, span := m.tracer.Start(ctx, "GatherMetrics")
 		defer span.End()
 
+		consumerSet := make(map[string]struct{})
+		for _, tc := range topicConsumers {
+			consumerSet[tc.Consumer] = struct{}{}
+		}
+		consumers := make([]string, 0, len(consumerSet))
+		for consumer := range consumerSet {
+			consumers = append(consumers, consumer)
+		}
+
 		// Fetch commits for consumer groups.
-		groups, err := m.adminClient.DescribeGroups(ctx)
+		groups, err := m.adminClient.DescribeGroups(ctx, consumers...)
 		if err != nil {
 			span.RecordError(err)
 			span.SetStatus(codes.Error, err.Error())

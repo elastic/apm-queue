@@ -166,6 +166,14 @@ func TestManagerMetrics(t *testing.T) {
 			Topic:    "topic2",
 			Consumer: "consumer2",
 		},
+		{
+			Topic:    "topic3",
+			Consumer: "consumer3",
+		},
+		{
+			Topic:    "",
+			Consumer: "connect",
+		},
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { registration.Unregister() })
@@ -173,15 +181,7 @@ func TestManagerMetrics(t *testing.T) {
 	var listGroupsRequest *kmsg.ListGroupsRequest
 	cluster.ControlKey(kmsg.ListGroups.Int16(), func(req kmsg.Request) (kmsg.Response, error, bool) {
 		listGroupsRequest = req.(*kmsg.ListGroupsRequest)
-		return &kmsg.ListGroupsResponse{
-			Version: listGroupsRequest.Version,
-			Groups: []kmsg.ListGroupsResponseGroup{
-				{Group: "consumer1", ProtocolType: "consumer"},
-				{Group: "connect", ProtocolType: "connect"},
-				{Group: "consumer2", ProtocolType: "consumer"},
-				{Group: "consumer3", ProtocolType: "consumer"}, // not authorized, while fetching offsets
-			},
-		}, nil, true
+		return &kmsg.ListGroupsResponse{}, nil, true
 	})
 	var describeGroupsRequest *kmsg.DescribeGroupsRequest
 	cluster.ControlKey(kmsg.DescribeGroups.Int16(), func(req kmsg.Request) (kmsg.Response, error, bool) {
@@ -346,14 +346,19 @@ func TestManagerMetrics(t *testing.T) {
 				attribute.Int("partition", 3),
 			),
 			Value: 3,
+		}, {
+			Attributes: attribute.NewSet(
+				attribute.String("group", "consumer3"),
+				attribute.String("topic", "topic3"),
+				attribute.Int("partition", 4),
+			),
+			Value: 4,
 		}},
 	}, metrics[0].Data, metricdatatest.IgnoreTimestamp())
 
-	assert.Equal(t, &kmsg.ListGroupsRequest{Version: 4}, listGroupsRequest)
-	assert.Equal(t, &kmsg.DescribeGroupsRequest{
-		Version: 5,
-		Groups:  []string{"connect", "consumer1", "consumer2", "consumer3"},
-	}, describeGroupsRequest)
+	assert.Nil(t, listGroupsRequest)
+	assert.Equal(t, int16(5), describeGroupsRequest.Version)
+	assert.ElementsMatch(t, []string{"connect", "consumer1", "consumer2", "consumer3"}, describeGroupsRequest.Groups)
 	assert.Equal(t, &kmsg.OffsetFetchRequest{
 		Version: 8,
 		Groups: []kmsg.OffsetFetchRequestGroup{
