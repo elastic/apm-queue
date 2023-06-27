@@ -66,7 +66,7 @@ func TestNewManager(t *testing.T) {
 		"pubsublite: logger must be set",
 	}, "\n"))
 
-	_, commonConfig := newTestAdminAndMonitoringService(t)
+	_, commonConfig := newTestAdminAndMetricService(t)
 	manager, err := NewManager(ManagerConfig{CommonConfig: commonConfig})
 	require.NoError(t, err)
 	require.NotNil(t, manager)
@@ -105,7 +105,7 @@ func TestNewManagerDefaultProject(t *testing.T) {
 }
 
 func TestManagerCreateReservation(t *testing.T) {
-	server, commonConfig := newTestAdminAndMonitoringService(t)
+	server, commonConfig := newTestAdminAndMetricService(t)
 	core, observedLogs := observer.New(zapcore.DebugLevel)
 	commonConfig.Logger = zap.New(core)
 	m, err := NewManager(ManagerConfig{CommonConfig: commonConfig})
@@ -157,7 +157,7 @@ func TestManagerCreateReservation(t *testing.T) {
 }
 
 func TestManagerCreateSubscription(t *testing.T) {
-	server, commonConfig := newTestAdminAndMonitoringService(t)
+	server, commonConfig := newTestAdminAndMetricService(t)
 	core, observedLogs := observer.New(zapcore.DebugLevel)
 	commonConfig.Logger = zap.New(core)
 	m, err := NewManager(ManagerConfig{CommonConfig: commonConfig})
@@ -213,7 +213,7 @@ func TestManagerCreateSubscription(t *testing.T) {
 }
 
 func TestManagerDeleteReservation(t *testing.T) {
-	server, commonConfig := newTestAdminAndMonitoringService(t)
+	server, commonConfig := newTestAdminAndMetricService(t)
 	core, observedLogs := observer.New(zapcore.DebugLevel)
 	commonConfig.Logger = zap.New(core)
 	m, err := NewManager(ManagerConfig{CommonConfig: commonConfig})
@@ -262,7 +262,7 @@ func TestManagerDeleteReservation(t *testing.T) {
 }
 
 func TestManagerDeleteTopic(t *testing.T) {
-	server, commonConfig := newTestAdminAndMonitoringService(t)
+	server, commonConfig := newTestAdminAndMetricService(t)
 	core, observedLogs := observer.New(zapcore.DebugLevel)
 	commonConfig.Logger = zap.New(core)
 	m, err := NewManager(ManagerConfig{CommonConfig: commonConfig})
@@ -311,7 +311,7 @@ func TestManagerDeleteTopic(t *testing.T) {
 }
 
 func TestManagerDeleteSubscription(t *testing.T) {
-	server, commonConfig := newTestAdminAndMonitoringService(t)
+	server, commonConfig := newTestAdminAndMetricService(t)
 	core, observedLogs := observer.New(zapcore.DebugLevel)
 	commonConfig.Logger = zap.New(core)
 	m, err := NewManager(ManagerConfig{CommonConfig: commonConfig})
@@ -360,7 +360,7 @@ func TestManagerDeleteSubscription(t *testing.T) {
 }
 
 func TestManagerListReservations(t *testing.T) {
-	server, commonConfig := newTestAdminAndMonitoringService(t)
+	server, commonConfig := newTestAdminAndMetricService(t)
 	m, err := NewManager(ManagerConfig{CommonConfig: commonConfig})
 	require.NoError(t, err)
 	defer m.Close()
@@ -376,7 +376,7 @@ func TestManagerListReservations(t *testing.T) {
 }
 
 func TestManagerListReservationTopics(t *testing.T) {
-	server, commonConfig := newTestAdminAndMonitoringService(t)
+	server, commonConfig := newTestAdminAndMetricService(t)
 	m, err := NewManager(ManagerConfig{CommonConfig: commonConfig})
 	require.NoError(t, err)
 	defer m.Close()
@@ -398,7 +398,7 @@ func TestManagerListReservationTopics(t *testing.T) {
 }
 
 func TestManagerListTopicSubscriptions(t *testing.T) {
-	server, commonConfig := newTestAdminAndMonitoringService(t)
+	server, commonConfig := newTestAdminAndMetricService(t)
 	m, err := NewManager(ManagerConfig{CommonConfig: commonConfig})
 	require.NoError(t, err)
 	defer m.Close()
@@ -416,10 +416,10 @@ func TestManagerListTopicSubscriptions(t *testing.T) {
 		`rpc error: code = PermissionDenied desc = nope`)
 }
 
-func newTestAdminAndMonitoringService(t testing.TB) (*adminAndMonitoringServiceServer, CommonConfig) {
+func newTestAdminAndMetricService(t testing.TB) (*adminAndMetricServiceServer, CommonConfig) {
 	s := grpc.NewServer()
 	t.Cleanup(s.Stop)
-	server := &adminAndMonitoringServiceServer{}
+	server := &adminAndMetricServiceServer{}
 	pubsublitepb.RegisterAdminServiceServer(s, server)
 	monitoringpb.RegisterMetricServiceServer(s, server)
 
@@ -443,7 +443,7 @@ func newTestAdminAndMonitoringService(t testing.TB) (*adminAndMonitoringServiceS
 	}
 }
 
-type adminAndMonitoringServiceServer struct {
+type adminAndMetricServiceServer struct {
 	pubsublitepb.UnimplementedAdminServiceServer
 
 	createTopicRequest        *pubsublitepb.CreateTopicRequest
@@ -468,7 +468,7 @@ type adminAndMonitoringServiceServer struct {
 	TimeSeriesFilter string
 }
 
-func (s *adminAndMonitoringServiceServer) CreateTopic(
+func (s *adminAndMetricServiceServer) CreateTopic(
 	ctx context.Context,
 	req *pubsublitepb.CreateTopicRequest,
 ) (*pubsublitepb.Topic, error) {
@@ -476,7 +476,7 @@ func (s *adminAndMonitoringServiceServer) CreateTopic(
 	return s.topic, s.err
 }
 
-func (s *adminAndMonitoringServiceServer) CreateReservation(
+func (s *adminAndMetricServiceServer) CreateReservation(
 	ctx context.Context,
 	req *pubsublitepb.CreateReservationRequest,
 ) (*pubsublitepb.Reservation, error) {
@@ -484,7 +484,7 @@ func (s *adminAndMonitoringServiceServer) CreateReservation(
 	return s.reservation, s.err
 }
 
-func (s *adminAndMonitoringServiceServer) CreateSubscription(
+func (s *adminAndMetricServiceServer) CreateSubscription(
 	ctx context.Context,
 	req *pubsublitepb.CreateSubscriptionRequest,
 ) (*pubsublitepb.Subscription, error) {
@@ -492,7 +492,7 @@ func (s *adminAndMonitoringServiceServer) CreateSubscription(
 	return s.subscription, s.err
 }
 
-func (s *adminAndMonitoringServiceServer) ListReservations(
+func (s *adminAndMetricServiceServer) ListReservations(
 	ctx context.Context,
 	req *pubsublitepb.ListReservationsRequest,
 ) (*pubsublitepb.ListReservationsResponse, error) {
@@ -510,7 +510,7 @@ func (s *adminAndMonitoringServiceServer) ListReservations(
 	return &resp, s.err
 }
 
-func (s *adminAndMonitoringServiceServer) ListReservationTopics(
+func (s *adminAndMetricServiceServer) ListReservationTopics(
 	ctx context.Context,
 	req *pubsublitepb.ListReservationTopicsRequest,
 ) (*pubsublitepb.ListReservationTopicsResponse, error) {
@@ -528,7 +528,7 @@ func (s *adminAndMonitoringServiceServer) ListReservationTopics(
 	return &resp, s.err
 }
 
-func (s *adminAndMonitoringServiceServer) ListTopicSubscriptions(
+func (s *adminAndMetricServiceServer) ListTopicSubscriptions(
 	ctx context.Context,
 	req *pubsublitepb.ListTopicSubscriptionsRequest,
 ) (*pubsublitepb.ListTopicSubscriptionsResponse, error) {
@@ -546,7 +546,7 @@ func (s *adminAndMonitoringServiceServer) ListTopicSubscriptions(
 	return &resp, s.err
 }
 
-func (s *adminAndMonitoringServiceServer) DeleteTopic(
+func (s *adminAndMetricServiceServer) DeleteTopic(
 	ctx context.Context,
 	req *pubsublitepb.DeleteTopicRequest,
 ) (*emptypb.Empty, error) {
@@ -554,7 +554,7 @@ func (s *adminAndMonitoringServiceServer) DeleteTopic(
 	return &emptypb.Empty{}, s.err
 }
 
-func (s *adminAndMonitoringServiceServer) DeleteReservation(
+func (s *adminAndMetricServiceServer) DeleteReservation(
 	ctx context.Context,
 	req *pubsublitepb.DeleteReservationRequest,
 ) (*emptypb.Empty, error) {
@@ -562,7 +562,7 @@ func (s *adminAndMonitoringServiceServer) DeleteReservation(
 	return &emptypb.Empty{}, s.err
 }
 
-func (s *adminAndMonitoringServiceServer) DeleteSubscription(
+func (s *adminAndMetricServiceServer) DeleteSubscription(
 	ctx context.Context,
 	req *pubsublitepb.DeleteSubscriptionRequest,
 ) (*emptypb.Empty, error) {
@@ -570,7 +570,7 @@ func (s *adminAndMonitoringServiceServer) DeleteSubscription(
 	return &emptypb.Empty{}, s.err
 }
 
-func (s *adminAndMonitoringServiceServer) ListTimeSeries(ctx context.Context, req *monitoringpb.ListTimeSeriesRequest) (*monitoringpb.ListTimeSeriesResponse, error) {
+func (s *adminAndMetricServiceServer) ListTimeSeries(ctx context.Context, req *monitoringpb.ListTimeSeriesRequest) (*monitoringpb.ListTimeSeriesResponse, error) {
 	s.TimeSeriesFilter = req.Filter
 	return &monitoringpb.ListTimeSeriesResponse{
 		TimeSeries: []*monitoringpb.TimeSeries{
@@ -618,7 +618,7 @@ func TestManagerMetrics(t *testing.T) {
 	defer tp.Shutdown(context.Background())
 	defer mp.Shutdown(context.Background())
 
-	testAdminService, commonConfig := newTestAdminAndMonitoringService(t)
+	testAdminService, commonConfig := newTestAdminAndMetricService(t)
 
 	core, _ := observer.New(zapcore.DebugLevel)
 	commonConfig.Logger = zap.New(core)
