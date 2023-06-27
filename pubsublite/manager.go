@@ -34,7 +34,6 @@ import (
 	"go.opentelemetry.io/otel/metric"
 	"go.uber.org/zap"
 	"google.golang.org/api/iterator"
-	"google.golang.org/api/option"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	apmqueue "github.com/elastic/apm-queue"
@@ -43,9 +42,6 @@ import (
 // ManagerConfig holds configuration for managing GCP Pub/Sub Lite resources.
 type ManagerConfig struct {
 	CommonConfig
-
-	// MonitoringClientOptions holds arbitrary Google monitoring API client options.
-	MonitoringClientOptions []option.ClientOption
 }
 
 // Validate checks that cfg is valid, and returns an error otherwise.
@@ -79,7 +75,7 @@ func NewManager(cfg ManagerConfig) (*Manager, error) {
 		return nil, fmt.Errorf("pubsublite: failed creating admin client: %w", err)
 	}
 
-	monitoringClient, err := monitoring.NewMetricClient(context.Background(), cfg.MonitoringClientOptions...)
+	monitoringClient, err := monitoring.NewMetricClient(context.Background(), cfg.ClientOptions...)
 	if err != nil {
 		return nil, fmt.Errorf("pubsublite: failed creating monitoring client: %w", err)
 	}

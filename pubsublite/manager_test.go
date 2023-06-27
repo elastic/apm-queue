@@ -66,9 +66,8 @@ func TestNewManager(t *testing.T) {
 		"pubsublite: logger must be set",
 	}, "\n"))
 
-	_, commonConfig := newTestAdminService(t)
-	_, monitoringClientOpts := newTestMetricService(t)
-	manager, err := NewManager(ManagerConfig{CommonConfig: commonConfig, MonitoringClientOptions: monitoringClientOpts})
+	_, commonConfig := newTestAdminAndMonitoringService(t)
+	manager, err := NewManager(ManagerConfig{CommonConfig: commonConfig})
 	require.NoError(t, err)
 	require.NotNil(t, manager)
 	require.NoError(t, manager.Close())
@@ -106,11 +105,10 @@ func TestNewManagerDefaultProject(t *testing.T) {
 }
 
 func TestManagerCreateReservation(t *testing.T) {
-	server, commonConfig := newTestAdminService(t)
+	server, commonConfig := newTestAdminAndMonitoringService(t)
 	core, observedLogs := observer.New(zapcore.DebugLevel)
 	commonConfig.Logger = zap.New(core)
-	_, monitoringClientOpts := newTestMetricService(t)
-	m, err := NewManager(ManagerConfig{CommonConfig: commonConfig, MonitoringClientOptions: monitoringClientOpts})
+	m, err := NewManager(ManagerConfig{CommonConfig: commonConfig})
 	require.NoError(t, err)
 	defer m.Close()
 
@@ -159,11 +157,10 @@ func TestManagerCreateReservation(t *testing.T) {
 }
 
 func TestManagerCreateSubscription(t *testing.T) {
-	server, commonConfig := newTestAdminService(t)
+	server, commonConfig := newTestAdminAndMonitoringService(t)
 	core, observedLogs := observer.New(zapcore.DebugLevel)
 	commonConfig.Logger = zap.New(core)
-	_, monitoringClientOpts := newTestMetricService(t)
-	m, err := NewManager(ManagerConfig{CommonConfig: commonConfig, MonitoringClientOptions: monitoringClientOpts})
+	m, err := NewManager(ManagerConfig{CommonConfig: commonConfig})
 	require.NoError(t, err)
 	defer m.Close()
 
@@ -216,11 +213,10 @@ func TestManagerCreateSubscription(t *testing.T) {
 }
 
 func TestManagerDeleteReservation(t *testing.T) {
-	server, commonConfig := newTestAdminService(t)
+	server, commonConfig := newTestAdminAndMonitoringService(t)
 	core, observedLogs := observer.New(zapcore.DebugLevel)
 	commonConfig.Logger = zap.New(core)
-	_, monitoringClientOpts := newTestMetricService(t)
-	m, err := NewManager(ManagerConfig{CommonConfig: commonConfig, MonitoringClientOptions: monitoringClientOpts})
+	m, err := NewManager(ManagerConfig{CommonConfig: commonConfig})
 	require.NoError(t, err)
 	defer m.Close()
 
@@ -266,11 +262,10 @@ func TestManagerDeleteReservation(t *testing.T) {
 }
 
 func TestManagerDeleteTopic(t *testing.T) {
-	server, commonConfig := newTestAdminService(t)
+	server, commonConfig := newTestAdminAndMonitoringService(t)
 	core, observedLogs := observer.New(zapcore.DebugLevel)
 	commonConfig.Logger = zap.New(core)
-	_, monitoringClientOpts := newTestMetricService(t)
-	m, err := NewManager(ManagerConfig{CommonConfig: commonConfig, MonitoringClientOptions: monitoringClientOpts})
+	m, err := NewManager(ManagerConfig{CommonConfig: commonConfig})
 	require.NoError(t, err)
 	defer m.Close()
 
@@ -316,11 +311,10 @@ func TestManagerDeleteTopic(t *testing.T) {
 }
 
 func TestManagerDeleteSubscription(t *testing.T) {
-	server, commonConfig := newTestAdminService(t)
+	server, commonConfig := newTestAdminAndMonitoringService(t)
 	core, observedLogs := observer.New(zapcore.DebugLevel)
 	commonConfig.Logger = zap.New(core)
-	_, monitoringClientOpts := newTestMetricService(t)
-	m, err := NewManager(ManagerConfig{CommonConfig: commonConfig, MonitoringClientOptions: monitoringClientOpts})
+	m, err := NewManager(ManagerConfig{CommonConfig: commonConfig})
 	require.NoError(t, err)
 	defer m.Close()
 
@@ -366,9 +360,8 @@ func TestManagerDeleteSubscription(t *testing.T) {
 }
 
 func TestManagerListReservations(t *testing.T) {
-	server, commonConfig := newTestAdminService(t)
-	_, monitoringClientOpts := newTestMetricService(t)
-	m, err := NewManager(ManagerConfig{CommonConfig: commonConfig, MonitoringClientOptions: monitoringClientOpts})
+	server, commonConfig := newTestAdminAndMonitoringService(t)
+	m, err := NewManager(ManagerConfig{CommonConfig: commonConfig})
 	require.NoError(t, err)
 	defer m.Close()
 
@@ -383,9 +376,8 @@ func TestManagerListReservations(t *testing.T) {
 }
 
 func TestManagerListReservationTopics(t *testing.T) {
-	server, commonConfig := newTestAdminService(t)
-	_, monitoringClientOpts := newTestMetricService(t)
-	m, err := NewManager(ManagerConfig{CommonConfig: commonConfig, MonitoringClientOptions: monitoringClientOpts})
+	server, commonConfig := newTestAdminAndMonitoringService(t)
+	m, err := NewManager(ManagerConfig{CommonConfig: commonConfig})
 	require.NoError(t, err)
 	defer m.Close()
 
@@ -406,9 +398,8 @@ func TestManagerListReservationTopics(t *testing.T) {
 }
 
 func TestManagerListTopicSubscriptions(t *testing.T) {
-	server, commonConfig := newTestAdminService(t)
-	_, monitoringClientOpts := newTestMetricService(t)
-	m, err := NewManager(ManagerConfig{CommonConfig: commonConfig, MonitoringClientOptions: monitoringClientOpts})
+	server, commonConfig := newTestAdminAndMonitoringService(t)
+	m, err := NewManager(ManagerConfig{CommonConfig: commonConfig})
 	require.NoError(t, err)
 	defer m.Close()
 
@@ -425,11 +416,12 @@ func TestManagerListTopicSubscriptions(t *testing.T) {
 		`rpc error: code = PermissionDenied desc = nope`)
 }
 
-func newTestAdminService(t testing.TB) (*adminServiceServer, CommonConfig) {
+func newTestAdminAndMonitoringService(t testing.TB) (*adminAndMonitoringServiceServer, CommonConfig) {
 	s := grpc.NewServer()
 	t.Cleanup(s.Stop)
-	server := &adminServiceServer{}
+	server := &adminAndMonitoringServiceServer{}
 	pubsublitepb.RegisterAdminServiceServer(s, server)
+	monitoringpb.RegisterMetricServiceServer(s, server)
 
 	lis, err := net.Listen("tcp", "localhost:0")
 	require.NoError(t, err)
@@ -451,7 +443,7 @@ func newTestAdminService(t testing.TB) (*adminServiceServer, CommonConfig) {
 	}
 }
 
-type adminServiceServer struct {
+type adminAndMonitoringServiceServer struct {
 	pubsublitepb.UnimplementedAdminServiceServer
 
 	createTopicRequest        *pubsublitepb.CreateTopicRequest
@@ -471,9 +463,12 @@ type adminServiceServer struct {
 	subscription *pubsublitepb.Subscription
 
 	err error
+
+	monitoringpb.UnimplementedMetricServiceServer
+	TimeSeriesFilter string
 }
 
-func (s *adminServiceServer) CreateTopic(
+func (s *adminAndMonitoringServiceServer) CreateTopic(
 	ctx context.Context,
 	req *pubsublitepb.CreateTopicRequest,
 ) (*pubsublitepb.Topic, error) {
@@ -481,7 +476,7 @@ func (s *adminServiceServer) CreateTopic(
 	return s.topic, s.err
 }
 
-func (s *adminServiceServer) CreateReservation(
+func (s *adminAndMonitoringServiceServer) CreateReservation(
 	ctx context.Context,
 	req *pubsublitepb.CreateReservationRequest,
 ) (*pubsublitepb.Reservation, error) {
@@ -489,7 +484,7 @@ func (s *adminServiceServer) CreateReservation(
 	return s.reservation, s.err
 }
 
-func (s *adminServiceServer) CreateSubscription(
+func (s *adminAndMonitoringServiceServer) CreateSubscription(
 	ctx context.Context,
 	req *pubsublitepb.CreateSubscriptionRequest,
 ) (*pubsublitepb.Subscription, error) {
@@ -497,7 +492,7 @@ func (s *adminServiceServer) CreateSubscription(
 	return s.subscription, s.err
 }
 
-func (s *adminServiceServer) ListReservations(
+func (s *adminAndMonitoringServiceServer) ListReservations(
 	ctx context.Context,
 	req *pubsublitepb.ListReservationsRequest,
 ) (*pubsublitepb.ListReservationsResponse, error) {
@@ -515,7 +510,7 @@ func (s *adminServiceServer) ListReservations(
 	return &resp, s.err
 }
 
-func (s *adminServiceServer) ListReservationTopics(
+func (s *adminAndMonitoringServiceServer) ListReservationTopics(
 	ctx context.Context,
 	req *pubsublitepb.ListReservationTopicsRequest,
 ) (*pubsublitepb.ListReservationTopicsResponse, error) {
@@ -533,7 +528,7 @@ func (s *adminServiceServer) ListReservationTopics(
 	return &resp, s.err
 }
 
-func (s *adminServiceServer) ListTopicSubscriptions(
+func (s *adminAndMonitoringServiceServer) ListTopicSubscriptions(
 	ctx context.Context,
 	req *pubsublitepb.ListTopicSubscriptionsRequest,
 ) (*pubsublitepb.ListTopicSubscriptionsResponse, error) {
@@ -551,7 +546,7 @@ func (s *adminServiceServer) ListTopicSubscriptions(
 	return &resp, s.err
 }
 
-func (s *adminServiceServer) DeleteTopic(
+func (s *adminAndMonitoringServiceServer) DeleteTopic(
 	ctx context.Context,
 	req *pubsublitepb.DeleteTopicRequest,
 ) (*emptypb.Empty, error) {
@@ -559,7 +554,7 @@ func (s *adminServiceServer) DeleteTopic(
 	return &emptypb.Empty{}, s.err
 }
 
-func (s *adminServiceServer) DeleteReservation(
+func (s *adminAndMonitoringServiceServer) DeleteReservation(
 	ctx context.Context,
 	req *pubsublitepb.DeleteReservationRequest,
 ) (*emptypb.Empty, error) {
@@ -567,7 +562,7 @@ func (s *adminServiceServer) DeleteReservation(
 	return &emptypb.Empty{}, s.err
 }
 
-func (s *adminServiceServer) DeleteSubscription(
+func (s *adminAndMonitoringServiceServer) DeleteSubscription(
 	ctx context.Context,
 	req *pubsublitepb.DeleteSubscriptionRequest,
 ) (*emptypb.Empty, error) {
@@ -575,33 +570,27 @@ func (s *adminServiceServer) DeleteSubscription(
 	return &emptypb.Empty{}, s.err
 }
 
-func newTestMetricService(t testing.TB) (*metricServiceServer, []option.ClientOption) {
-	s := grpc.NewServer()
-	t.Cleanup(s.Stop)
-	server := &metricServiceServer{}
-	monitoringpb.RegisterMetricServiceServer(s, server)
+//func newTestMetricService(t testing.TB) (*metricServiceServer, []option.ClientOption) {
+//	s := grpc.NewServer()
+//	t.Cleanup(s.Stop)
+//	server := &metricServiceServer{}
+//	monitoringpb.RegisterMetricServiceServer(s, server)
+//
+//	lis, err := net.Listen("tcp", "localhost:0")
+//	require.NoError(t, err)
+//	t.Cleanup(func() { lis.Close() })
+//
+//	go s.Serve(lis)
+//	return server, []option.ClientOption{
+//		option.WithGRPCDialOption(grpc.WithUnaryInterceptor(otelgrpc.UnaryClientInterceptor())),
+//		option.WithGRPCDialOption(grpc.WithStreamInterceptor(otelgrpc.StreamClientInterceptor())),
+//		option.WithGRPCDialOption(grpc.WithTransportCredentials(insecure.NewCredentials())),
+//		option.WithEndpoint(lis.Addr().String()),
+//		option.WithoutAuthentication(),
+//	}
+//}
 
-	lis, err := net.Listen("tcp", "localhost:0")
-	require.NoError(t, err)
-	t.Cleanup(func() { lis.Close() })
-
-	go s.Serve(lis)
-	return server, []option.ClientOption{
-		option.WithGRPCDialOption(grpc.WithUnaryInterceptor(otelgrpc.UnaryClientInterceptor())),
-		option.WithGRPCDialOption(grpc.WithStreamInterceptor(otelgrpc.StreamClientInterceptor())),
-		option.WithGRPCDialOption(grpc.WithTransportCredentials(insecure.NewCredentials())),
-		option.WithEndpoint(lis.Addr().String()),
-		option.WithoutAuthentication(),
-	}
-}
-
-type metricServiceServer struct {
-	monitoringpb.UnimplementedMetricServiceServer
-
-	TimeSeriesFilter string
-}
-
-func (s *metricServiceServer) ListTimeSeries(ctx context.Context, req *monitoringpb.ListTimeSeriesRequest) (*monitoringpb.ListTimeSeriesResponse, error) {
+func (s *adminAndMonitoringServiceServer) ListTimeSeries(ctx context.Context, req *monitoringpb.ListTimeSeriesRequest) (*monitoringpb.ListTimeSeriesResponse, error) {
 	s.TimeSeriesFilter = req.Filter
 	return &monitoringpb.ListTimeSeriesResponse{
 		TimeSeries: []*monitoringpb.TimeSeries{
@@ -649,14 +638,14 @@ func TestManagerMetrics(t *testing.T) {
 	defer tp.Shutdown(context.Background())
 	defer mp.Shutdown(context.Background())
 
-	_, commonConfig := newTestAdminService(t)
-	testMetricService, monitoringClientOpts := newTestMetricService(t)
+	testAdminService, commonConfig := newTestAdminAndMonitoringService(t)
+	//testMetricService, monitoringClientOpts := newTestMetricService(t)
 
 	core, _ := observer.New(zapcore.DebugLevel)
 	commonConfig.Logger = zap.New(core)
 	commonConfig.TracerProvider = tp
 	commonConfig.MeterProvider = mp
-	m, err := NewManager(ManagerConfig{CommonConfig: commonConfig, MonitoringClientOptions: monitoringClientOpts})
+	m, err := NewManager(ManagerConfig{CommonConfig: commonConfig})
 	require.NoError(t, err)
 	t.Cleanup(func() { m.Close() })
 
@@ -706,7 +695,7 @@ func TestManagerMetrics(t *testing.T) {
 		},
 	}, metrics[0].Data, metricdatatest.IgnoreTimestamp())
 
-	assert.Equal(t, testMetricService.TimeSeriesFilter, "metric.type = \"pubsublite.googleapis.com/subscription/backlog_message_count\""+
+	assert.Equal(t, testAdminService.TimeSeriesFilter, "metric.type = \"pubsublite.googleapis.com/subscription/backlog_message_count\""+
 		" AND resource.labels.location = \"region-1\""+
 		" AND (resource.labels.subscription_id = \"topic1+consumer1\" OR resource.labels.subscription_id = \"topic2+consumer1\")")
 }
