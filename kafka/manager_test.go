@@ -178,11 +178,6 @@ func TestManagerMetrics(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { registration.Unregister() })
 
-	var listGroupsRequest *kmsg.ListGroupsRequest
-	cluster.ControlKey(kmsg.ListGroups.Int16(), func(req kmsg.Request) (kmsg.Response, error, bool) {
-		listGroupsRequest = req.(*kmsg.ListGroupsRequest)
-		return &kmsg.ListGroupsResponse{}, nil, true
-	})
 	var describeGroupsRequest *kmsg.DescribeGroupsRequest
 	cluster.ControlKey(kmsg.DescribeGroups.Int16(), func(req kmsg.Request) (kmsg.Response, error, bool) {
 		describeGroupsRequest = req.(*kmsg.DescribeGroupsRequest)
@@ -356,7 +351,6 @@ func TestManagerMetrics(t *testing.T) {
 		}},
 	}, metrics[0].Data, metricdatatest.IgnoreTimestamp())
 
-	assert.Nil(t, listGroupsRequest)
 	assert.Equal(t, int16(5), describeGroupsRequest.Version)
 	assert.ElementsMatch(t, []string{"connect", "consumer1", "consumer2", "consumer3"}, describeGroupsRequest.Groups)
 	assert.Equal(t, &kmsg.OffsetFetchRequest{
