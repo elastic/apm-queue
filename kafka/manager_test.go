@@ -40,6 +40,8 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"go.uber.org/zap/zaptest/observer"
+
+	apmqueue "github.com/elastic/apm-queue"
 )
 
 func TestNewManager(t *testing.T) {
@@ -151,19 +153,31 @@ func TestManagerMetrics(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { m.Close() })
 
-	var listGroupsRequest *kmsg.ListGroupsRequest
-	cluster.ControlKey(kmsg.ListGroups.Int16(), func(req kmsg.Request) (kmsg.Response, error, bool) {
-		listGroupsRequest = req.(*kmsg.ListGroupsRequest)
-		return &kmsg.ListGroupsResponse{
-			Version: listGroupsRequest.Version,
-			Groups: []kmsg.ListGroupsResponseGroup{
-				{Group: "consumer1", ProtocolType: "consumer"},
-				{Group: "connect", ProtocolType: "connect"},
-				{Group: "consumer2", ProtocolType: "consumer"},
-				{Group: "consumer3", ProtocolType: "consumer"}, // not authorized, while fetching offsets
-			},
-		}, nil, true
+	registration, err := m.MonitorConsumerLag([]apmqueue.TopicConsumer{
+		{
+			Topic:    "topic1",
+			Consumer: "consumer1",
+		},
+		{
+			Topic:    "topic1",
+			Consumer: "consumer2",
+		},
+		{
+			Topic:    "topic2",
+			Consumer: "consumer2",
+		},
+		{
+			Topic:    "topic3",
+			Consumer: "consumer3",
+		},
+		{
+			Topic:    "",
+			Consumer: "connect",
+		},
 	})
+	require.NoError(t, err)
+	t.Cleanup(func() { registration.Unregister() })
+
 	var describeGroupsRequest *kmsg.DescribeGroupsRequest
 	cluster.ControlKey(kmsg.DescribeGroups.Int16(), func(req kmsg.Request) (kmsg.Response, error, bool) {
 		describeGroupsRequest = req.(*kmsg.DescribeGroupsRequest)
@@ -304,7 +318,7 @@ func TestManagerMetrics(t *testing.T) {
 
 	metrics := rm.ScopeMetrics[0].Metrics
 	require.Len(t, metrics, 1)
-	assert.Equal(t, "kafka.consumer_group_lag", metrics[0].Name)
+	assert.Equal(t, "consumer_group_lag", metrics[0].Name)
 	metricdatatest.AssertAggregationsEqual(t, metricdata.Gauge[int64]{
 		DataPoints: []metricdata.DataPoint[int64]{{
 			Attributes: attribute.NewSet(
@@ -337,11 +351,8 @@ func TestManagerMetrics(t *testing.T) {
 		}},
 	}, metrics[0].Data, metricdatatest.IgnoreTimestamp())
 
-	assert.Equal(t, &kmsg.ListGroupsRequest{Version: 4}, listGroupsRequest)
-	assert.Equal(t, &kmsg.DescribeGroupsRequest{
-		Version: 5,
-		Groups:  []string{"connect", "consumer1", "consumer2", "consumer3"},
-	}, describeGroupsRequest)
+	assert.Equal(t, int16(5), describeGroupsRequest.Version)
+	assert.ElementsMatch(t, []string{"connect", "consumer1", "consumer2", "consumer3"}, describeGroupsRequest.Groups)
 	assert.Equal(t, &kmsg.OffsetFetchRequest{
 		Version: 8,
 		Groups: []kmsg.OffsetFetchRequestGroup{

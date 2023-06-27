@@ -22,11 +22,21 @@ import (
 	"errors"
 	"fmt"
 	"path"
+	"strconv"
+	"strings"
+	"time"
 
+	monitoring "cloud.google.com/go/monitoring/apiv3/v2"
+	"cloud.google.com/go/monitoring/apiv3/v2/monitoringpb"
 	"cloud.google.com/go/pubsublite"
 	"github.com/googleapis/gax-go/v2/apierror"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 	"go.uber.org/zap"
 	"google.golang.org/api/iterator"
+	"google.golang.org/protobuf/types/known/timestamppb"
+
+	apmqueue "github.com/elastic/apm-queue"
 )
 
 // ManagerConfig holds configuration for managing GCP Pub/Sub Lite resources.
@@ -45,8 +55,9 @@ func (cfg ManagerConfig) Validate() error {
 
 // Manager manages GCP Pub/Sub topics.
 type Manager struct {
-	cfg    ManagerConfig
-	client *pubsublite.AdminClient
+	cfg              ManagerConfig
+	client           *pubsublite.AdminClient
+	monitoringClient *monitoring.MetricClient
 }
 
 // NewManager returns a new Manager with the given config.
@@ -63,12 +74,18 @@ func NewManager(cfg ManagerConfig) (*Manager, error) {
 	if err != nil {
 		return nil, fmt.Errorf("pubsublite: failed creating admin client: %w", err)
 	}
-	return &Manager{cfg: cfg, client: client}, nil
+
+	monitoringClient, err := monitoring.NewMetricClient(context.Background(), cfg.ClientOptions...)
+	if err != nil {
+		return nil, fmt.Errorf("pubsublite: failed creating monitoring client: %w", err)
+	}
+
+	return &Manager{cfg: cfg, client: client, monitoringClient: monitoringClient}, nil
 }
 
 // Close closes the manager's resources.
 func (m *Manager) Close() error {
-	return m.client.Close()
+	return errors.Join(m.client.Close(), m.monitoringClient.Close())
 }
 
 // ListReservations lists reservations in the configured project and region.
@@ -239,4 +256,94 @@ func (m *Manager) DeleteSubscription(ctx context.Context, subscription string) e
 	}
 	logger.Info("deleted pubsublite subscription")
 	return nil
+}
+
+// MonitorConsumerLag registers a callback with OpenTelemetry
+// to measure consumer group lag for the given topics.
+func (m *Manager) MonitorConsumerLag(topicConsumers []apmqueue.TopicConsumer) (metric.Registration, error) {
+	mp := m.cfg.meterProvider()
+	meter := mp.Meter("github.com/elastic/apm-queue/pubsublite")
+	consumerGroupLagMetric, err := meter.Int64ObservableGauge("consumer_group_lag")
+	if err != nil {
+		return nil, fmt.Errorf("pubsublite: failed to create consumer_group_lag metric: %w", err)
+	}
+
+	subscriptionIDFilters := make([]string, len(topicConsumers))
+	for i, tc := range topicConsumers {
+		subscriptionIDFilters[i] = fmt.Sprintf("resource.labels.subscription_id = \"%s\"",
+			JoinTopicConsumer(tc.Topic, tc.Consumer))
+	}
+
+	filter := fmt.Sprintf("metric.type = \"pubsublite.googleapis.com/subscription/backlog_message_count\""+
+		" AND resource.labels.location = \"%s\""+
+		" AND (%s)",
+		m.cfg.Region,
+		strings.Join(subscriptionIDFilters, " OR "))
+
+	gatherMetrics := func(ctx context.Context, o metric.Observer) error {
+		it := m.monitoringClient.ListTimeSeries(ctx, &monitoringpb.ListTimeSeriesRequest{
+			Name:   fmt.Sprintf("projects/%s", m.cfg.Project),
+			Filter: filter,
+			Interval: &monitoringpb.TimeInterval{
+				StartTime: &timestamppb.Timestamp{Seconds: time.Now().Add(-5 * time.Minute).Unix()},
+				EndTime:   &timestamppb.Timestamp{Seconds: time.Now().Unix()},
+			},
+			View: monitoringpb.ListTimeSeriesRequest_FULL,
+		})
+		for {
+			resp, err := it.Next()
+			if err == iterator.Done {
+				break
+			}
+			if err != nil {
+				m.cfg.Logger.Error("error reading from monitoring time series iterator", zap.Error(err))
+				return fmt.Errorf("error reading from monitoring time series iterator: %w", err)
+			}
+
+			subscriptionID := resp.Resource.Labels["subscription_id"]
+			partition, err := strconv.Atoi(resp.Resource.Labels["partition"])
+			if err != nil {
+				m.cfg.Logger.Warn("error parsing partition id",
+					zap.Error(err),
+					zap.String("subscription_id", subscriptionID),
+					zap.String("partition_string", resp.Resource.Labels["partition"]),
+				)
+				partition = -1
+			}
+
+			points := resp.GetPoints()
+			if len(points) == 0 {
+				m.cfg.Logger.Warn("empty points in monitoring time series",
+					zap.Error(err),
+					zap.String("subscription_id", subscriptionID),
+					zap.Int("partition", partition),
+				)
+				continue
+			}
+			// Report the most recent value. Points are returned most recent first.
+			// See https://cloud.google.com/monitoring/api/ref_v3/rest/v3/TimeSeries
+			lag := points[0].Value.GetInt64Value()
+
+			topic, consumer, err := SplitTopicConsumer(subscriptionID)
+			if err != nil {
+				m.cfg.Logger.Warn("error parsing topic and consumer from subscription name",
+					zap.Error(err),
+					zap.String("subscription_id", subscriptionID),
+				)
+				continue
+			}
+
+			o.ObserveInt64(
+				consumerGroupLagMetric, lag,
+				metric.WithAttributes(
+					attribute.String("topic", string(topic)),
+					attribute.String("group", consumer),
+					attribute.Int("partition", partition),
+				),
+			)
+		}
+		return nil
+	}
+
+	return meter.RegisterCallback(gatherMetrics, consumerGroupLagMetric)
 }

@@ -124,7 +124,7 @@ func NewConsumer(ctx context.Context, cfg ConsumerConfig) (*Consumer, error) {
 	consumers := make([]*consumer, 0, len(cfg.Topics))
 	cfg.Logger = cfg.Logger.Named("pubsublite")
 	for _, topic := range cfg.Topics {
-		subscriptionName := SubscriptionName(topic, cfg.ConsumerName)
+		subscriptionName := JoinTopicConsumer(topic, cfg.ConsumerName)
 		subscriptionPath := path.Join(parent, "subscriptions", subscriptionName)
 		client, err := pscompat.NewSubscriberClientWithSettings(
 			ctx, subscriptionPath, settings, cfg.ClientOptions...,
