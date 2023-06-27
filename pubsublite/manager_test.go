@@ -570,26 +570,6 @@ func (s *adminAndMonitoringServiceServer) DeleteSubscription(
 	return &emptypb.Empty{}, s.err
 }
 
-//func newTestMetricService(t testing.TB) (*metricServiceServer, []option.ClientOption) {
-//	s := grpc.NewServer()
-//	t.Cleanup(s.Stop)
-//	server := &metricServiceServer{}
-//	monitoringpb.RegisterMetricServiceServer(s, server)
-//
-//	lis, err := net.Listen("tcp", "localhost:0")
-//	require.NoError(t, err)
-//	t.Cleanup(func() { lis.Close() })
-//
-//	go s.Serve(lis)
-//	return server, []option.ClientOption{
-//		option.WithGRPCDialOption(grpc.WithUnaryInterceptor(otelgrpc.UnaryClientInterceptor())),
-//		option.WithGRPCDialOption(grpc.WithStreamInterceptor(otelgrpc.StreamClientInterceptor())),
-//		option.WithGRPCDialOption(grpc.WithTransportCredentials(insecure.NewCredentials())),
-//		option.WithEndpoint(lis.Addr().String()),
-//		option.WithoutAuthentication(),
-//	}
-//}
-
 func (s *adminAndMonitoringServiceServer) ListTimeSeries(ctx context.Context, req *monitoringpb.ListTimeSeriesRequest) (*monitoringpb.ListTimeSeriesResponse, error) {
 	s.TimeSeriesFilter = req.Filter
 	return &monitoringpb.ListTimeSeriesResponse{
@@ -639,7 +619,6 @@ func TestManagerMetrics(t *testing.T) {
 	defer mp.Shutdown(context.Background())
 
 	testAdminService, commonConfig := newTestAdminAndMonitoringService(t)
-	//testMetricService, monitoringClientOpts := newTestMetricService(t)
 
 	core, _ := observer.New(zapcore.DebugLevel)
 	commonConfig.Logger = zap.New(core)
