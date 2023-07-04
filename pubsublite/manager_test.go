@@ -582,6 +582,7 @@ func (s *adminAndMetricServiceServer) ListTimeSeries(ctx context.Context, req *m
 					Labels: map[string]string{
 						"subscription_id": "topic1+consumer1",
 						"partition":       "1",
+						"location":        "region-1",
 					},
 				},
 				Metadata:   nil,
@@ -598,12 +599,30 @@ func (s *adminAndMetricServiceServer) ListTimeSeries(ctx context.Context, req *m
 					Labels: map[string]string{
 						"subscription_id": "topic2+consumer1",
 						"partition":       "2",
+						"location":        "region-1",
 					},
 				},
 				Metadata:   nil,
 				MetricKind: metricpb.MetricDescriptor_GAUGE,
 				ValueType:  metricpb.MetricDescriptor_INT64,
 				Points:     []*monitoringpb.Point{{Value: &monitoringpb.TypedValue{Value: &monitoringpb.TypedValue_Int64Value{Int64Value: 2}}}},
+				Unit:       "",
+			},
+			{
+				Metric: &metricpb.Metric{
+					Type: "pubsublite.googleapis.com/subscription/backlog_message_count",
+				},
+				Resource: &monitoredres.MonitoredResource{
+					Labels: map[string]string{
+						"subscription_id": "topic2+consumer1",
+						"partition":       "3",
+						"location":        "region-2",
+					},
+				},
+				Metadata:   nil,
+				MetricKind: metricpb.MetricDescriptor_GAUGE,
+				ValueType:  metricpb.MetricDescriptor_INT64,
+				Points:     []*monitoringpb.Point{{Value: &monitoringpb.TypedValue{Value: &monitoringpb.TypedValue_Int64Value{Int64Value: 3}}}},
 				Unit:       "",
 			},
 		},
@@ -675,6 +694,5 @@ func TestManagerMetrics(t *testing.T) {
 	}, metrics[0].Data, metricdatatest.IgnoreTimestamp())
 
 	assert.Equal(t, testAdminService.TimeSeriesFilter, "metric.type = \"pubsublite.googleapis.com/subscription/backlog_message_count\""+
-		" AND resource.labels.location = \"region-1\""+
 		" AND (resource.labels.subscription_id = \"topic1+consumer1\" OR resource.labels.subscription_id = \"topic2+consumer1\")")
 }
