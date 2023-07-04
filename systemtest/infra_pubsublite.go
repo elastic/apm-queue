@@ -153,7 +153,7 @@ func CreatePubsubTopics(ctx context.Context, t testing.TB, partitions int, topic
 // Pub/Sub Lite subscriptions.
 func CreatePubsubTopicSubscriptions(ctx context.Context, t testing.TB, consumer string, topics ...apmqueue.Topic) {
 	for _, topic := range topics {
-		subscriptionName := pubsublite.SubscriptionName(topic, consumer)
+		subscriptionName := pubsublite.JoinTopicConsumer(topic, consumer)
 		err := pubsubliteManager.CreateSubscription(ctx, subscriptionName, string(topic), true)
 		require.NoError(t, err)
 		t.Cleanup(func() {
