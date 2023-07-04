@@ -262,7 +262,11 @@ func (c *consumer) processMessage(ctx context.Context, msg *pubsub.Message) {
 			}
 		}()
 	}
-	record := apmqueue.Record{Topic: c.topic, Value: msg.Data}
+	record := apmqueue.Record{
+		Topic:       c.topic,
+		OrderingKey: []byte(msg.OrderingKey),
+		Value:       msg.Data,
+	}
 	if err = c.processor.Process(ctx, record); err != nil {
 		partition, offset := partitionOffset(msg.ID)
 		c.logger.Error("unable to process event",

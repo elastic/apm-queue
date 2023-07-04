@@ -153,8 +153,9 @@ func (p *Producer) Produce(ctx context.Context, rs ...apmqueue.Record) error {
 
 	for _, record := range rs {
 		msg := pubsub.Message{
-			Data:       record.Value,
-			Attributes: make(map[string]string),
+			OrderingKey: string(record.OrderingKey),
+			Data:        record.Value,
+			Attributes:  make(map[string]string),
 		}
 
 		if meta, ok := queuecontext.MetadataFromContext(ctx); ok {

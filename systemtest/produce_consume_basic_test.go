@@ -19,6 +19,7 @@ package systemtest
 
 import (
 	"context"
+	"strconv"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -76,9 +77,69 @@ func TestProduceConsumeMultipleTopics(t *testing.T) {
 	})
 }
 
+func TestProduceConsumeOrderingKeys(t *testing.T) {
+	// The test asserts that messages are consumed in sequence given that
+	// they are produced with a specific ordering key.
+
+	// Use a high event count to circumvent the UniformBytesPartitioner
+	// used by franz-go by default which aims to produce large batches of
+	// data to same partition if no ordering keys is specified.
+	events := 1500
+	partitions := 2
+	timeout := 60 * time.Second
+	orderingKey := []byte("fixed")
+
+	forEachProvider(t, func(t *testing.T, pf providerF) {
+		runAsyncAndSync(t, func(t *testing.T, isSync bool) {
+			var records atomic.Int64
+			processor := sequenceConsumerAssertionProcessor(t, &sequenceConsumerAssertions{
+				records: &records,
+			}, func(r apmqueue.Record) int {
+				assert.Equal(t, orderingKey, r.OrderingKey)
+				seq, err := strconv.Atoi(string(r.Value))
+				assert.NoError(t, err)
+				return seq
+			})
+			topics := SuffixTopics(
+				apmqueue.Topic(t.Name() + "default"),
+			)
+			producer, consumer := pf(t,
+				withProcessor(processor),
+				withSync(isSync),
+				withTopicsGenerator(func(t testing.TB) []apmqueue.Topic {
+					return topics
+				}),
+				withPartitions(partitions),
+			)
+
+			ctx, cancel := context.WithTimeout(context.Background(), timeout)
+			defer cancel()
+			events := map[apmqueue.Topic]int{
+				topics[0]: events,
+			}
+			var expectedCount int
+			for _, c := range events {
+				expectedCount += c
+			}
+			testProduceConsume(ctx, t, produceConsumeCfg{
+				events:               events,
+				expectedRecordsCount: expectedCount,
+				orderingKey:          orderingKey,
+				valueFunc:            func(i int) []byte { return []byte(strconv.Itoa(i)) },
+				records:              &records,
+				producer:             producer,
+				consumer:             consumer,
+				timeout:              timeout,
+			})
+		})
+	})
+}
+
 type produceConsumeCfg struct {
 	events               map[apmqueue.Topic]int
 	expectedRecordsCount int
+	orderingKey          []byte
+	valueFunc            func(int) []byte
 	producer             apmqueue.Producer
 	consumer             apmqueue.Consumer
 	records              *atomic.Int64
@@ -86,14 +147,20 @@ type produceConsumeCfg struct {
 }
 
 func testProduceConsume(ctx context.Context, t testing.TB, cfg produceConsumeCfg) {
+	if cfg.valueFunc == nil {
+		cfg.valueFunc = func(_ int) []byte {
+			return []byte("content")
+		}
+	}
 	// Run consumer and assert that the events are eventually set.
 	go cfg.consumer.Run(ctx)
 	var records []apmqueue.Record
 	for topic, events := range cfg.events {
 		for i := 0; i < events; i++ {
 			records = append(records, apmqueue.Record{
-				Topic: topic,
-				Value: []byte("content"),
+				Topic:       topic,
+				OrderingKey: cfg.orderingKey,
+				Value:       cfg.valueFunc(i),
 			})
 		}
 	}
@@ -120,6 +187,33 @@ type consumerAssertions struct {
 
 func assertProcessor(t testing.TB, assertions consumerAssertions) apmqueue.Processor {
 	return apmqueue.ProcessorFunc(func(_ context.Context, r ...apmqueue.Record) error {
+		assert.Greater(t, len(r), 0)
+		assertions.records.Add(int64(len(r)))
+		return nil
+	})
+}
+
+// sequenceConsumerAssertions asserts that records are consumed in sequence
+// assuming that all records are sent to same partitions. If records are
+// not sent to same partition then it will result in failures.
+type sequenceConsumerAssertions struct {
+	records  *atomic.Int64
+	lastSeen atomic.Int32
+}
+
+func sequenceConsumerAssertionProcessor(
+	t testing.TB,
+	assertions *sequenceConsumerAssertions,
+	sequenceExtractor func(apmqueue.Record) int,
+) apmqueue.Processor {
+	return apmqueue.ProcessorFunc(func(_ context.Context, r ...apmqueue.Record) error {
+		for _, record := range r {
+			seq := sequenceExtractor(record)
+			assert.True(
+				t, assertions.lastSeen.CompareAndSwap(int32(seq), int32(seq+1)),
+				"all records should be sent to same partition and consumed in sequence",
+			)
+		}
 		assert.Greater(t, len(r), 0)
 		assertions.records.Add(int64(len(r)))
 		return nil
