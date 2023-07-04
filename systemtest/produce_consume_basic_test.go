@@ -93,7 +93,7 @@ func TestProduceConsumeOrderingKeys(t *testing.T) {
 		runAsyncAndSync(t, func(t *testing.T, isSync bool) {
 			var records atomic.Int64
 			processor := sequenceConsumerAssertionProcessor(t, &sequenceConsumerAssertions{
-				consumerAssertions: consumerAssertions{records: &records},
+				records: &records,
 			}, func(r apmqueue.Record) int {
 				assert.Equal(t, orderingKey, r.OrderingKey)
 				seq, err := strconv.Atoi(string(r.Value))
@@ -197,7 +197,7 @@ func assertProcessor(t testing.TB, assertions consumerAssertions) apmqueue.Proce
 // assuming that all records are sent to same partitions. If records are
 // not sent to same partition then it will result in failures.
 type sequenceConsumerAssertions struct {
-	consumerAssertions
+	records  *atomic.Int64
 	lastSeen atomic.Int32
 }
 
