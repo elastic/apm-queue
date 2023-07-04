@@ -275,9 +275,7 @@ func (m *Manager) MonitorConsumerLag(topicConsumers []apmqueue.TopicConsumer) (m
 	}
 
 	filter := fmt.Sprintf("metric.type = \"pubsublite.googleapis.com/subscription/backlog_message_count\""+
-		" AND resource.labels.location = \"%s\""+
 		" AND (%s)",
-		m.cfg.Region,
 		strings.Join(subscriptionIDFilters, " OR "))
 
 	gatherMetrics := func(ctx context.Context, o metric.Observer) error {
@@ -298,6 +296,11 @@ func (m *Manager) MonitorConsumerLag(topicConsumers []apmqueue.TopicConsumer) (m
 			if err != nil {
 				m.cfg.Logger.Error("error reading from monitoring time series iterator", zap.Error(err))
 				return fmt.Errorf("error reading from monitoring time series iterator: %w", err)
+			}
+
+			location := resp.Resource.Labels["location"]
+			if location != m.cfg.Region {
+				continue
 			}
 
 			subscriptionID := resp.Resource.Labels["subscription_id"]

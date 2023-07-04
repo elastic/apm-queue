@@ -675,6 +675,5 @@ func TestManagerMetrics(t *testing.T) {
 	}, metrics[0].Data, metricdatatest.IgnoreTimestamp())
 
 	assert.Equal(t, testAdminService.TimeSeriesFilter, "metric.type = \"pubsublite.googleapis.com/subscription/backlog_message_count\""+
-		" AND resource.labels.location = \"region-1\""+
 		" AND (resource.labels.subscription_id = \"topic1+consumer1\" OR resource.labels.subscription_id = \"topic2+consumer1\")")
 }
