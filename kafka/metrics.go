@@ -97,7 +97,10 @@ func formatMetricError(name string, err error) error {
 // OnProduceRecordUnbuffered records the number of produced / failed messages.
 // https://pkg.go.dev/github.com/twmb/franz-go/pkg/kgo#HookProduceRecordUnbuffered
 func (h *metricHooks) OnProduceRecordUnbuffered(r *kgo.Record, err error) {
-	attrs := attributesFromRecord(r)
+	attrs := attributesFromRecord(r,
+		semconv.MessagingDestinationName(r.Topic),
+		semconv.MessagingKafkaDestinationPartition(int(r.Partition)),
+	)
 	if err != nil {
 		errorType := attribute.String("error", "other")
 		if errors.Is(err, context.DeadlineExceeded) {
@@ -119,7 +122,10 @@ func (h *metricHooks) OnProduceRecordUnbuffered(r *kgo.Record, err error) {
 // OnFetchRecordUnbuffered records the number of fetched messages.
 // https://pkg.go.dev/github.com/twmb/franz-go/pkg/kgo#HookFetchRecordUnbuffered
 func (h *metricHooks) OnFetchRecordUnbuffered(r *kgo.Record, _ bool) {
-	attrs := attributesFromRecord(r)
+	attrs := attributesFromRecord(r,
+		semconv.MessagingSourceName(r.Topic),
+		semconv.MessagingKafkaSourcePartition(int(r.Partition)),
+	)
 
 	h.messageFetched.Add(r.Context, 1,
 		metric.WithAttributes(attrs...),
@@ -135,13 +141,10 @@ func (h *metricHooks) OnFetchRecordUnbuffered(r *kgo.Record, _ bool) {
 	))
 }
 
-func attributesFromRecord(r *kgo.Record) []attribute.KeyValue {
+func attributesFromRecord(r *kgo.Record, extra ...attribute.KeyValue) []attribute.KeyValue {
 	attrs := make([]attribute.KeyValue, 0, 5) // Preallocate 5 elements.
-	attrs = append(attrs,
-		semconv.MessagingSystem("kafka"),
-		semconv.MessagingDestinationName(r.Topic),
-		semconv.MessagingKafkaDestinationPartition(int(r.Partition)),
-	)
+	attrs = append(attrs, semconv.MessagingSystem("kafka"))
+	attrs = append(attrs, extra...)
 	for _, v := range r.Headers {
 		if v.Key == "traceparent" { // Ignore traceparent.
 			continue
