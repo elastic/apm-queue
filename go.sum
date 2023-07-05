@@ -9,10 +9,10 @@ cloud.google.com/go/compute/metadata v0.2.3/go.mod h1:VAV5nSsACxMJvgaAuX6Pk2Aawl
 cloud.google.com/go/iam v1.0.1 h1:lyeCAU6jpnVNrE9zGQkTl3WgNgK/X+uWwaw0kynZJMU=
 cloud.google.com/go/iam v1.0.1/go.mod h1:yR3tmSL8BcZB4bxByRv2jkSIahVmCtfKZwLYGBalRE8=
 cloud.google.com/go/kms v1.10.2 h1:8UePKEypK3SQ6g+4mn/s/VgE5L7XOh+FwGGRUqvY3Hw=
-cloud.google.com/go/longrunning v0.4.1 h1:v+yFJOfKC3yZdY6ZUI933pIYdhyhV8S3NpWrXWmg7jM=
-cloud.google.com/go/longrunning v0.4.1/go.mod h1:4iWDqhBZ70CvZ6BfETbvam3T8FMvLK+eFj0E6AaRQTo=
-cloud.google.com/go/monitoring v1.13.0 h1:2qsrgXGVoRXpP7otZ14eE1I568zAa92sJSDPyOJvwjM=
-cloud.google.com/go/monitoring v1.13.0/go.mod h1:k2yMBAB1H9JT/QETjNkgdCGD9bPF712XiLTVr+cBrpw=
+cloud.google.com/go/longrunning v0.5.0 h1:DK8BH0+hS+DIvc9a2TPnteUievsTCH4ORMAASSb7JcQ=
+cloud.google.com/go/longrunning v0.5.0/go.mod h1:0JNuqRShmscVAhIACGtskSAWtqtOoPkwP0YF1oVEchc=
+cloud.google.com/go/monitoring v1.15.1 h1:65JhLMd+JiYnXr6j5Z63dUYCuOg770p8a/VC+gil/58=
+cloud.google.com/go/monitoring v1.15.1/go.mod h1:lADlSAlFdbqQuwwpaImhsJXu1QSdd3ojypXrFSMr2rM=
 cloud.google.com/go/pubsub v1.31.0 h1:aXdyyJz90kA+bor9+6+xHAciMD5mj8v15WqFZ5E0sek=
 cloud.google.com/go/pubsub v1.31.0/go.mod h1:dYmJ3K97NCQ/e4OwZ20rD4Ym3Bu8Gu9m/aJdWQjdcks=
 cloud.google.com/go/pubsublite v1.8.1 h1:pX+idpWMIH30/K7c0epN6V703xpIcMXWRjKJsz0tYGY=
