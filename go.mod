@@ -4,7 +4,7 @@ go 1.20
 
 require (
 	cloud.google.com/go/monitoring v1.15.1
-	cloud.google.com/go/pubsub v1.31.0
+	cloud.google.com/go/pubsub v1.32.0
 	cloud.google.com/go/pubsublite v1.8.1
 	github.com/google/go-cmp v0.5.9
 	github.com/googleapis/gax-go/v2 v2.11.0
@@ -34,7 +34,7 @@ require (
 	cloud.google.com/go v0.110.2 // indirect
 	cloud.google.com/go/compute v1.19.3 // indirect
 	cloud.google.com/go/compute/metadata v0.2.3 // indirect
-	cloud.google.com/go/iam v1.0.1 // indirect
+	cloud.google.com/go/iam v1.1.0 // indirect
 	cloud.google.com/go/longrunning v0.5.0 // indirect
 	github.com/benbjohnson/clock v1.1.0 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
