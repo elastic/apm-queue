@@ -10,7 +10,7 @@ on:
 jobs:
   notify:
     # This job runs only if the pull request is from a forked repository.
-    if: github.event.pull_request.head.repo.full_name != github.repository
+    if: github.event.pull_request.head.repo.fork == true
     permissions:
       pull-requests: write
     runs-on: ubuntu-latest
