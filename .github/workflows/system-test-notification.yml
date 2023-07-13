@@ -1,0 +1,32 @@
+name: system-test-notification
+
+on:
+  # This needs to be `pull_request_target` instead of `pull_request`
+  # to be able to write a comment on the pull request.
+  pull_request_target:
+    types:
+      - opened
+
+jobs:
+  notify:
+    # This job runs only if the pull request is from a forked repository.
+    if: github.event.pull_request.head.repo.fork == true
+    permissions:
+      pull-requests: write
+    runs-on: ubuntu-latest
+    steps:
+      - name: Add comment
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const { repo, owner } = context.repo
+            await github.rest.issues.createComment({
+              owner,
+              repo,
+              issue_number: context.issue.number,
+              body: `
+            ### :warning: Warning
+            System-tests will not be executed for this PR because it is from a forked repository. 
+            But it will still create a successful \`run-system-tests\` status check.
+              `
+            });
