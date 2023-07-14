@@ -51,8 +51,8 @@ func TestNewProducer(t *testing.T) {
 		_, err := NewProducer(ProducerConfig{})
 		require.Error(t, err)
 		assert.EqualError(t, err, "kafka: invalid producer config: "+strings.Join([]string{
-			"kafka: at least one broker must be set",
 			"kafka: logger must be set",
+			"kafka: at least one broker must be set",
 		}, "\n"))
 	})
 
