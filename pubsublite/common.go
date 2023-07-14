@@ -33,8 +33,8 @@ import (
 	apmqueue "github.com/elastic/apm-queue"
 )
 
-// CommonConfig defines common configuration for Kafka consumers, producers,
-// and managers.
+// CommonConfig defines common configuration for Pub/Sub Lite consumers,
+// producers, and managers.
 type CommonConfig struct {
 	// Project is the GCP project.
 	//
@@ -44,6 +44,13 @@ type CommonConfig struct {
 
 	// Region is the GCP region.
 	Region string
+
+	// Namespace holds a namespace for Pub/Sub Lite resources.
+	//
+	// This is added as a prefix for reservation, topic, and
+	// subscription names, and acts as a filter on resources
+	// monitored or described by the manager.
+	Namespace string
 
 	// ClientOptions holds arbitrary Google API client options.
 	ClientOptions []option.ClientOption
@@ -63,40 +70,50 @@ type CommonConfig struct {
 	MeterProvider metric.MeterProvider
 }
 
-// Validate ensures the configuration is valid, otherwise, returns an error.
-func (cfg *CommonConfig) Validate() error {
-	var errs []error
-	if cfg.Project == "" {
-		errs = append(errs, errors.New("pubsublite: project must be set"))
-	}
-	if cfg.Region == "" {
-		errs = append(errs, errors.New("pubsublite: region must be set"))
-	}
-	if cfg.Logger == nil {
-		errs = append(errs, errors.New("pubsublite: logger must be set"))
-	}
-	return errors.Join(errs...)
-}
-
-// setFromEnv sets unspecified config from environment variables.
+// finalize ensures the configuration is valid, setting default values from
+// environment variables as described in doc comments, returning an error if
+// any configuration is invalid.
 //
 // If $GOOGLE_APPLICATION_CREDENTIALS is set, the file to which it points will
 // be read and parsed as JSON (assuming service account), and its `project_id`
 // property will be used for the Project property if it is not already set.
-func (cfg *CommonConfig) setFromEnv() error {
-	if cfg.Project != "" {
-		return nil
+func (cfg *CommonConfig) finalize() error {
+	var errs []error
+	if cfg.Logger == nil {
+		errs = append(errs, errors.New("logger must be set"))
+		cfg.Logger = zap.NewNop()
+	} else {
+		cfg.Logger = cfg.Logger.Named("pubsublite")
 	}
-
-	logger := cfg.Logger
-	if logger == nil {
-		logger = zap.NewNop()
+	if cfg.Region == "" {
+		errs = append(errs, errors.New("region must be set"))
 	}
+	if cfg.Project == "" {
+		if err := cfg.setProject(); err != nil {
+			errs = append(errs, fmt.Errorf("error setting project: %w", err))
+		} else if cfg.Project == "" {
+			errs = append(errs, errors.New("project must be set"))
+		}
+	}
+	if len(errs) == 0 {
+		cfg.Logger = cfg.Logger.With(
+			zap.String("region", cfg.Region),
+			zap.String("project", cfg.Project),
+		)
+		if cfg.Namespace != "" {
+			cfg.Logger = cfg.Logger.With(
+				zap.String("namespace", cfg.Namespace),
+			)
+		}
+	}
+	return errors.Join(errs...)
+}
 
+func (cfg *CommonConfig) setProject() error {
 	const credentialsEnvVar = "GOOGLE_APPLICATION_CREDENTIALS"
 	credentialsPath := os.Getenv(credentialsEnvVar)
 	if credentialsPath == "" {
-		logger.Debug("$" + credentialsEnvVar + " not set, cannot set default project ID")
+		cfg.Logger.Debug("$" + credentialsEnvVar + " not set, cannot set default project ID")
 		return nil
 	}
 
@@ -113,7 +130,14 @@ func (cfg *CommonConfig) setFromEnv() error {
 		return fmt.Errorf("failed to parse $%s: %w", credentialsEnvVar, err)
 	}
 	cfg.Project = config.ProjectID
-	logger.Info("set project ID from $"+credentialsEnvVar, zap.String("project", cfg.Project))
+	if cfg.Project == "" {
+		cfg.Logger.Debug("project ID missing from $" + credentialsEnvVar + "")
+	} else {
+		cfg.Logger.Info(
+			"set project ID from $"+credentialsEnvVar,
+			zap.String("project", cfg.Project),
+		)
+	}
 	return nil
 }
 
@@ -129,6 +153,13 @@ func (cfg *CommonConfig) meterProvider() metric.MeterProvider {
 		return cfg.MeterProvider
 	}
 	return otel.GetMeterProvider()
+}
+
+func (cfg *CommonConfig) namespacePrefix() string {
+	if cfg.Namespace == "" {
+		return ""
+	}
+	return cfg.Namespace + "-"
 }
 
 // TODO(axw) method for producing common option.ClientOptions, such as otelgrpc interceptors.

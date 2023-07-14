@@ -35,7 +35,7 @@ import (
 type TopicCreatorConfig struct {
 	// Reservation holds the unqualified ID of the reservation with
 	// which topics will be associated. This will be combined with the
-	// project ID and region ID to form the qualified reservation name.
+	// project ID, region ID, and namespace to form the reservation path.
 	Reservation string
 
 	// PartitionCount is the number of partitions to assign to newly
@@ -63,26 +63,26 @@ type TopicCreatorConfig struct {
 	RetentionDuration time.Duration
 }
 
-// Validate checks that cfg is valid, and returns an error otherwise.
-func (cfg TopicCreatorConfig) Validate() error {
+// validate checks that cfg is valid, and returns an error otherwise.
+func (cfg TopicCreatorConfig) validate() error {
 	var errs []error
 	if cfg.Reservation == "" {
-		errs = append(errs, errors.New("pubsublite: reservation must be set"))
+		errs = append(errs, errors.New("reservation must be set"))
 	}
 	if cfg.PartitionCount <= 0 {
-		errs = append(errs, errors.New("pubsublite: partition count must be greater than zero"))
+		errs = append(errs, errors.New("partition count must be greater than zero"))
 	}
 	if cfg.PublishCapacityMiBPerSec < 4 || cfg.PublishCapacityMiBPerSec > 16 {
-		errs = append(errs, errors.New("pubsublite: publish capacity must between 4 and 16, inclusive"))
+		errs = append(errs, errors.New("publish capacity must between 4 and 16, inclusive"))
 	}
 	if cfg.SubscribeCapacityMiBPerSec < 4 || cfg.SubscribeCapacityMiBPerSec > 32 {
-		errs = append(errs, errors.New("pubsublite: subscribe capacity must between 4 and 32, inclusive"))
+		errs = append(errs, errors.New("subscribe capacity must between 4 and 32, inclusive"))
 	}
 	if cfg.PerPartitionBytes < 30*1024*1024*1024 {
-		errs = append(errs, errors.New("pubsublite: per-partition bytes must be at least 30GiB"))
+		errs = append(errs, errors.New("per-partition bytes must be at least 30GiB"))
 	}
 	if cfg.RetentionDuration <= 0 {
-		errs = append(errs, errors.New("pubsublite: retention duration must be greater than zero"))
+		errs = append(errs, errors.New("retention duration must be greater than zero"))
 	}
 	return errors.Join(errs...)
 }
@@ -95,7 +95,7 @@ type TopicCreator struct {
 
 // NewTopicCreator returns a new TopicCreator with the given config.
 func (m *Manager) NewTopicCreator(cfg TopicCreatorConfig) (*TopicCreator, error) {
-	if err := cfg.Validate(); err != nil {
+	if err := cfg.validate(); err != nil {
 		return nil, fmt.Errorf("pubsublite: invalid topic creator config: %w", err)
 	}
 	return &TopicCreator{m: m, cfg: cfg}, nil
@@ -126,15 +126,16 @@ func (c *TopicCreator) CreateTopics(ctx context.Context, topics ...apmqueue.Topi
 }
 
 func (c *TopicCreator) createTopic(ctx context.Context, name string) error {
+	namespacePrefix := c.m.cfg.namespacePrefix()
 	logger := c.m.cfg.Logger.With(zap.String("topic", name))
 	_, err := c.m.client.CreateTopic(ctx, pubsublite.TopicConfig{
 		Name: fmt.Sprintf(
-			"projects/%s/locations/%s/topics/%s",
-			c.m.cfg.Project, c.m.cfg.Region, name,
+			"projects/%s/locations/%s/topics/%s%s",
+			c.m.cfg.Project, c.m.cfg.Region, namespacePrefix, name,
 		),
 		ThroughputReservation: fmt.Sprintf(
-			"projects/%s/locations/%s/reservations/%s",
-			c.m.cfg.Project, c.m.cfg.Region, c.cfg.Reservation,
+			"projects/%s/locations/%s/reservations/%s%s",
+			c.m.cfg.Project, c.m.cfg.Region, namespacePrefix, c.cfg.Reservation,
 		),
 		PartitionCount:             c.cfg.PartitionCount,
 		PublishCapacityMiBPerSec:   c.cfg.PublishCapacityMiBPerSec,

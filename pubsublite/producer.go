@@ -47,9 +47,11 @@ type ProducerConfig struct {
 	Sync bool
 }
 
-// Validate ensures the configuration is valid, otherwise, returns an error.
-func (cfg ProducerConfig) Validate() error {
-	return cfg.CommonConfig.Validate()
+// finalize ensures the configuration is valid, setting default values from
+// environment variables as described in doc comments, returning an error if
+// any configuration is invalid.
+func (cfg *ProducerConfig) finalize() error {
+	return cfg.CommonConfig.finalize()
 }
 
 // resTopic enriches a pubsub.PublishResult with its topic.
@@ -76,10 +78,7 @@ type Producer struct {
 
 // NewProducer creates a new PubSub Lite producer for a single project.
 func NewProducer(cfg ProducerConfig) (*Producer, error) {
-	if err := cfg.CommonConfig.setFromEnv(); err != nil {
-		return nil, fmt.Errorf("pubsublite: failed to set config from environment: %w", err)
-	}
-	if err := cfg.Validate(); err != nil {
+	if err := cfg.finalize(); err != nil {
 		return nil, fmt.Errorf("pubsublite: invalid producer config: %w", err)
 	}
 	metrics, err := telemetry.NewPublisherMetrics(cfg.meterProvider())
@@ -196,7 +195,7 @@ func (p *Producer) getPublisher(topic apmqueue.Topic) (pubsubabs.Publisher, erro
 	if v, ok := p.producers.Load(topic); ok {
 		return v.(pubsubabs.Publisher), nil
 	}
-	pub, err := newPublisher(p.cfg, topic)
+	pub, err := p.newPublisher(topic)
 	if err != nil {
 		return nil, fmt.Errorf(
 			"pubsublite: failed creating publisher client for topic %s: %w",
@@ -218,7 +217,7 @@ func (p *Producer) getPublisher(topic apmqueue.Topic) (pubsubabs.Publisher, erro
 	return publisher, nil
 }
 
-func newPublisher(cfg ProducerConfig, topic apmqueue.Topic) (*pscompat.PublisherClient, error) {
+func (p *Producer) newPublisher(topic apmqueue.Topic) (*pscompat.PublisherClient, error) {
 	// TODO(marclop) connection pools:
 	// https://pkg.go.dev/cloud.google.com/go/pubsublite#hdr-gRPC_Connection_Pools
 	settings := pscompat.PublishSettings{
@@ -229,8 +228,8 @@ func newPublisher(cfg ProducerConfig, topic apmqueue.Topic) (*pscompat.Publisher
 		// a publisher client per topic.
 	}
 	return pscompat.NewPublisherClientWithSettings(context.Background(),
-		formatTopic(cfg.Project, cfg.Region, topic),
-		settings, cfg.ClientOptions...,
+		p.formatTopicPath(topic),
+		settings, p.cfg.ClientOptions...,
 	)
 }
 
@@ -258,10 +257,13 @@ func blockUntilProduced(ctx context.Context, res []resTopic, logger *zap.Logger)
 // Healthy is a noop at the moment.
 // TODO(marclop) range over the producers, call .Error(), if any returns
 // an error, return it.
-func (p *Producer) Healthy(ctx context.Context) error { return nil }
+func (p *Producer) Healthy(ctx context.Context) error {
+	return nil
+}
 
-func formatTopic(project, region string, topic apmqueue.Topic) string {
-	return fmt.Sprintf("projects/%s/locations/%s/topics/%s",
-		project, region, topic,
+func (p *Producer) formatTopicPath(topic apmqueue.Topic) string {
+	return fmt.Sprintf(
+		"projects/%s/locations/%s/topics/%s%s",
+		p.cfg.Project, p.cfg.Region, p.cfg.namespacePrefix(), topic,
 	)
 }
