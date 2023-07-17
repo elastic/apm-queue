@@ -142,7 +142,7 @@ type CommonConfig struct {
 func (cfg *CommonConfig) finalize() error {
 	var errs []error
 	if cfg.Logger == nil {
-		cfg.Logger = zap.NewNop()
+		cfg.Logger = zap.NewNop() // cfg.Logger may be used below
 		errs = append(errs, errors.New("kafka: logger must be set"))
 	}
 	if cfg.ConfigFile == "" {
