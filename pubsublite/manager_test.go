@@ -30,11 +30,9 @@ import (
 	"go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata/metricdatatest"
-	sdktrace "go.opentelemetry.io/otel/sdk/trace"
-	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 
 	"cloud.google.com/go/monitoring/apiv3/v2/monitoringpb"
-	pubsublitepb "cloud.google.com/go/pubsublite/apiv1/pubsublitepb"
+	"cloud.google.com/go/pubsublite/apiv1/pubsublitepb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
@@ -61,9 +59,9 @@ func TestNewManager(t *testing.T) {
 	_, err := NewManager(ManagerConfig{})
 	require.Error(t, err)
 	assert.EqualError(t, err, "pubsublite: invalid manager config: "+strings.Join([]string{
-		"pubsublite: project must be set",
-		"pubsublite: region must be set",
-		"pubsublite: logger must be set",
+		"logger must be set",
+		"region must be set",
+		"project must be set",
 	}, "\n"))
 
 	_, commonConfig := newTestAdminAndMetricService(t)
@@ -78,19 +76,29 @@ func TestNewManagerDefaultProject(t *testing.T) {
 	credentialsPath := filepath.Join(tempdir, "credentials.json")
 	t.Setenv("GOOGLE_APPLICATION_CREDENTIALS", credentialsPath)
 
-	_, err := NewManager(ManagerConfig{})
+	_, err := NewManager(ManagerConfig{
+		CommonConfig: CommonConfig{
+			Logger: zap.NewNop(),
+			Region: "region",
+		},
+	})
 	require.Error(t, err)
 	assert.EqualError(t, err,
-		"pubsublite: failed to set config from environment: failed to read $GOOGLE_APPLICATION_CREDENTIALS: "+
+		"pubsublite: invalid manager config: error setting project: failed to read $GOOGLE_APPLICATION_CREDENTIALS: "+
 			"open "+credentialsPath+": no such file or directory",
 	)
 
 	err = os.WriteFile(credentialsPath, []byte("jason"), 0644)
 	require.NoError(t, err)
-	_, err = NewManager(ManagerConfig{})
+	_, err = NewManager(ManagerConfig{
+		CommonConfig: CommonConfig{
+			Logger: zap.NewNop(),
+			Region: "region",
+		},
+	})
 	require.Error(t, err)
 	assert.EqualError(t, err,
-		"pubsublite: failed to set config from environment: failed to parse $GOOGLE_APPLICATION_CREDENTIALS: "+
+		"pubsublite: invalid manager config: error setting project: failed to parse $GOOGLE_APPLICATION_CREDENTIALS: "+
 			"invalid character 'j' looking for beginning of value",
 	)
 
@@ -99,8 +107,8 @@ func TestNewManagerDefaultProject(t *testing.T) {
 	_, err = NewManager(ManagerConfig{})
 	require.Error(t, err)
 	assert.EqualError(t, err, "pubsublite: invalid manager config: "+strings.Join([]string{
-		"pubsublite: region must be set",
-		"pubsublite: logger must be set",
+		"logger must be set",
+		"region must be set",
 	}, "\n"))
 }
 
@@ -117,7 +125,7 @@ func TestManagerCreateReservation(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, "projects/project/locations/region-1", server.createReservationRequest.Parent)
-	assert.Equal(t, "reservation_name", server.createReservationRequest.ReservationId)
+	assert.Equal(t, "name_space-reservation_name", server.createReservationRequest.ReservationId)
 	assert.Equal(t, int64(123), server.createReservationRequest.Reservation.GetThroughputCapacity())
 
 	errorInfo, err := anypb.New(&errdetails.ErrorInfo{Reason: "RESOURCE_ALREADY_EXISTS"})
@@ -139,18 +147,26 @@ func TestManagerCreateReservation(t *testing.T) {
 
 	assert.Equal(t, []observer.LoggedEntry{{
 		Entry: zapcore.Entry{
-			Level:   zapcore.InfoLevel,
-			Message: "created pubsublite reservation",
+			Level:      zapcore.InfoLevel,
+			LoggerName: "pubsublite",
+			Message:    "created pubsublite reservation",
 		},
 		Context: []zapcore.Field{
+			zap.String("region", "region-1"),
+			zap.String("project", "project"),
+			zap.String("namespace", "name_space"),
 			zap.String("reservation", "reservation_name"),
 		},
 	}, {
 		Entry: zapcore.Entry{
-			Level:   zapcore.DebugLevel,
-			Message: "pubsublite reservation already exists",
+			Level:      zapcore.DebugLevel,
+			LoggerName: "pubsublite",
+			Message:    "pubsublite reservation already exists",
 		},
 		Context: []zapcore.Field{
+			zap.String("region", "region-1"),
+			zap.String("project", "project"),
+			zap.String("namespace", "name_space"),
 			zap.String("reservation", "reservation_name"),
 		},
 	}}, observedLogs.AllUntimed())
@@ -169,7 +185,7 @@ func TestManagerCreateSubscription(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, "projects/project/locations/region-1", server.createSubscriptionRequest.Parent)
-	assert.Equal(t, "subscription_name", server.createSubscriptionRequest.SubscriptionId)
+	assert.Equal(t, "name_space-subscription_name", server.createSubscriptionRequest.SubscriptionId)
 	assert.Equal(t, false, server.createSubscriptionRequest.SkipBacklog)
 
 	errorInfo, err := anypb.New(&errdetails.ErrorInfo{Reason: "RESOURCE_ALREADY_EXISTS"})
@@ -192,20 +208,28 @@ func TestManagerCreateSubscription(t *testing.T) {
 
 	assert.Equal(t, []observer.LoggedEntry{{
 		Entry: zapcore.Entry{
-			Level:   zapcore.InfoLevel,
-			Message: "created pubsublite subscription",
+			Level:      zapcore.InfoLevel,
+			LoggerName: "pubsublite",
+			Message:    "created pubsublite subscription",
 		},
 		Context: []zapcore.Field{
+			zap.String("region", "region-1"),
+			zap.String("project", "project"),
+			zap.String("namespace", "name_space"),
 			zap.String("subscription", "subscription_name"),
 			zap.String("topic", "topic_name"),
 			zap.Bool("deliver_immediately", true),
 		},
 	}, {
 		Entry: zapcore.Entry{
-			Level:   zapcore.DebugLevel,
-			Message: "pubsublite subscription already exists",
+			Level:      zapcore.DebugLevel,
+			LoggerName: "pubsublite",
+			Message:    "pubsublite subscription already exists",
 		},
 		Context: []zapcore.Field{
+			zap.String("region", "region-1"),
+			zap.String("project", "project"),
+			zap.String("namespace", "name_space"),
 			zap.String("subscription", "subscription_name"),
 			zap.String("topic", "topic_name"),
 		},
@@ -222,7 +246,10 @@ func TestManagerDeleteReservation(t *testing.T) {
 
 	err = m.DeleteReservation(context.Background(), "reservation_name")
 	require.NoError(t, err)
-	assert.Equal(t, "projects/project/locations/region-1/reservations/reservation_name", server.deleteReservationRequest.Name)
+	assert.Equal(t,
+		"projects/project/locations/region-1/reservations/name_space-reservation_name",
+		server.deleteReservationRequest.Name,
+	)
 
 	errorInfo, err := anypb.New(&errdetails.ErrorInfo{Reason: "RESOURCE_NOT_EXIST"})
 	require.NoError(t, err)
@@ -244,18 +271,26 @@ func TestManagerDeleteReservation(t *testing.T) {
 
 	assert.Equal(t, []observer.LoggedEntry{{
 		Entry: zapcore.Entry{
-			Level:   zapcore.InfoLevel,
-			Message: "deleted pubsublite reservation",
+			Level:      zapcore.InfoLevel,
+			LoggerName: "pubsublite",
+			Message:    "deleted pubsublite reservation",
 		},
 		Context: []zapcore.Field{
+			zap.String("region", "region-1"),
+			zap.String("project", "project"),
+			zap.String("namespace", "name_space"),
 			zap.String("reservation", "reservation_name"),
 		},
 	}, {
 		Entry: zapcore.Entry{
-			Level:   zapcore.DebugLevel,
-			Message: "pubsublite reservation does not exist",
+			Level:      zapcore.DebugLevel,
+			LoggerName: "pubsublite",
+			Message:    "pubsublite reservation does not exist",
 		},
 		Context: []zapcore.Field{
+			zap.String("region", "region-1"),
+			zap.String("project", "project"),
+			zap.String("namespace", "name_space"),
 			zap.String("reservation", "reservation_name"),
 		},
 	}}, observedLogs.AllUntimed())
@@ -271,7 +306,10 @@ func TestManagerDeleteTopic(t *testing.T) {
 
 	err = m.DeleteTopic(context.Background(), "topic_name")
 	require.NoError(t, err)
-	assert.Equal(t, "projects/project/locations/region-1/topics/topic_name", server.deleteTopicRequest.Name)
+	assert.Equal(t,
+		"projects/project/locations/region-1/topics/name_space-topic_name",
+		server.deleteTopicRequest.Name,
+	)
 
 	errorInfo, err := anypb.New(&errdetails.ErrorInfo{Reason: "RESOURCE_NOT_EXIST"})
 	require.NoError(t, err)
@@ -293,18 +331,26 @@ func TestManagerDeleteTopic(t *testing.T) {
 
 	assert.Equal(t, []observer.LoggedEntry{{
 		Entry: zapcore.Entry{
-			Level:   zapcore.InfoLevel,
-			Message: "deleted pubsublite topic",
+			Level:      zapcore.InfoLevel,
+			LoggerName: "pubsublite",
+			Message:    "deleted pubsublite topic",
 		},
 		Context: []zapcore.Field{
+			zap.String("region", "region-1"),
+			zap.String("project", "project"),
+			zap.String("namespace", "name_space"),
 			zap.String("topic", "topic_name"),
 		},
 	}, {
 		Entry: zapcore.Entry{
-			Level:   zapcore.DebugLevel,
-			Message: "pubsublite topic does not exist",
+			Level:      zapcore.DebugLevel,
+			LoggerName: "pubsublite",
+			Message:    "pubsublite topic does not exist",
 		},
 		Context: []zapcore.Field{
+			zap.String("region", "region-1"),
+			zap.String("project", "project"),
+			zap.String("namespace", "name_space"),
 			zap.String("topic", "topic_name"),
 		},
 	}}, observedLogs.AllUntimed())
@@ -320,7 +366,10 @@ func TestManagerDeleteSubscription(t *testing.T) {
 
 	err = m.DeleteSubscription(context.Background(), "subscription_name")
 	require.NoError(t, err)
-	assert.Equal(t, "projects/project/locations/region-1/subscriptions/subscription_name", server.deleteSubscriptionRequest.Name)
+	assert.Equal(t,
+		"projects/project/locations/region-1/subscriptions/name_space-subscription_name",
+		server.deleteSubscriptionRequest.Name,
+	)
 
 	errorInfo, err := anypb.New(&errdetails.ErrorInfo{Reason: "RESOURCE_NOT_EXIST"})
 	require.NoError(t, err)
@@ -342,18 +391,26 @@ func TestManagerDeleteSubscription(t *testing.T) {
 
 	assert.Equal(t, []observer.LoggedEntry{{
 		Entry: zapcore.Entry{
-			Level:   zapcore.InfoLevel,
-			Message: "deleted pubsublite subscription",
+			Level:      zapcore.InfoLevel,
+			LoggerName: "pubsublite",
+			Message:    "deleted pubsublite subscription",
 		},
 		Context: []zapcore.Field{
+			zap.String("region", "region-1"),
+			zap.String("project", "project"),
+			zap.String("namespace", "name_space"),
 			zap.String("subscription", "subscription_name"),
 		},
 	}, {
 		Entry: zapcore.Entry{
-			Level:   zapcore.DebugLevel,
-			Message: "pubsublite subscription does not exist",
+			Level:      zapcore.DebugLevel,
+			LoggerName: "pubsublite",
+			Message:    "pubsublite subscription does not exist",
 		},
 		Context: []zapcore.Field{
+			zap.String("region", "region-1"),
+			zap.String("project", "project"),
+			zap.String("namespace", "name_space"),
 			zap.String("subscription", "subscription_name"),
 		},
 	}}, observedLogs.AllUntimed())
@@ -367,7 +424,7 @@ func TestManagerListReservations(t *testing.T) {
 
 	reservations, err := m.ListReservations(context.Background())
 	require.NoError(t, err)
-	assert.Equal(t, []string{"reservation_one", "reservation_two", "reservation_three"}, reservations)
+	assert.Equal(t, []string{"reservation_one", "reservation_three"}, reservations)
 
 	server.err = status.Errorf(codes.PermissionDenied, "nope")
 	_, err = m.ListReservations(context.Background())
@@ -383,10 +440,10 @@ func TestManagerListReservationTopics(t *testing.T) {
 
 	topics, err := m.ListReservationTopics(context.Background(), "reservation_name")
 	require.NoError(t, err)
-	assert.Equal(t, []string{"topic_one", "topic_two", "topic_three"}, topics)
+	assert.Equal(t, []string{"topic_one", "topic_three"}, topics)
 	require.Len(t, server.listReservationTopicsRequests, 2)
 	assert.Equal(t,
-		"projects/project/locations/region-1/reservations/reservation_name",
+		"projects/project/locations/region-1/reservations/name_space-reservation_name",
 		server.listReservationTopicsRequests[0].Name,
 	)
 
@@ -405,9 +462,14 @@ func TestManagerListTopicSubscriptions(t *testing.T) {
 
 	subscriptions, err := m.ListTopicSubscriptions(context.Background(), "topic_name")
 	require.NoError(t, err)
-	assert.Equal(t, []string{"subscription_one", "subscription_two", "subscription_three"}, subscriptions)
+	assert.Equal(t, []string{
+		"subscription_one", "subscription_three",
+	}, subscriptions)
 	require.Len(t, server.listTopicSubscriptionsRequests, 2)
-	assert.Equal(t, "projects/project/locations/region-1/topics/topic_name", server.listTopicSubscriptionsRequests[0].Name)
+	assert.Equal(t,
+		"projects/project/locations/region-1/topics/name_space-topic_name",
+		server.listTopicSubscriptionsRequests[0].Name,
+	)
 
 	server.err = status.Errorf(codes.PermissionDenied, "nope")
 	_, err = m.ListTopicSubscriptions(context.Background(), "topic_name")
@@ -430,9 +492,10 @@ func newTestAdminAndMetricService(t testing.TB) (*adminAndMetricServiceServer, C
 	go s.Serve(lis)
 
 	return server, CommonConfig{
-		Project: "project",
-		Region:  "region-1",
-		Logger:  zap.NewNop(),
+		Project:   "project",
+		Region:    "region-1",
+		Namespace: "name_space",
+		Logger:    zap.NewNop(),
 		ClientOptions: []option.ClientOption{
 			option.WithGRPCDialOption(grpc.WithUnaryInterceptor(otelgrpc.UnaryClientInterceptor())),
 			option.WithGRPCDialOption(grpc.WithStreamInterceptor(otelgrpc.StreamClientInterceptor())),
@@ -502,10 +565,10 @@ func (s *adminAndMetricServiceServer) ListReservations(
 	switch len(s.listReservationsRequests) {
 	case 1:
 		resp.NextPageToken = "one"
-		resp.Reservations = []*pubsublitepb.Reservation{{Name: "reservation_one"}}
+		resp.Reservations = []*pubsublitepb.Reservation{{Name: "name_space-reservation_one"}}
 	case 2:
 		resp.NextPageToken = ""
-		resp.Reservations = []*pubsublitepb.Reservation{{Name: "reservation_two"}, {Name: "reservation_three"}}
+		resp.Reservations = []*pubsublitepb.Reservation{{Name: "reservation_two"}, {Name: "name_space-reservation_three"}}
 	}
 	return &resp, s.err
 }
@@ -520,10 +583,10 @@ func (s *adminAndMetricServiceServer) ListReservationTopics(
 	switch len(s.listReservationTopicsRequests) {
 	case 1:
 		resp.NextPageToken = "one"
-		resp.Topics = []string{"topic_one"}
+		resp.Topics = []string{"name_space-topic_one"}
 	case 2:
 		resp.NextPageToken = ""
-		resp.Topics = []string{"topic_two", "topic_three"}
+		resp.Topics = []string{"topic_two", "name_space-topic_three"}
 	}
 	return &resp, s.err
 }
@@ -538,10 +601,10 @@ func (s *adminAndMetricServiceServer) ListTopicSubscriptions(
 	switch len(s.listTopicSubscriptionsRequests) {
 	case 1:
 		resp.NextPageToken = "one"
-		resp.Subscriptions = []string{"subscription_one"}
+		resp.Subscriptions = []string{"name_space-subscription_one"}
 	case 2:
 		resp.NextPageToken = ""
-		resp.Subscriptions = []string{"subscription_two", "subscription_three"}
+		resp.Subscriptions = []string{"subscription_two", "name_space-subscription_three"}
 	}
 	return &resp, s.err
 }
@@ -580,7 +643,7 @@ func (s *adminAndMetricServiceServer) ListTimeSeries(ctx context.Context, req *m
 				},
 				Resource: &monitoredres.MonitoredResource{
 					Labels: map[string]string{
-						"subscription_id": "topic1+consumer1",
+						"subscription_id": "name_space-topic1+consumer1",
 						"partition":       "1",
 						"location":        "region-1",
 					},
@@ -597,7 +660,7 @@ func (s *adminAndMetricServiceServer) ListTimeSeries(ctx context.Context, req *m
 				},
 				Resource: &monitoredres.MonitoredResource{
 					Labels: map[string]string{
-						"subscription_id": "topic2+consumer1",
+						"subscription_id": "name_space-topic2+consumer1",
 						"partition":       "2",
 						"location":        "region-1",
 					},
@@ -614,7 +677,7 @@ func (s *adminAndMetricServiceServer) ListTimeSeries(ctx context.Context, req *m
 				},
 				Resource: &monitoredres.MonitoredResource{
 					Labels: map[string]string{
-						"subscription_id": "topic2+consumer1",
+						"subscription_id": "name_space-topic2+consumer1",
 						"partition":       "3",
 						"location":        "region-2",
 					},
@@ -630,32 +693,19 @@ func (s *adminAndMetricServiceServer) ListTimeSeries(ctx context.Context, req *m
 }
 
 func TestManagerMetrics(t *testing.T) {
-	exp := tracetest.NewInMemoryExporter()
-	tp := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exp))
 	reader := metric.NewManualReader()
 	mp := metric.NewMeterProvider(metric.WithReader(reader))
-	defer tp.Shutdown(context.Background())
 	defer mp.Shutdown(context.Background())
 
 	testAdminService, commonConfig := newTestAdminAndMetricService(t)
-
-	core, _ := observer.New(zapcore.DebugLevel)
-	commonConfig.Logger = zap.New(core)
-	commonConfig.TracerProvider = tp
 	commonConfig.MeterProvider = mp
 	m, err := NewManager(ManagerConfig{CommonConfig: commonConfig})
 	require.NoError(t, err)
 	t.Cleanup(func() { m.Close() })
 
 	registration, err := m.MonitorConsumerLag([]apmqueue.TopicConsumer{
-		{
-			Topic:    "topic1",
-			Consumer: "consumer1",
-		},
-		{
-			Topic:    "topic2",
-			Consumer: "consumer1",
-		},
+		{Topic: "topic1", Consumer: "consumer1"},
+		{Topic: "topic2", Consumer: "consumer1"},
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { registration.Unregister() })
@@ -673,26 +723,26 @@ func TestManagerMetrics(t *testing.T) {
 	require.Len(t, metrics, 1)
 	assert.Equal(t, "consumer_group_lag", metrics[0].Name)
 	metricdatatest.AssertAggregationsEqual(t, metricdata.Gauge[int64]{
-		DataPoints: []metricdata.DataPoint[int64]{
-			{
-				Attributes: attribute.NewSet(
-					attribute.String("topic", "topic1"),
-					attribute.String("group", "consumer1"),
-					attribute.Int("partition", 1),
-				),
-				Value: 1,
-			},
-			{
-				Attributes: attribute.NewSet(
-					attribute.String("topic", "topic2"),
-					attribute.String("group", "consumer1"),
-					attribute.Int("partition", 2),
-				),
-				Value: 2,
-			},
-		},
+		DataPoints: []metricdata.DataPoint[int64]{{
+			Attributes: attribute.NewSet(
+				attribute.String("namespace", "name_space"),
+				attribute.String("topic", "topic1"),
+				attribute.String("group", "consumer1"),
+				attribute.Int("partition", 1),
+			),
+			Value: 1,
+		}, {
+			Attributes: attribute.NewSet(
+				attribute.String("namespace", "name_space"),
+				attribute.String("topic", "topic2"),
+				attribute.String("group", "consumer1"),
+				attribute.Int("partition", 2),
+			),
+			Value: 2,
+		}},
 	}, metrics[0].Data, metricdatatest.IgnoreTimestamp())
 
-	assert.Equal(t, testAdminService.TimeSeriesFilter, "metric.type = \"pubsublite.googleapis.com/subscription/backlog_message_count\""+
-		" AND (resource.labels.subscription_id = \"topic1+consumer1\" OR resource.labels.subscription_id = \"topic2+consumer1\")")
+	assert.Equal(t, testAdminService.TimeSeriesFilter,
+		"metric.type = \"pubsublite.googleapis.com/subscription/backlog_message_count\""+
+			" AND (resource.labels.subscription_id = \"name_space-topic1+consumer1\" OR resource.labels.subscription_id = \"name_space-topic2+consumer1\")")
 }

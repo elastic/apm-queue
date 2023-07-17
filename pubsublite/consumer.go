@@ -55,26 +55,31 @@ type ConsumerConfig struct {
 	Delivery apmqueue.DeliveryType
 }
 
-// Validate ensures the configuration is valid, otherwise, returns an error.
-func (cfg ConsumerConfig) Validate() error {
+// finalize ensures the configuration is valid, setting default values from
+// environment variables as described in doc comments, returning an error if
+// any configuration is invalid.
+func (cfg *ConsumerConfig) finalize() error {
 	var errs []error
-	if err := cfg.CommonConfig.Validate(); err != nil {
+	if err := cfg.CommonConfig.finalize(); err != nil {
 		errs = append(errs, err)
 	}
 	if len(cfg.Topics) == 0 {
-		errs = append(errs, errors.New("pubsublite: at least one topic must be set"))
+		errs = append(errs, errors.New("at least one topic must be set"))
 	}
 	if cfg.ConsumerName == "" {
-		errs = append(errs, errors.New("pubsublite: consumer name must be set"))
+		errs = append(errs, errors.New("consumer name must be set"))
 	}
 	if cfg.Processor == nil {
-		errs = append(errs, errors.New("pubsublite: processor must be set"))
+		errs = append(errs, errors.New("processor must be set"))
 	}
 	switch cfg.Delivery {
 	case apmqueue.AtLeastOnceDeliveryType:
 	case apmqueue.AtMostOnceDeliveryType:
 	default:
-		errs = append(errs, errors.New("pubsublite: delivery is not valid"))
+		errs = append(errs, errors.New("delivery is not valid"))
+	}
+	if len(errs) == 0 {
+		cfg.Logger = cfg.Logger.With(zap.String("consumer", cfg.ConsumerName))
 	}
 	return errors.Join(errs...)
 }
@@ -95,10 +100,7 @@ type Consumer struct {
 
 // NewConsumer creates a new consumer instance for a single subscription.
 func NewConsumer(ctx context.Context, cfg ConsumerConfig) (*Consumer, error) {
-	if err := cfg.CommonConfig.setFromEnv(); err != nil {
-		return nil, fmt.Errorf("pubsublite: failed to set config from environment: %w", err)
-	}
-	if err := cfg.Validate(); err != nil {
+	if err := cfg.finalize(); err != nil {
 		return nil, fmt.Errorf("pubsublite: invalid consumer config: %w", err)
 	}
 	settings := pscompat.ReceiveSettings{
@@ -120,12 +122,25 @@ func NewConsumer(ctx context.Context, cfg ConsumerConfig) (*Consumer, error) {
 		},
 	}
 
+	commonTelemetryAttributes := []attribute.KeyValue{
+		semconv.CloudRegion(cfg.Region),
+		semconv.CloudAccountID(cfg.Project),
+		attribute.String("consumer", cfg.ConsumerName),
+	}
+	var namespacePrefix string
+	if cfg.Namespace != "" {
+		namespacePrefix = cfg.namespacePrefix()
+		commonTelemetryAttributes = append(
+			commonTelemetryAttributes,
+			attribute.String("namespace", cfg.Namespace),
+		)
+	}
+
 	parent := fmt.Sprintf("projects/%s/locations/%s", cfg.Project, cfg.Region)
 	consumers := make([]*consumer, 0, len(cfg.Topics))
-	cfg.Logger = cfg.Logger.Named("pubsublite")
 	for _, topic := range cfg.Topics {
 		subscriptionName := JoinTopicConsumer(topic, cfg.ConsumerName)
-		subscriptionPath := path.Join(parent, "subscriptions", subscriptionName)
+		subscriptionPath := path.Join(parent, "subscriptions", namespacePrefix+subscriptionName)
 		client, err := pscompat.NewSubscriberClientWithSettings(
 			ctx, subscriptionPath, settings, cfg.ClientOptions...,
 		)
@@ -137,17 +152,10 @@ func NewConsumer(ctx context.Context, cfg ConsumerConfig) (*Consumer, error) {
 			delivery:         cfg.Delivery,
 			processor:        cfg.Processor,
 			topic:            topic,
-			logger: cfg.Logger.With(
-				zap.String("subscription", subscriptionName),
-				zap.String("topic", string(topic)),
-				zap.String("region", cfg.Region),
-				zap.String("project", cfg.Project),
-			),
-			telemetryAttributes: []attribute.KeyValue{
+			logger:           cfg.Logger.With(zap.String("topic", string(topic))),
+			telemetryAttributes: append([]attribute.KeyValue{
 				semconv.MessagingSourceName((string(topic))),
-				semconv.CloudRegion(cfg.Region),
-				semconv.CloudAccountID(cfg.Project),
-			},
+			}, commonTelemetryAttributes...),
 		})
 	}
 	metrics, err := telemetry.NewConsumerMetrics(cfg.meterProvider())

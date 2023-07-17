@@ -18,10 +18,18 @@
 package pubsublite
 
 import (
+	"context"
+	"net"
 	"sync"
 	"testing"
 
+	"cloud.google.com/go/pubsublite/apiv1/pubsublitepb"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
+	"google.golang.org/api/option"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 
 	apmqueue "github.com/elastic/apm-queue"
 )
@@ -31,33 +39,36 @@ func TestNewProducer(t *testing.T) {
 	assert.Error(t, err)
 }
 
-func TestTopicString(t *testing.T) {
-	tests := []struct {
-		Project string
-		Region  string
-		Topic   apmqueue.Topic
-		want    string
-	}{
-		{
-			Topic:   "topic1",
-			Region:  "us-east1",
-			Project: "aproject",
+func TestProducerProduce(t *testing.T) {
+	server, config := newPublisherService(t)
+	config.Sync = true
 
-			want: "projects/aproject/locations/us-east1/topics/topic1",
-		},
-		{
-			Topic:   "topic2",
-			Region:  "us-west2",
-			Project: "anotherproject",
+	var requestTopic string
+	var requestMessages []*pubsublitepb.PubSubMessage
+	server.process = func(ir *pubsublitepb.InitialPublishRequest, req *pubsublitepb.MessagePublishRequest) (
+		*pubsublitepb.MessagePublishResponse, error,
+	) {
+		requestTopic = ir.GetTopic()
+		requestMessages = req.GetMessages()
+		return &pubsublitepb.MessagePublishResponse{}, nil
+	}
 
-			want: "projects/anotherproject/locations/us-west2/topics/topic2",
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.want, func(t *testing.T) {
-			assert.Equal(t, tt.want, formatTopic(tt.Project, tt.Region, tt.Topic))
-		})
-	}
+	t.Helper()
+	p, err := NewProducer(config)
+	require.NoError(t, err)
+	defer p.Close()
+
+	err = p.Produce(context.Background(), apmqueue.Record{
+		Topic: "topic_name",
+		Value: []byte("abc123"),
+	})
+	require.NoError(t, err)
+
+	parent := "projects/project/locations/region-1/topics/"
+	topicName := "name_space-topic_name"
+	assert.Equal(t, parent+topicName, requestTopic)
+	require.Len(t, requestMessages, 1)
+	assert.Equal(t, []byte("abc123"), requestMessages[0].Data)
 }
 
 func TestProducerConcurrentClose(t *testing.T) {
@@ -74,4 +85,83 @@ func TestProducerConcurrentClose(t *testing.T) {
 		}()
 	}
 	wg.Wait()
+}
+
+func newPublisherService(t testing.TB) (*publisherServiceServer, ProducerConfig) {
+	s := grpc.NewServer()
+	t.Cleanup(s.Stop)
+	server := &publisherServiceServer{
+		process: func(ir *pubsublitepb.InitialPublishRequest, req *pubsublitepb.MessagePublishRequest) (
+			*pubsublitepb.MessagePublishResponse, error,
+		) {
+			return &pubsublitepb.MessagePublishResponse{}, nil
+		},
+	}
+	pubsublitepb.RegisterAdminServiceServer(s, server)
+	pubsublitepb.RegisterPublisherServiceServer(s, server)
+
+	lis, err := net.Listen("tcp", "localhost:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { lis.Close() })
+	go s.Serve(lis)
+
+	return server, ProducerConfig{
+		CommonConfig: CommonConfig{
+			Project:   "project",
+			Region:    "region-1",
+			Namespace: "name_space",
+			Logger:    zap.NewNop(),
+			ClientOptions: []option.ClientOption{
+				option.WithGRPCDialOption(grpc.WithTransportCredentials(insecure.NewCredentials())),
+				option.WithEndpoint(lis.Addr().String()),
+				option.WithoutAuthentication(),
+			},
+		},
+	}
+}
+
+type publisherServiceServer struct {
+	pubsublitepb.UnimplementedAdminServiceServer
+	pubsublitepb.UnimplementedPublisherServiceServer
+	process func(*pubsublitepb.InitialPublishRequest, *pubsublitepb.MessagePublishRequest) (
+		*pubsublitepb.MessagePublishResponse, error,
+	)
+}
+
+func (s *publisherServiceServer) GetTopicPartitions(
+	ctx context.Context, req *pubsublitepb.GetTopicPartitionsRequest,
+) (*pubsublitepb.TopicPartitions, error) {
+	return &pubsublitepb.TopicPartitions{PartitionCount: 1}, nil
+}
+
+func (s *publisherServiceServer) Publish(ps pubsublitepb.PublisherService_PublishServer) error {
+	var ir *pubsublitepb.InitialPublishRequest
+	for {
+		req, err := ps.Recv()
+		if err != nil {
+			return err
+		}
+		if req := req.GetInitialRequest(); req != nil {
+			if err := ps.Send(&pubsublitepb.PublishResponse{
+				ResponseType: &pubsublitepb.PublishResponse_InitialResponse{
+					InitialResponse: &pubsublitepb.InitialPublishResponse{},
+				},
+			}); err != nil {
+				return err
+			}
+			ir = req
+			continue
+		}
+		res, err := s.process(ir, req.GetMessagePublishRequest())
+		if err != nil {
+			return err
+		}
+		if err := ps.Send(&pubsublitepb.PublishResponse{
+			ResponseType: &pubsublitepb.PublishResponse_MessageResponse{
+				MessageResponse: res,
+			},
+		}); err != nil {
+			return err
+		}
+	}
 }
