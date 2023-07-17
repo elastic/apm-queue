@@ -95,7 +95,7 @@ func (h *configFileHook) OnNewClient(client *kgo.Client) {
 	h.client = client
 }
 
-func (h *configFileHook) OnBrokerConnect(meta kgo.BrokerMetadata, dialDur time.Duration, conn net.Conn, err error) {
+func (h *configFileHook) OnBrokerConnect(_ kgo.BrokerMetadata, _ time.Duration, _ net.Conn, err error) {
 	if err == nil {
 		return
 	}
