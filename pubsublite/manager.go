@@ -88,10 +88,6 @@ func (m *Manager) Close() error {
 }
 
 // ListReservations lists reservations in the configured project and region.
-//
-// If the CommonConfig.Namespace is non-empty, then only reservations matching
-// that namespace are returned; the returned reservation name does not include
-// the namespace.
 func (m *Manager) ListReservations(ctx context.Context) ([]string, error) {
 	parent := fmt.Sprintf("projects/%s/locations/%s", m.cfg.Project, m.cfg.Region)
 	iter := m.client.Reservations(ctx, parent)

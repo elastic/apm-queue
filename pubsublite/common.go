@@ -50,6 +50,13 @@ type CommonConfig struct {
 	// This is added as a prefix for reservation, topic, and
 	// subscription names, and acts as a filter on resources
 	// monitored or described by the manager.
+	//
+	// Namespace is always removed from resource names before
+	// they are returned to callers. The only way Namespace
+	// will surface is in telemetry (e.g. metrics), as an
+	// independent dimension. This enables users to filter
+	// metrics by namespace, while maintaining stable names
+	// for resources (e.g. topics).
 	Namespace string
 
 	// ClientOptions holds arbitrary Google API client options.
