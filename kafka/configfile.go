@@ -45,7 +45,7 @@ type configFileHook struct {
 // newConfigFileHook returns a configFileHook, along with a list of seed brokers and
 // possibly a sasl.Mechanism if `sasl.mechanism` is defined in the file.
 func newConfigFileHook(filepath string, logger *zap.Logger) (_ *configFileHook, brokers []string, _ sasl.Mechanism, _ error) {
-	config, err := loadConfigFile(filepath, logger)
+	config, err := loadConfigFile(filepath)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -58,7 +58,7 @@ func newConfigFileHook(filepath string, logger *zap.Logger) (_ *configFileHook, 
 		var lastPlainAuthMu sync.Mutex
 		var lastPlainAuth plain.Auth
 		saslMechanism = plain.Plain(func(context.Context) (plain.Auth, error) {
-			config, err := loadConfigFile(filepath, logger)
+			config, err := loadConfigFile(filepath)
 			if err != nil {
 				return plain.Auth{}, fmt.Errorf("failed to reload kafka config: %w", err)
 			}
@@ -103,7 +103,7 @@ func (h *configFileHook) OnBrokerConnect(_ kgo.BrokerMetadata, _ time.Duration, 
 	// Failed to connect, reload config in case the bootstrap servers have changed.
 	h.logger.Debug("kafka broker connection failed, reloading kafka config")
 
-	newConfig, err := loadConfigFile(h.filepath, h.logger)
+	newConfig, err := loadConfigFile(h.filepath)
 	if err != nil {
 		h.logger.Warn("failed to reload kafka config", zap.Error(err))
 		return
@@ -154,7 +154,7 @@ func (s *saslConfigProperties) finalize() error {
 	return nil
 }
 
-func loadConfigFile(filepath string, logger *zap.Logger) (configProperties, error) {
+func loadConfigFile(filepath string) (configProperties, error) {
 	var config configProperties
 	data, err := os.ReadFile(filepath)
 	if err != nil {
