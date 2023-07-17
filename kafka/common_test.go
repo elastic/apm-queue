@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -107,9 +108,9 @@ func TestCommonConfig(t *testing.T) {
 	})
 
 	t.Run("saslaws_from_environment", func(t *testing.T) {
+		tempdir := t.TempDir()
+		t.Setenv("AWS_SHARED_CREDENTIALS_FILE", t.TempDir()) // ensure ~/.aws/credentials isn't read
 		t.Setenv("KAFKA_SASL_MECHANISM", "AWS_MSK_IAM")
-		t.Setenv("AWS_ACCESS_KEY_ID", "id")
-		t.Setenv("AWS_SECRET_ACCESS_KEY", "secret")
 		cfg := CommonConfig{
 			Brokers: []string{"broker"},
 			Logger:  zap.NewNop(),
@@ -117,6 +118,28 @@ func TestCommonConfig(t *testing.T) {
 		require.NoError(t, cfg.finalize())
 		assert.NotNil(t, cfg.SASL)
 		assert.Equal(t, "AWS_MSK_IAM", cfg.SASL.Name())
+
+		t.Run("access_key_env", func(t *testing.T) {
+			t.Setenv("AWS_SECRET_ACCESS_KEY", "secret")
+			for _, accessKeyID := range []string{"id1", "id2"} {
+				t.Setenv("AWS_ACCESS_KEY_ID", accessKeyID)
+				_, message, err := cfg.SASL.Authenticate(context.Background(), "foo.us-east1.amazonaws.com:1234")
+				require.NoError(t, err)
+				assert.Contains(t, string(message), `"x-amz-credential":"`+accessKeyID)
+			}
+		})
+		t.Run("credentials_file", func(t *testing.T) {
+			credentialsFilePath := filepath.Join(tempdir, "credentials")
+			err := os.WriteFile(credentialsFilePath, []byte(`[default]
+aws_access_key_id=AKIAIOSFODNN7EXAMPLE
+aws_secret_access_key=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
+aws_session_token=IQoJb3JpZ2luX2IQoJb3JpZ2luX2IQoJb3JpZ2luX2IQoJb3JpZ2luX2IQoJb3JpZVERYLONGSTRINGEXAMPLE`), 0644)
+			require.NoError(t, err)
+			t.Setenv("AWS_SHARED_CREDENTIALS_FILE", credentialsFilePath)
+			_, message, err := cfg.SASL.Authenticate(context.Background(), "foo.us-east1.amazonaws.com:1234")
+			require.NoError(t, err)
+			assert.Contains(t, string(message), `"x-amz-credential":"AKIAIOSFODNN7EXAMPLE`)
+		})
 	})
 
 	t.Run("tls_from_environment", func(t *testing.T) {

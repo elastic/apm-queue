@@ -272,11 +272,11 @@ func (cfg *CommonConfig) newClient(additionalOpts ...kgo.Opt) (*kgo.Client, erro
 }
 
 func newAWSMSKIAMSASL() (sasl.Mechanism, error) {
-	awscfg, err := awsconfig.LoadDefaultConfig(context.Background())
-	if err != nil {
-		return nil, fmt.Errorf("kafka: error loading AWS config: %w", err)
-	}
 	return aws.ManagedStreamingIAM(func(ctx context.Context) (aws.Auth, error) {
+		awscfg, err := awsconfig.LoadDefaultConfig(ctx)
+		if err != nil {
+			return aws.Auth{}, fmt.Errorf("kafka: error loading AWS config: %w", err)
+		}
 		creds, err := awscfg.Credentials.Retrieve(ctx)
 		if err != nil {
 			return aws.Auth{}, err
