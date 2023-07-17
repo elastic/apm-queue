@@ -112,19 +112,21 @@ func (h *configFileHook) OnBrokerConnect(_ kgo.BrokerMetadata, _ time.Duration, 
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	if newConfig.Bootstrap.Servers != h.lastBootstrapServers {
-		bootstrapServers := strings.Split(newConfig.Bootstrap.Servers, ",")
-		if err := h.client.UpdateSeedBrokers(bootstrapServers...); err != nil {
-			h.logger.Warn(
-				"error updating kafka seed brokers",
-				zap.Strings("addresses", bootstrapServers),
-				zap.Error(err),
-			)
-			return
-		}
-		h.logger.Info("updated kafka seed brokers", zap.Strings("addresses", bootstrapServers))
-		h.lastBootstrapServers = newConfig.Bootstrap.Servers
+	if newConfig.Bootstrap.Servers == h.lastBootstrapServers {
+		return
 	}
+	bootstrapServers := strings.Split(newConfig.Bootstrap.Servers, ",")
+	if err := h.client.UpdateSeedBrokers(bootstrapServers...); err != nil {
+		h.logger.Warn("error updating kafka seed brokers",
+			zap.Strings("addresses", bootstrapServers),
+			zap.Error(err),
+		)
+		return
+	}
+	h.logger.Info("updated kafka seed brokers",
+		zap.Strings("addresses", bootstrapServers),
+	)
+	h.lastBootstrapServers = newConfig.Bootstrap.Servers
 }
 
 type configProperties struct {
