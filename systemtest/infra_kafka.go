@@ -59,7 +59,7 @@ func InitKafka() (ProvisionInfraFunc, DestroyInfraFunc, error) {
 		logger().Infof("KAFKA_BROKERS is set (%q), skipping Kafka cluster provisioning", brokers)
 		kafkaBrokers = strings.Split(brokers, ",")
 		nop := func(context.Context) error { return nil }
-		return nop, nil, nil
+		return nop, nop, nil
 	}
 	logger().Infof("managing Redpanda in Docker")
 	return ProvisionKafka, DestroyKafka, nil

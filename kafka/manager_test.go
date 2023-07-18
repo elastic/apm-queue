@@ -48,8 +48,8 @@ func TestNewManager(t *testing.T) {
 	_, err := NewManager(ManagerConfig{})
 	assert.Error(t, err)
 	assert.EqualError(t, err, "kafka: invalid manager config: "+strings.Join([]string{
-		"kafka: at least one broker must be set",
 		"kafka: logger must be set",
+		"kafka: at least one broker must be set",
 	}, "\n"))
 }
 
