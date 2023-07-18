@@ -74,6 +74,18 @@ type CommonConfig struct {
 	// changes to the sasl.mechanism value are not supported.
 	ConfigFile string
 
+	// Namespace holds a namespace for Kafka topics.
+	//
+	// This is added as a prefix for topics names, and acts as a filter
+	// on topics monitored or described by the manager.
+	//
+	// Namespace is always removed from topic names before they are
+	// returned to callers. The only way Namespace will surface is in
+	// telemetry (e.g. metrics), as an independent dimension. This
+	// enables users to filter metrics by namespace, while maintaining
+	// stable topic names.
+	Namespace string
+
 	// Brokers is the list of kafka brokers used to seed the Kafka client.
 	//
 	// If Brokers is unspecified, but $KAFKA_BROKERS is specified, it will
@@ -144,6 +156,11 @@ func (cfg *CommonConfig) finalize() error {
 	if cfg.Logger == nil {
 		cfg.Logger = zap.NewNop() // cfg.Logger may be used below
 		errs = append(errs, errors.New("kafka: logger must be set"))
+	} else {
+		cfg.Logger = cfg.Logger.Named("kafka")
+	}
+	if cfg.Namespace != "" {
+		cfg.Logger = cfg.Logger.With(zap.String("namespace", cfg.Namespace))
 	}
 	if cfg.ConfigFile == "" {
 		cfg.ConfigFile = os.Getenv("KAFKA_CONFIG_FILE")
@@ -209,6 +226,13 @@ func (cfg *CommonConfig) finalize() error {
 	return errors.Join(errs...)
 }
 
+func (cfg *CommonConfig) namespacePrefix() string {
+	if cfg.Namespace == "" {
+		return ""
+	}
+	return cfg.Namespace + "-"
+}
+
 func (cfg *CommonConfig) tracerProvider() trace.TracerProvider {
 	if cfg.TracerProvider != nil {
 		return cfg.TracerProvider
@@ -250,7 +274,7 @@ func (cfg *CommonConfig) newClient(additionalOpts ...kgo.Opt) (*kgo.Client, erro
 			kotel.WithTracer(kotel.NewTracer(kotel.TracerProvider(cfg.tracerProvider()))),
 			kotel.WithMeter(kotel.NewMeter(kotel.MeterProvider(cfg.meterProvider()))),
 		)
-		metricHooks, err := newKgoHooks(cfg.meterProvider())
+		metricHooks, err := newKgoHooks(cfg.meterProvider(), cfg.Namespace, cfg.namespacePrefix())
 		if err != nil {
 			return nil, fmt.Errorf("kafka: failed creating kgo metrics hooks: %w", err)
 		}

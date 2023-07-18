@@ -75,6 +75,7 @@ func TestProducerMetrics(t *testing.T) {
 					{
 						Value: 3, Attributes: attribute.NewSet(
 							attribute.String("error", "timeout"),
+							attribute.String("namespace", "name_space"),
 							semconv.MessagingSystem("kafka"),
 							semconv.MessagingDestinationName("default-topic"),
 							semconv.MessagingKafkaDestinationPartition(0),
@@ -100,6 +101,7 @@ func TestProducerMetrics(t *testing.T) {
 					{
 						Value: 3, Attributes: attribute.NewSet(
 							attribute.String("error", "canceled"),
+							attribute.String("namespace", "name_space"),
 							semconv.MessagingSystem("kafka"),
 							semconv.MessagingDestinationName("default-topic"),
 							semconv.MessagingKafkaDestinationPartition(0),
@@ -126,6 +128,7 @@ func TestProducerMetrics(t *testing.T) {
 						Value: 3,
 						Attributes: attribute.NewSet(
 							attribute.String("error", "other"),
+							attribute.String("namespace", "name_space"),
 							semconv.MessagingSystem("kafka"),
 							semconv.MessagingDestinationName("default-topic"),
 							semconv.MessagingKafkaDestinationPartition(0),
@@ -150,6 +153,7 @@ func TestProducerMetrics(t *testing.T) {
 					{
 						Value: 3,
 						Attributes: attribute.NewSet(
+							attribute.String("namespace", "name_space"),
 							semconv.MessagingSystem("kafka"),
 							semconv.MessagingDestinationName("default-topic"),
 							semconv.MessagingKafkaDestinationPartition(0),
@@ -173,6 +177,7 @@ func TestProducerMetrics(t *testing.T) {
 					{
 						Value: 3,
 						Attributes: attribute.NewSet(
+							attribute.String("namespace", "name_space"),
 							semconv.MessagingSystem("kafka"),
 							semconv.MessagingDestinationName("default-topic"),
 							semconv.MessagingKafkaDestinationPartition(0),
@@ -192,7 +197,6 @@ func TestProducerMetrics(t *testing.T) {
 }
 
 func TestConsumerMetrics(t *testing.T) {
-	topic := apmqueue.Topic(t.Name())
 	records := 10
 
 	done := make(chan struct{})
@@ -204,7 +208,7 @@ func TestConsumerMetrics(t *testing.T) {
 		}
 		return nil
 	})
-	tc := setupTestConsumer(t, proc, topic)
+	tc := setupTestConsumer(t, proc)
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
@@ -212,7 +216,7 @@ func TestConsumerMetrics(t *testing.T) {
 	go func() { tc.consumer.Run(ctx) }() // Run Consumer.
 	for i := 0; i < records; i++ {       // Produce records.
 		produceRecord(ctx, t, tc.client, &kgo.Record{
-			Topic: string(topic),
+			Topic: "name_space-" + t.Name(),
 			Value: []byte(fmt.Sprint(i)),
 			Headers: []kgo.RecordHeader{
 				{Key: "header", Value: []byte("included")},
@@ -243,6 +247,7 @@ func TestConsumerMetrics(t *testing.T) {
 					{
 						Value: int64(records),
 						Attributes: attribute.NewSet(
+							attribute.String("namespace", "name_space"),
 							semconv.MessagingSystem("kafka"),
 							semconv.MessagingSourceName(t.Name()),
 							semconv.MessagingKafkaSourcePartition(0),
@@ -260,6 +265,7 @@ func TestConsumerMetrics(t *testing.T) {
 				Temporality: metricdata.CumulativeTemporality,
 				DataPoints: []metricdata.HistogramDataPoint[float64]{{
 					Attributes: attribute.NewSet(
+						attribute.String("namespace", "name_space"),
 						semconv.MessagingSystem("kafka"),
 						semconv.MessagingSourceName(t.Name()),
 						semconv.MessagingKafkaSourcePartition(0),
@@ -315,12 +321,12 @@ func setupTestProducer(t testing.TB) (*Producer, sdkmetric.Reader) {
 	t.Helper()
 
 	rdr := sdkmetric.NewManualReader()
-	topic := apmqueue.Topic("default-topic")
-	_, brokers := newClusterWithTopics(t, 1, topic)
+	_, brokers := newClusterWithTopics(t, 1, "name_space-default-topic")
 	producer, err := NewProducer(ProducerConfig{
 		CommonConfig: CommonConfig{
 			Brokers:        brokers,
 			Logger:         zap.NewNop(),
+			Namespace:      "name_space",
 			TracerProvider: trace.NewNoopTracerProvider(),
 			MeterProvider: sdkmetric.NewMeterProvider(
 				sdkmetric.WithReader(rdr),
@@ -339,23 +345,24 @@ type testMetricConsumer struct {
 	reader   sdkmetric.Reader
 }
 
-func setupTestConsumer(t testing.TB, p apmqueue.Processor, topics ...apmqueue.Topic) (mc testMetricConsumer) {
+func setupTestConsumer(t testing.TB, p apmqueue.Processor) (mc testMetricConsumer) {
 	t.Helper()
 
 	mc.reader = sdkmetric.NewManualReader()
 	cfg := ConsumerConfig{
-		Topics:    topics,
+		Topics:    []apmqueue.Topic{apmqueue.Topic(t.Name())},
 		GroupID:   t.Name(),
 		Processor: p,
 		CommonConfig: CommonConfig{
 			Logger:         zap.NewNop(),
+			Namespace:      "name_space",
 			TracerProvider: trace.NewNoopTracerProvider(),
 			MeterProvider: sdkmetric.NewMeterProvider(
 				sdkmetric.WithReader(mc.reader),
 			),
 		},
 	}
-	mc.client, cfg.Brokers = newClusterWithTopics(t, 1, topics...)
+	mc.client, cfg.Brokers = newClusterWithTopics(t, 1, "name_space-"+t.Name())
 	mc.consumer = newConsumer(t, cfg)
 	return
 }

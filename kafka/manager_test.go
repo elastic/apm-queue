@@ -74,11 +74,11 @@ func TestManagerDeleteTopics(t *testing.T) {
 		return &kmsg.DeleteTopicsResponse{
 			Version: deleteTopicsRequest.Version,
 			Topics: []kmsg.DeleteTopicsResponseTopic{{
-				Topic:        kmsg.StringPtr("topic1"),
+				Topic:        kmsg.StringPtr("name_space-topic1"),
 				ErrorCode:    kerr.UnknownTopicOrPartition.Code,
 				ErrorMessage: &kerr.UnknownTopicOrPartition.Message,
 			}, {
-				Topic:        kmsg.StringPtr("topic2"),
+				Topic:        kmsg.StringPtr("name_space-topic2"),
 				ErrorCode:    kerr.InvalidTopicException.Code,
 				ErrorMessage: &kerr.InvalidTopicException.Message,
 			}, {
@@ -96,28 +96,32 @@ func TestManagerDeleteTopics(t *testing.T) {
 
 	require.Len(t, deleteTopicsRequest.Topics, 3)
 	assert.Equal(t, []kmsg.DeleteTopicsRequestTopic{{
-		Topic: kmsg.StringPtr("topic1"),
+		Topic: kmsg.StringPtr("name_space-topic1"),
 	}, {
-		Topic: kmsg.StringPtr("topic2"),
+		Topic: kmsg.StringPtr("name_space-topic2"),
 	}, {
-		Topic: kmsg.StringPtr("topic3"),
+		Topic: kmsg.StringPtr("name_space-topic3"),
 	}}, deleteTopicsRequest.Topics)
 
 	matchingLogs := observedLogs.FilterFieldKey("topic")
 	assert.Equal(t, []observer.LoggedEntry{{
 		Entry: zapcore.Entry{
-			Level:   zapcore.DebugLevel,
-			Message: "kafka topic does not exist",
+			Level:      zapcore.DebugLevel,
+			LoggerName: "kafka",
+			Message:    "kafka topic does not exist",
 		},
 		Context: []zapcore.Field{
+			zap.String("namespace", "name_space"),
 			zap.String("topic", "topic1"),
 		},
 	}, {
 		Entry: zapcore.Entry{
-			Level:   zapcore.InfoLevel,
-			Message: "deleted kafka topic",
+			Level:      zapcore.InfoLevel,
+			LoggerName: "kafka",
+			Message:    "deleted kafka topic",
 		},
 		Context: []zapcore.Field{
+			zap.String("namespace", "name_space"),
 			zap.String("topic", "topic3"),
 		},
 	}}, matchingLogs.AllUntimed())
@@ -195,7 +199,7 @@ func TestManagerMetrics(t *testing.T) {
 						MemberAssignment: (&kmsg.ConsumerMemberAssignment{
 							Version: 2,
 							Topics: []kmsg.ConsumerMemberAssignmentTopic{{
-								Topic:      "topic1",
+								Topic:      "name_space-topic1",
 								Partitions: []int32{1},
 							}},
 						}).AppendTo(nil),
@@ -213,10 +217,10 @@ func TestManagerMetrics(t *testing.T) {
 						MemberAssignment: (&kmsg.ConsumerMemberAssignment{
 							Version: 2,
 							Topics: []kmsg.ConsumerMemberAssignmentTopic{{
-								Topic:      "topic1",
+								Topic:      "name_space-topic1",
 								Partitions: []int32{2},
 							}, {
-								Topic:      "topic2",
+								Topic:      "name_space-topic2",
 								Partitions: []int32{3, 4},
 							}},
 						}).AppendTo(nil),
@@ -233,7 +237,7 @@ func TestManagerMetrics(t *testing.T) {
 						MemberAssignment: (&kmsg.ConsumerMemberAssignment{
 							Version: 2,
 							Topics: []kmsg.ConsumerMemberAssignmentTopic{{
-								Topic:      "topic3",
+								Topic:      "name_space-topic3",
 								Partitions: []int32{4},
 							}},
 						}).AppendTo(nil),
@@ -250,7 +254,7 @@ func TestManagerMetrics(t *testing.T) {
 			Groups: []kmsg.OffsetFetchResponseGroup{{
 				Group: "consumer1",
 				Topics: []kmsg.OffsetFetchResponseGroupTopic{{
-					Topic: "topic1",
+					Topic: "name_space-topic1",
 					Partitions: []kmsg.OffsetFetchResponseGroupTopicPartition{{
 						Partition: 1,
 						Offset:    1,
@@ -259,13 +263,13 @@ func TestManagerMetrics(t *testing.T) {
 			}, {
 				Group: "consumer2",
 				Topics: []kmsg.OffsetFetchResponseGroupTopic{{
-					Topic: "topic1",
+					Topic: "name_space-topic1",
 					Partitions: []kmsg.OffsetFetchResponseGroupTopicPartition{{
 						Partition: 2,
 						Offset:    1,
 					}},
 				}, {
-					Topic: "topic2",
+					Topic: "name_space-topic2",
 					Partitions: []kmsg.OffsetFetchResponseGroupTopicPartition{{
 						Partition: 3,
 						Offset:    1,
@@ -283,7 +287,7 @@ func TestManagerMetrics(t *testing.T) {
 		return &kmsg.ListOffsetsResponse{
 			Version: listOffsetsRequest.Version,
 			Topics: []kmsg.ListOffsetsResponseTopic{{
-				Topic: "topic1",
+				Topic: "name_space-topic1",
 				Partitions: []kmsg.ListOffsetsResponseTopicPartition{{
 					Partition: 1,
 					Offset:    1,
@@ -292,13 +296,13 @@ func TestManagerMetrics(t *testing.T) {
 					Offset:    2,
 				}},
 			}, {
-				Topic: "topic2",
+				Topic: "name_space-topic2",
 				Partitions: []kmsg.ListOffsetsResponseTopicPartition{{
 					Partition: 3,
 					Offset:    3,
 				}},
 			}, {
-				Topic: "topic3",
+				Topic: "name_space-topic3",
 				Partitions: []kmsg.ListOffsetsResponseTopicPartition{{
 					Partition: 4,
 					Offset:    4,
@@ -362,25 +366,31 @@ func TestManagerMetrics(t *testing.T) {
 		},
 	}, offsetFetchRequest)
 	assert.ElementsMatch(t, []kmsg.ListOffsetsRequestTopic{
-		{Topic: "topic1"}, {Topic: "topic2"}, {Topic: "topic3"},
+		{Topic: "name_space-topic1"},
+		{Topic: "name_space-topic2"},
+		{Topic: "name_space-topic3"},
 	}, listOffsetsRequest.Topics)
 
 	matchingLogs := observedLogs.FilterFieldKey("group")
 	assert.Equal(t, []observer.LoggedEntry{{
 		Entry: zapcore.Entry{
-			Level:   zapcore.DebugLevel,
-			Message: "ignoring non-consumer group",
+			Level:      zapcore.DebugLevel,
+			LoggerName: "kafka",
+			Message:    "ignoring non-consumer group",
 		},
 		Context: []zapcore.Field{
+			zap.String("namespace", "name_space"),
 			zap.String("group", "connect"),
 			zap.String("protocol_type", "connect"),
 		},
 	}, {
 		Entry: zapcore.Entry{
-			Level:   zapcore.WarnLevel,
-			Message: "error getting consumer group lag",
+			Level:      zapcore.WarnLevel,
+			LoggerName: "kafka",
+			Message:    "error getting consumer group lag",
 		},
 		Context: []zapcore.Field{
+			zap.String("namespace", "name_space"),
 			zap.String("group", "consumer2"),
 			zap.String("topic", "topic2"),
 			zap.Int32("partition", 4),
@@ -401,7 +411,8 @@ func newFakeCluster(t testing.TB) (*kfake.Cluster, CommonConfig) {
 	require.NoError(t, err)
 	t.Cleanup(cluster.Close)
 	return cluster, CommonConfig{
-		Brokers: cluster.ListenAddrs(),
-		Logger:  zap.NewNop(),
+		Brokers:   cluster.ListenAddrs(),
+		Logger:    zap.NewNop(),
+		Namespace: "name_space",
 	}
 }

@@ -21,6 +21,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/twmb/franz-go/pkg/kadm"
 	"github.com/twmb/franz-go/pkg/kerr"
@@ -95,9 +96,10 @@ func (c *TopicCreator) CreateTopics(ctx context.Context, topics ...apmqueue.Topi
 	))
 	defer span.End()
 
+	namespacePrefix := c.m.cfg.namespacePrefix()
 	topicNames := make([]string, len(topics))
 	for i, topic := range topics {
-		topicNames[i] = string(topic)
+		topicNames[i] = fmt.Sprintf("%s%s", namespacePrefix, topic)
 	}
 	responses, err := c.m.adminClient.CreateTopics(
 		ctx,
@@ -121,14 +123,15 @@ func (c *TopicCreator) CreateTopics(ctx context.Context, topics ...apmqueue.Topi
 	}
 	var createErrors []error
 	for _, response := range responses.Sorted() {
-		logger := c.m.cfg.Logger.With(zap.String("topic", response.Topic))
+		topicName := strings.TrimPrefix(response.Topic, namespacePrefix)
+		logger := c.m.cfg.Logger.With(zap.String("topic", topicName))
 		if err := response.Err; err != nil {
 			if errors.Is(err, kerr.TopicAlreadyExists) {
 				// NOTE(axw) apmotel currently does nothing with span events,
 				// hence we log as well as create a span event.
 				logger.Debug("kafka topic already exists")
 				span.AddEvent("kafka topic already exists", trace.WithAttributes(
-					semconv.MessagingDestinationKey.String(response.Topic),
+					semconv.MessagingDestinationKey.String(topicName),
 				))
 			} else {
 				span.RecordError(err)
@@ -136,7 +139,7 @@ func (c *TopicCreator) CreateTopics(ctx context.Context, topics ...apmqueue.Topi
 				createErrors = append(createErrors,
 					fmt.Errorf(
 						"failed to create topic %q: %w",
-						response.Topic, err,
+						topicName, err,
 					),
 				)
 			}

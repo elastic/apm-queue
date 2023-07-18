@@ -79,7 +79,7 @@ func TestCommonConfig(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, CommonConfig{
 			Brokers: []string{"broker"},
-			Logger:  zap.NewNop(),
+			Logger:  zap.NewNop().Named("kafka"),
 		}, cfg)
 	})
 
@@ -87,7 +87,7 @@ func TestCommonConfig(t *testing.T) {
 		t.Setenv("KAFKA_BROKERS", "a,b,c")
 		assertValid(t, CommonConfig{
 			Brokers: []string{"a", "b", "c"},
-			Logger:  zap.NewNop(),
+			Logger:  zap.NewNop().Named("kafka"),
 		}, CommonConfig{Logger: zap.NewNop()})
 	})
 
@@ -151,7 +151,7 @@ aws_session_token=IQoJb3JpZ2luX2IQoJb3JpZ2luX2IQoJb3JpZ2luX2IQoJb3JpZ2luX2IQoJb3
 			t.Setenv("KAFKA_PLAINTEXT", "true")
 			assertValid(t, CommonConfig{
 				Brokers: []string{"broker"},
-				Logger:  zap.NewNop(),
+				Logger:  zap.NewNop().Named("kafka"),
 			}, CommonConfig{
 				Brokers: []string{"broker"},
 				Logger:  zap.NewNop(),
@@ -161,7 +161,7 @@ aws_session_token=IQoJb3JpZ2luX2IQoJb3JpZ2luX2IQoJb3JpZ2luX2IQoJb3JpZ2luX2IQoJb3
 		t.Run("tls_default", func(t *testing.T) {
 			assertValid(t, CommonConfig{
 				Brokers: []string{"broker"},
-				Logger:  zap.NewNop(),
+				Logger:  zap.NewNop().Named("kafka"),
 				TLS:     &tls.Config{},
 			}, CommonConfig{
 				Brokers: []string{"broker"},
@@ -173,7 +173,7 @@ aws_session_token=IQoJb3JpZ2luX2IQoJb3JpZ2luX2IQoJb3JpZ2luX2IQoJb3JpZ2luX2IQoJb3
 			t.Setenv("KAFKA_TLS_INSECURE", "true")
 			assertValid(t, CommonConfig{
 				Brokers: []string{"broker"},
-				Logger:  zap.NewNop(),
+				Logger:  zap.NewNop().Named("kafka"),
 				TLS:     &tls.Config{InsecureSkipVerify: true},
 			}, CommonConfig{
 				Brokers: []string{"broker"},
@@ -188,7 +188,7 @@ aws_session_token=IQoJb3JpZ2luX2IQoJb3JpZ2luX2IQoJb3JpZ2luX2IQoJb3JpZ2luX2IQoJb3
 		assertValid(t, CommonConfig{
 			ConfigFile: configFilePath,
 			Brokers:    []string{"broker"},
-			Logger:     zap.NewNop(),
+			Logger:     zap.NewNop().Named("kafka"),
 		}, CommonConfig{
 			Brokers: []string{"broker"},
 			Logger:  zap.NewNop(),
@@ -202,7 +202,7 @@ bootstrap:
 		assertValid(t, CommonConfig{
 			ConfigFile: configFilePath,
 			Brokers:    []string{"from_file"},
-			Logger:     zap.NewNop(),
+			Logger:     zap.NewNop().Named("kafka"),
 		}, CommonConfig{
 			ConfigFile: configFilePath,
 			Brokers:    []string{"from_env"}, // ignored, file takes precedence
@@ -219,7 +219,7 @@ sasl:
 		cfg := CommonConfig{
 			ConfigFile: configFilePath,
 			Brokers:    []string{"broker"},
-			Logger:     zap.NewNop(),
+			Logger:     zap.NewNop().Named("kafka"),
 			SASL:       &mockSASL{}, // ignored, file takes precedence
 		}
 		require.NoError(t, cfg.finalize())

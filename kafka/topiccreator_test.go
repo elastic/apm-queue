@@ -84,15 +84,15 @@ func TestTopicCreatorCreateTopics(t *testing.T) {
 		return &kmsg.CreateTopicsResponse{
 			Version: createTopicsRequest.Version,
 			Topics: []kmsg.CreateTopicsResponseTopic{{
-				Topic:        "topic1",
+				Topic:        "name_space-topic1",
 				ErrorCode:    kerr.TopicAlreadyExists.Code,
 				ErrorMessage: &kerr.TopicAlreadyExists.Message,
 			}, {
-				Topic:        "topic2",
+				Topic:        "name_space-topic2",
 				ErrorCode:    kerr.InvalidTopicException.Code,
 				ErrorMessage: &kerr.InvalidTopicException.Message,
 			}, {
-				Topic:   "topic3",
+				Topic:   "name_space-topic3",
 				TopicID: [16]byte{123},
 			}},
 		}, nil, true
@@ -106,7 +106,7 @@ func TestTopicCreatorCreateTopics(t *testing.T) {
 
 	require.Len(t, createTopicsRequest.Topics, 3)
 	assert.Equal(t, []kmsg.CreateTopicsRequestTopic{{
-		Topic:             "topic1",
+		Topic:             "name_space-topic1",
 		NumPartitions:     123,
 		ReplicationFactor: -1,
 		Configs: []kmsg.CreateTopicsRequestTopicConfig{{
@@ -114,7 +114,7 @@ func TestTopicCreatorCreateTopics(t *testing.T) {
 			Value: kmsg.StringPtr("123"),
 		}},
 	}, {
-		Topic:             "topic2",
+		Topic:             "name_space-topic2",
 		NumPartitions:     123,
 		ReplicationFactor: -1,
 		Configs: []kmsg.CreateTopicsRequestTopicConfig{{
@@ -122,7 +122,7 @@ func TestTopicCreatorCreateTopics(t *testing.T) {
 			Value: kmsg.StringPtr("123"),
 		}},
 	}, {
-		Topic:             "topic3",
+		Topic:             "name_space-topic3",
 		NumPartitions:     123,
 		ReplicationFactor: -1,
 		Configs: []kmsg.CreateTopicsRequestTopicConfig{{
@@ -134,18 +134,22 @@ func TestTopicCreatorCreateTopics(t *testing.T) {
 	matchingLogs := observedLogs.FilterFieldKey("topic")
 	assert.Equal(t, []observer.LoggedEntry{{
 		Entry: zapcore.Entry{
-			Level:   zapcore.DebugLevel,
-			Message: "kafka topic already exists",
+			Level:      zapcore.DebugLevel,
+			LoggerName: "kafka",
+			Message:    "kafka topic already exists",
 		},
 		Context: []zapcore.Field{
+			zap.String("namespace", "name_space"),
 			zap.String("topic", "topic1"),
 		},
 	}, {
 		Entry: zapcore.Entry{
-			Level:   zapcore.InfoLevel,
-			Message: "created kafka topic",
+			Level:      zapcore.InfoLevel,
+			LoggerName: "kafka",
+			Message:    "created kafka topic",
 		},
 		Context: []zapcore.Field{
+			zap.String("namespace", "name_space"),
 			zap.String("topic", "topic3"),
 			zap.Int("partition_count", 123),
 			zap.Any("topic_configs", map[string]string{

@@ -21,6 +21,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/twmb/franz-go/pkg/kgo"
@@ -42,13 +43,15 @@ const (
 )
 
 type metricHooks struct {
+	namespace       string
+	topicPrefix     string
 	messageProduced metric.Int64Counter
 	messageErrored  metric.Int64Counter
 	messageFetched  metric.Int64Counter
 	messageDelay    metric.Float64Histogram
 }
 
-func newKgoHooks(mp metric.MeterProvider) (*metricHooks, error) {
+func newKgoHooks(mp metric.MeterProvider, namespace, topicPrefix string) (*metricHooks, error) {
 	m := mp.Meter(instrumentName)
 	messageProducedCounter, err := m.Int64Counter(msgProducedKey,
 		metric.WithDescription("The number of messages produced"),
@@ -81,6 +84,8 @@ func newKgoHooks(mp metric.MeterProvider) (*metricHooks, error) {
 	}
 
 	return &metricHooks{
+		namespace:   namespace,
+		topicPrefix: topicPrefix,
 		// Producer
 		messageProduced: messageProducedCounter,
 		messageErrored:  messageErroredCounter,
@@ -98,9 +103,13 @@ func formatMetricError(name string, err error) error {
 // https://pkg.go.dev/github.com/twmb/franz-go/pkg/kgo#HookProduceRecordUnbuffered
 func (h *metricHooks) OnProduceRecordUnbuffered(r *kgo.Record, err error) {
 	attrs := attributesFromRecord(r,
-		semconv.MessagingDestinationName(r.Topic),
+		semconv.MessagingDestinationName(strings.TrimPrefix(r.Topic, h.topicPrefix)),
 		semconv.MessagingKafkaDestinationPartition(int(r.Partition)),
 	)
+	if h.namespace != "" {
+		attrs = append(attrs, attribute.String("namespace", h.namespace))
+	}
+
 	if err != nil {
 		errorType := attribute.String("error", "other")
 		if errors.Is(err, context.DeadlineExceeded) {
@@ -123,9 +132,12 @@ func (h *metricHooks) OnProduceRecordUnbuffered(r *kgo.Record, err error) {
 // https://pkg.go.dev/github.com/twmb/franz-go/pkg/kgo#HookFetchRecordUnbuffered
 func (h *metricHooks) OnFetchRecordUnbuffered(r *kgo.Record, _ bool) {
 	attrs := attributesFromRecord(r,
-		semconv.MessagingSourceName(r.Topic),
+		semconv.MessagingSourceName(strings.TrimPrefix(r.Topic, h.topicPrefix)),
 		semconv.MessagingKafkaSourcePartition(int(r.Partition)),
 	)
+	if h.namespace != "" {
+		attrs = append(attrs, attribute.String("namespace", h.namespace))
+	}
 
 	h.messageFetched.Add(r.Context, 1,
 		metric.WithAttributes(attrs...),
