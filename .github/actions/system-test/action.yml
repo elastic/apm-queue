@@ -19,7 +19,7 @@ runs:
     - uses: hashicorp/setup-terraform@v2
       with:
         terraform_version: 1.4.6
-    - uses: hashicorp/vault-action@v2.7.1
+    - uses: hashicorp/vault-action@v2.7.3
       with:
         url: ${{ inputs.vault-url }}
         roleId: ${{ inputs.vault-role-id }}
