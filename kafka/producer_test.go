@@ -106,12 +106,14 @@ func TestNewProducerBasic(t *testing.T) {
 	test := func(t *testing.T, sync bool) {
 		t.Run(fmt.Sprintf("sync_%t", sync), func(t *testing.T) {
 			topic := apmqueue.Topic("default-topic")
+			namespacedTopic := "name_space-default-topic"
 			partitionCount := 10
-			client, brokers := newClusterWithTopics(t, int32(partitionCount), topic)
+			client, brokers := newClusterWithTopics(t, int32(partitionCount), namespacedTopic)
 			producer, err := NewProducer(ProducerConfig{
 				CommonConfig: CommonConfig{
 					Brokers:        brokers,
 					Logger:         zap.NewNop(),
+					Namespace:      "name_space",
 					TracerProvider: tp,
 				},
 				Sync: sync,
@@ -144,7 +146,7 @@ func TestNewProducerBasic(t *testing.T) {
 
 			var actual []apmqueue.Record
 			orderingKeyToPartitionM := make(map[string]int32)
-			client.AddConsumeTopics(string(topic))
+			client.AddConsumeTopics(namespacedTopic)
 			for i := 0; i < len(batch)*partitionCount && len(actual) < len(batch); i++ {
 				fetches := client.PollRecords(ctx, 1)
 				require.NoError(t, fetches.Err())
@@ -157,8 +159,9 @@ func TestNewProducerBasic(t *testing.T) {
 				require.Len(t, records, 1)
 				record := records[0]
 
+				require.Equal(t, namespacedTopic, record.Topic)
 				actual = append(actual, apmqueue.Record{
-					Topic:       apmqueue.Topic(record.Topic),
+					Topic:       topic,
 					OrderingKey: record.Key,
 					Value:       record.Value,
 				})
@@ -309,7 +312,7 @@ func TestProducerConcurrentClose(t *testing.T) {
 	wg.Wait()
 }
 
-func newClusterWithTopics(t testing.TB, partitions int32, topics ...apmqueue.Topic) (*kgo.Client, []string) {
+func newClusterWithTopics(t testing.TB, partitions int32, topics ...string) (*kgo.Client, []string) {
 	t.Helper()
 	cluster, err := kfake.NewCluster()
 	require.NoError(t, err)
@@ -323,11 +326,7 @@ func newClusterWithTopics(t testing.TB, partitions int32, topics ...apmqueue.Top
 	kadmClient := kadm.NewClient(client)
 	t.Cleanup(kadmClient.Close)
 
-	strTopic := make([]string, 0, len(topics))
-	for _, t := range topics {
-		strTopic = append(strTopic, string(t))
-	}
-	_, err = kadmClient.CreateTopics(context.Background(), partitions, 1, nil, strTopic...)
+	_, err = kadmClient.CreateTopics(context.Background(), partitions, 1, nil, topics...)
 	require.NoError(t, err)
 	return client, addrs
 }

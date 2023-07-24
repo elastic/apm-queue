@@ -21,6 +21,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/twmb/franz-go/pkg/kadm"
 	"github.com/twmb/franz-go/pkg/kerr"
@@ -94,9 +95,10 @@ func (m *Manager) DeleteTopics(ctx context.Context, topics ...apmqueue.Topic) er
 	))
 	defer span.End()
 
+	namespacePrefix := m.cfg.namespacePrefix()
 	topicNames := make([]string, len(topics))
 	for i, topic := range topics {
-		topicNames[i] = string(topic)
+		topicNames[i] = fmt.Sprintf("%s%s", namespacePrefix, topic)
 	}
 	responses, err := m.adminClient.DeleteTopics(ctx, topicNames...)
 	if err != nil {
@@ -106,7 +108,8 @@ func (m *Manager) DeleteTopics(ctx context.Context, topics ...apmqueue.Topic) er
 	}
 	var deleteErrors []error
 	for _, response := range responses.Sorted() {
-		logger := m.cfg.Logger.With(zap.String("topic", response.Topic))
+		topic := strings.TrimPrefix(response.Topic, namespacePrefix)
+		logger := m.cfg.Logger.With(zap.String("topic", topic))
 		if err := response.Err; err != nil {
 			if errors.Is(err, kerr.UnknownTopicOrPartition) {
 				logger.Debug("kafka topic does not exist")
@@ -114,10 +117,7 @@ func (m *Manager) DeleteTopics(ctx context.Context, topics ...apmqueue.Topic) er
 				span.RecordError(err)
 				span.SetStatus(codes.Error, "failed to delete one or more topic")
 				deleteErrors = append(deleteErrors,
-					fmt.Errorf(
-						"failed to delete topic %q: %w",
-						response.Topic, err,
-					),
+					fmt.Errorf("failed to delete topic %q: %w", topic, err),
 				)
 			}
 			continue
@@ -150,6 +150,7 @@ func (m *Manager) MonitorConsumerLag(topicConsumers []apmqueue.TopicConsumer) (m
 		return nil, fmt.Errorf("kafka: failed to create consumer_group_lag metric: %w", err)
 	}
 
+	namespacePrefix := m.cfg.namespacePrefix()
 	gatherMetrics := func(ctx context.Context, o metric.Observer) error {
 		ctx, span := m.tracer.Start(ctx, "GatherMetrics")
 		defer span.End()
@@ -205,6 +206,12 @@ func (m *Manager) MonitorConsumerLag(topicConsumers []apmqueue.TopicConsumer) (m
 			}
 			groupLag := kadm.CalculateGroupLag(group, commits[group.Group].Fetched, endOffsets)
 			for topic, partitions := range groupLag {
+				if !strings.HasPrefix(topic, namespacePrefix) {
+					// Ignore topics outside the namespace.
+					continue
+				}
+				topic = topic[len(namespacePrefix):]
+
 				if _, ok := monitorTopicConsumers[apmqueue.TopicConsumer{
 					Topic:    apmqueue.Topic(topic),
 					Consumer: group.Group,

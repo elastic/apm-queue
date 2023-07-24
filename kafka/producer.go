@@ -174,6 +174,7 @@ func (p *Producer) Produce(ctx context.Context, rs ...apmqueue.Record) error {
 	if len(rs) == 0 {
 		return nil
 	}
+
 	// Take a read lock to prevent Close from closing the client
 	// while we're attempting to produce records.
 	p.mu.RLock()
@@ -194,10 +195,11 @@ func (p *Producer) Produce(ctx context.Context, rs ...apmqueue.Record) error {
 	if !p.cfg.Sync {
 		ctx = queuecontext.DetachedContext(ctx)
 	}
+	namespacePrefix := p.cfg.namespacePrefix()
 	for _, record := range rs {
 		kgoRecord := &kgo.Record{
 			Headers: headers,
-			Topic:   string(record.Topic),
+			Topic:   fmt.Sprintf("%s%s", namespacePrefix, record.Topic),
 			Key:     record.OrderingKey,
 			Value:   record.Value,
 		}
@@ -207,7 +209,7 @@ func (p *Producer) Produce(ctx context.Context, rs ...apmqueue.Record) error {
 			if err != nil {
 				p.cfg.Logger.Error("failed producing message",
 					zap.Error(err),
-					zap.String("topic", r.Topic),
+					zap.String("topic", strings.TrimPrefix(r.Topic, namespacePrefix)),
 					zap.Int64("offset", r.Offset),
 					zap.Int32("partition", r.Partition),
 					zap.Any("headers", headers),
