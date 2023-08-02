@@ -97,10 +97,10 @@ func (cfg *ConsumerConfig) finalize() error {
 		errs = append(errs, errors.New("kafka: processor must be set"))
 	}
 	if cfg.MaxPollBytes < 0 {
-		errs = append(errs, errors.New("kafka: max pool bytes cannot be negative"))
+		errs = append(errs, errors.New("kafka: max poll bytes cannot be negative"))
 	}
 	if cfg.MaxPollPartitionBytes < 0 {
-		errs = append(errs, errors.New("kafka: max pool partition bytes cannot be negative"))
+		errs = append(errs, errors.New("kafka: max poll partition bytes cannot be negative"))
 	}
 	return errors.Join(errs...)
 }
