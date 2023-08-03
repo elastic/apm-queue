@@ -23,7 +23,6 @@ import (
 	"log"
 	"time"
 
-	"github.com/gosuri/uitable"
 	flag "github.com/spf13/pflag"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
@@ -113,56 +112,8 @@ func main() {
 	var rm metricdata.ResourceMetrics
 	rdr.Collect(context.Background(), &rm)
 
-	// fmt.Printf("%+v\n", rm)
-
-	franzMetrics := filterMetrics("github.com/twmb/franz-go/plugin/kotel", rm.ScopeMetrics)
-	if len(franzMetrics) == 0 {
-		panic("there should be something")
-	}
-
-	kafkaMetrics := filterMetrics("github.com/elastic/apm-queue/kafka", rm.ScopeMetrics)
-	if len(kafkaMetrics) == 0 {
-		panic("there should be something")
-	}
-
-	table := uitable.New()
-	table.Wrap = true
-	table.MaxColWidth = 80
-
-	table.AddRow("SECTION", "VALUE", "ATTRS")
-
-	tablelize := func(metrics []metricdata.Metrics, n string) {
-		m, found := getMetric(metrics, n)
-		if found {
-			var v any
-
-			switch d := m.Data.(type) {
-			case metricdata.Sum[int64]:
-				v = displayDatapoints(d)
-			case metricdata.Histogram[float64]:
-				v = displayHistogram(d)
-			}
-
-			table.AddRow(n, v)
-		} else {
-			table.AddRow(n, 0)
-		}
-	}
-
-	tablelize(franzMetrics, "messaging.kafka.produce_records.count")
-	tablelize(franzMetrics, "messaging.kafka.fetch_records.count")
-	tablelize(franzMetrics, "messaging.kafka.produce_bytes.count")
-	tablelize(franzMetrics, "messaging.kafka.fetch_bytes.count")
-	tablelize(kafkaMetrics, "producer.messages.produced")
-	tablelize(kafkaMetrics, "consumer.messages.fetched")
-	tablelize(kafkaMetrics, "consumer.messages.delay")
-
-	fmt.Println()
-	fmt.Println(table)
-	fmt.Println()
-
-	// go startProducing(producer)
-	// go startConsuming(consumer)
+	log.Println("bench run complete")
+	display(rm)
 }
 
 // func startProducing(producer) {
