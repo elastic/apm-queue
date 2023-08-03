@@ -116,15 +116,13 @@ func main() {
 	}
 	producer.Produce(ctx, record)
 
-	consumer, err := createConsumer(kafkaCommonCfg, cfg.topics)
-	if err != nil {
-		log.Fatal(fmt.Sprintf("cannot create consumer: %s", err))
-	}
-	defer consumer.Close()
+	log.Println("starting consumer")
+	go consume(ctx, kafkaCommonCfg, cfg, 5*time.Second)
 
-	c, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-	consumer.Run(c)
+	// TODO: properly wait for completion
+	// POOR MAN SYNC
+	log.Println("waiting bench to complete...")
+	time.Sleep(cfg.duration + 10*time.Second)
 
 	var rm metricdata.ResourceMetrics
 	rdr.Collect(context.Background(), &rm)
@@ -196,24 +194,5 @@ func createProducer(commoncfg kafka.CommonConfig) (*kafka.Producer, error) {
 
 	return kafka.NewProducer(kafka.ProducerConfig{
 		CommonConfig: commoncfg,
-	})
-}
-
-type dummyProcessor struct{}
-
-// Process implements apmqueue.Processor
-func (p dummyProcessor) Process(ctx context.Context, records ...apmqueue.Record) error {
-	return nil
-}
-
-func createConsumer(commoncfg kafka.CommonConfig, topics []apmqueue.Topic) (*kafka.Consumer, error) {
-	commoncfg.ClientID = fmt.Sprintf("%s-consumer", app)
-
-	return kafka.NewConsumer(kafka.ConsumerConfig{
-		CommonConfig: commoncfg,
-
-		Topics:    topics,
-		GroupID:   "zero",
-		Processor: dummyProcessor{},
 	})
 }
