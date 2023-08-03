@@ -52,12 +52,6 @@ func flags2config() *config {
 	if *brokers == "" {
 		log.Fatal("config validation: brokers must not be empty")
 	}
-	if *partitions != 1 {
-		log.Fatal("config validation: partitions > 1 is not supported (yet)")
-	}
-	if *eventSize != 1024 {
-		log.Fatal("config validation: event-size > 1024 is not supported (yet)")
-	}
 	if *duration == 0 {
 		log.Fatal("config validation: duration must be set and be greater than 0")
 	}
