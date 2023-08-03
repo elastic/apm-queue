@@ -109,7 +109,7 @@ func main() {
 	go produce(ctx, kafkaCommonCfg, cfg)
 
 	log.Println("starting consumer")
-	go consume(ctx, kafkaCommonCfg, cfg, 5*time.Second)
+	go consume(ctx, kafkaCommonCfg, cfg, cfg.duration+5*time.Second)
 
 	// TODO: properly wait for completion
 	// POOR MAN SYNC
