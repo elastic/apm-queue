@@ -21,9 +21,9 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"strings"
 	"time"
 
+	"github.com/gosuri/uitable"
 	flag "github.com/spf13/pflag"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
@@ -152,28 +152,53 @@ func main() {
 	var rm metricdata.ResourceMetrics
 	rdr.Collect(context.Background(), &rm)
 
-	fmt.Printf("%+v\n", rm)
-	o := filterMetrics("github.com/twmb/franz-go/plugin/kotel", rm.ScopeMetrics)
-	if len(o) != 0 {
-		for _, m := range o {
-			dps := m.Data.(metricdata.Sum[int64]).DataPoints
-			fmt.Printf("%s @ %s\n", m.Name, dps[0].StartTime)
+	// fmt.Printf("%+v\n", rm)
 
-			for _, dp := range dps {
-				fmt.Printf("%d ", dp.Value)
-				attrs := strings.Builder{}
-				for i, a := range dp.Attributes.ToSlice() {
-					attrs.Write([]byte(fmt.Sprintf("%s:%s", string(a.Key), a.Value.AsString())))
-					if i+1 != len(dp.Attributes.ToSlice()) {
-						attrs.Write([]byte(" "))
-					}
-				}
-				fmt.Printf("(%s)", &attrs)
-				fmt.Println()
-			}
-		}
-		fmt.Printf("\n\n")
+	franzMetrics := filterMetrics("github.com/twmb/franz-go/plugin/kotel", rm.ScopeMetrics)
+	if len(franzMetrics) == 0 {
+		panic("there should be something")
 	}
+
+	kafkaMetrics := filterMetrics("github.com/elastic/apm-queue/kafka", rm.ScopeMetrics)
+	if len(kafkaMetrics) == 0 {
+		panic("there should be something")
+	}
+
+	table := uitable.New()
+	table.Wrap = true
+	table.MaxColWidth = 80
+
+	table.AddRow("SECTION", "VALUE", "ATTRS")
+
+	tablelize := func(metrics []metricdata.Metrics, n string) {
+		m, found := getMetric(metrics, n)
+		if found {
+			var v any
+
+			switch d := m.Data.(type) {
+			case metricdata.Sum[int64]:
+				v = displayDatapoints(d)
+			case metricdata.Histogram[float64]:
+				v = displayHistogram(d)
+			}
+
+			table.AddRow(n, v)
+		} else {
+			table.AddRow(n, 0)
+		}
+	}
+
+	tablelize(franzMetrics, "messaging.kafka.produce_records.count")
+	tablelize(franzMetrics, "messaging.kafka.fetch_records.count")
+	tablelize(franzMetrics, "messaging.kafka.produce_bytes.count")
+	tablelize(franzMetrics, "messaging.kafka.fetch_bytes.count")
+	tablelize(kafkaMetrics, "producer.messages.produced")
+	tablelize(kafkaMetrics, "consumer.messages.fetched")
+	tablelize(kafkaMetrics, "consumer.messages.delay")
+
+	fmt.Println()
+	fmt.Println(table)
+	fmt.Println()
 
 	// go startProducing(producer)
 	// go startConsuming(consumer)
@@ -253,13 +278,4 @@ func createConsumer(commoncfg kafka.CommonConfig, topics []apmqueue.Topic) (*kaf
 		GroupID:   "zero",
 		Processor: dummyProcessor{},
 	})
-}
-
-func filterMetrics(instrumentName string, sm []metricdata.ScopeMetrics) []metricdata.Metrics {
-	for _, m := range sm {
-		if m.Scope.Name == instrumentName {
-			return m.Metrics
-		}
-	}
-	return []metricdata.Metrics{}
 }
