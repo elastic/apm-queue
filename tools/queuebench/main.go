@@ -41,6 +41,7 @@ type config struct {
 	eventSize  int
 	partitions int
 	topics     []apmqueue.Topic
+	verbose    bool
 }
 
 func flags2config() *config {
@@ -48,6 +49,7 @@ func flags2config() *config {
 	duration := flag.Int("duration", 0, "duration time in seconds for the benchmark. Required.")
 	eventSize := flag.Int("event-size", 1024, "size of each event, in bytes. Default to 1024B (1KB).")
 	partitions := flag.Int("partitions", 1, "number of partitions to use for benchmarking a single topic. Default: 1.")
+	verbose := flag.Bool("verbose", false, "print MOAR")
 
 	flag.Parse()
 
@@ -66,6 +68,7 @@ func flags2config() *config {
 		topics: []apmqueue.Topic{
 			apmqueue.Topic(fmt.Sprintf("%s-%d", app, time.Now().Unix())),
 		},
+		verbose: *verbose,
 	}
 }
 
@@ -73,7 +76,11 @@ func main() {
 	cfg := flags2config()
 
 	log.Println("prep logger")
-	logger, err := zap.NewDevelopment()
+	zapLevel := zap.ErrorLevel
+	if cfg.verbose {
+		zapLevel = zap.DebugLevel
+	}
+	logger, err := zap.NewDevelopment(zap.IncreaseLevel(zapLevel))
 	if err != nil {
 		log.Fatal(fmt.Sprintf("cannot create zap logger: %s", err))
 	}
