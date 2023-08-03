@@ -34,6 +34,8 @@ import (
 	"github.com/elastic/apm-queue/kafka"
 )
 
+const app = "queuebench"
+
 type config struct {
 	brokers    []string
 	duration   time.Duration
@@ -97,24 +99,8 @@ func main() {
 	bench.Setup(ctx, kafkaCommonCfg)
 	defer bench.Teardown(ctx)
 
-	// generator := newEventGenerator(cfg.duration, cfg.eventSize)
-	event, err := generateEvent(cfg.eventSize)
-	if err != nil {
-		log.Fatal(fmt.Sprintf("cannot generate event: %s", err))
-	}
-
-	producer, err := createProducer(kafkaCommonCfg)
-	if err != nil {
-		log.Fatalf("cannot create kafka producer: %s", err)
-	}
-	defer producer.Close()
-
-	record := apmqueue.Record{
-		Topic: cfg.topics[0],
-		// OrderingKey: []byte{},
-		Value: event,
-	}
-	producer.Produce(ctx, record)
+	log.Println("staring producer")
+	go produce(ctx, kafkaCommonCfg, cfg)
 
 	log.Println("starting consumer")
 	go consume(ctx, kafkaCommonCfg, cfg, 5*time.Second)
