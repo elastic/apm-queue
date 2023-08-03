@@ -39,6 +39,7 @@ type config struct {
 	duration   time.Duration
 	eventSize  int
 	partitions int
+	topics     []apmqueue.Topic
 }
 
 func flags2config() *config {
@@ -61,6 +62,9 @@ func flags2config() *config {
 		duration:   time.Duration(*duration),
 		eventSize:  *eventSize,
 		partitions: *partitions,
+		topics: []apmqueue.Topic{
+			apmqueue.Topic(fmt.Sprintf("%s-%d", app, time.Now().Unix())),
+		},
 	}
 }
 
@@ -88,31 +92,10 @@ func main() {
 		MeterProvider:  mp,
 	}
 
-	log.Println("prep kafka.Manager")
-	mngr, err := newMngr(kafkaCommonCfg, cfg.brokers)
-	if err != nil {
-		log.Fatal(fmt.Sprintf("cannot create kafka manager: %s", err))
-	}
-	defer func() { mngr.Close() }()
-
 	ctx := context.Background()
-
-	if err := mngr.Healthy(ctx); err != nil {
-		log.Fatal(fmt.Sprintf("kafka cluster is not healthy (%s): %s", cfg.brokers, err))
-	}
-
-	log.Println("cluster confirmed healthy")
-
-	ts := time.Now().Unix()
-	topics := []apmqueue.Topic{
-		apmqueue.Topic(fmt.Sprintf("%s-%d", app, ts)),
-	}
-
-	log.Println("creating benchmark kafka topics")
-	if err := createTopics(ctx, mngr, cfg.partitions, topics); err != nil {
-		log.Fatal("cannot create topics: %w", err)
-	}
-	defer deleteTopics(ctx, mngr, topics)
+	bench := newBench(cfg)
+	bench.Setup(ctx, kafkaCommonCfg)
+	defer bench.Teardown(ctx)
 
 	// generator := newEventGenerator(cfg.duration, cfg.eventSize)
 	event, err := generateEvent(cfg.eventSize)
@@ -127,13 +110,13 @@ func main() {
 	defer producer.Close()
 
 	record := apmqueue.Record{
-		Topic: topics[0],
+		Topic: cfg.topics[0],
 		// OrderingKey: []byte{},
 		Value: event,
 	}
 	producer.Produce(ctx, record)
 
-	consumer, err := createConsumer(kafkaCommonCfg, topics)
+	consumer, err := createConsumer(kafkaCommonCfg, cfg.topics)
 	if err != nil {
 		log.Fatal(fmt.Sprintf("cannot create consumer: %s", err))
 	}
@@ -208,44 +191,6 @@ func main() {
 
 const app = "queuebench"
 
-func newMngr(commoncfg kafka.CommonConfig, brokers []string) (*kafka.Manager, error) {
-	commoncfg.ClientID = fmt.Sprintf("%s-manager", app)
-
-	cfg := kafka.ManagerConfig{
-		CommonConfig: commoncfg,
-	}
-
-	return kafka.NewManager(cfg)
-}
-
-func createTopics(ctx context.Context, mngr *kafka.Manager, partitions int, topics []apmqueue.Topic) error {
-	cfg := kafka.TopicCreatorConfig{
-		PartitionCount: partitions,
-	}
-
-	creator, err := mngr.NewTopicCreator(cfg)
-	if err != nil {
-		return fmt.Errorf("cannot instantiate topic creator: %w", err)
-	}
-
-	for _, topic := range topics {
-		err = creator.CreateTopics(ctx, topic)
-		if err != nil {
-			return fmt.Errorf("cannot create topics: %w", err)
-		}
-	}
-
-	return nil
-}
-
-func deleteTopics(ctx context.Context, mngr *kafka.Manager, topics []apmqueue.Topic) {
-	log.Println("deleting benchmark kafka topics")
-	err := mngr.DeleteTopics(ctx, topics...)
-	if err != nil {
-		panic(err)
-	}
-}
-
 func createProducer(commoncfg kafka.CommonConfig) (*kafka.Producer, error) {
 	commoncfg.ClientID = fmt.Sprintf("%s-producer", app)
 
@@ -258,7 +203,6 @@ type dummyProcessor struct{}
 
 // Process implements apmqueue.Processor
 func (p dummyProcessor) Process(ctx context.Context, records ...apmqueue.Record) error {
-	fmt.Println(records)
 	return nil
 }
 
