@@ -1,0 +1,42 @@
+# https://taskfile.dev
+
+version: '3'
+
+vars:
+  AWS_REGION: "eu-central-1"
+  EC2_ID: "i-06cefcf9ce85defc7"
+  EC2_DNS:
+    sh: "aws ec2 describe-instances --instance-ids '{{.EC2_ID}}' --query 'Reservations[*].Instances[*].PublicDnsName' --output text --region {{.AWS_REGION}}"
+  BROKERS: "boot-0s2agmae.c3.kafka-serverless.eu-central-1.amazonaws.com:9098"
+
+tasks:
+  default:
+    deps: ["upload"]
+    cmds:
+      - gum style --foreground 51 "3..2..1..run!!" # cyan1
+      - ssh ec2-user@{{.EC2_DNS}} -C "KAFKA_SASL_MECHANISM={{.KAFKA_SASL_MECHANISM}} ./queuebench --verbose --duration 1 --brokers '{{.BROKERS}}'"
+    vars:
+      KAFKA_SASL_MECHANISM: "AWS_MSK_IAM"
+    silent: true
+
+  build:
+    cmds:
+      - "go build"
+    sources:
+      - "*.go"
+      - "*/*.go"
+    generates:
+      - "queuebench"
+
+  ssh:
+    cmds:
+      - "ssh ec2-user@{{.EC2_DNS}}"
+
+  upload:
+    deps: ["build"]
+    cmds:
+      - "scp -C queuebench ec2-user@{{.EC2_DNS}}:/home/ec2-user/"
+    status:
+      # compare with remote binary, it's slow :(
+      - "[[ $(ssh ec2-user@ec2-3-121-236-45.eu-central-1.compute.amazonaws.com -C 'md5sum queuebench' | cut -d' ' -f 1) == $(md5sum queuebench | cut -d' ' -f 1) ]]"
+    silent: true
