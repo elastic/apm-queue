@@ -45,7 +45,9 @@ func produce(ctx context.Context, kafkaCommonCfg kafka.CommonConfig, cfg *config
 	}
 
 	log.Println("producing...")
-	producer.Produce(ctx, record)
+	for {
+		producer.Produce(ctx, record)
+	}
 }
 
 func createProducer(commoncfg kafka.CommonConfig) (*kafka.Producer, error) {
