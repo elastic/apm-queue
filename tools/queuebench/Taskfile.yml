@@ -38,5 +38,5 @@ tasks:
       - "scp -C queuebench ec2-user@{{.EC2_DNS}}:/home/ec2-user/"
     status:
       # compare with remote binary, it's slow :(
-      - "[[ $(ssh ec2-user@ec2-3-121-236-45.eu-central-1.compute.amazonaws.com -C 'md5sum queuebench' | cut -d' ' -f 1) == $(md5sum queuebench | cut -d' ' -f 1) ]]"
+      - "[[ $(ssh ec2-user@{{.EC2_DNS}} -C 'md5sum queuebench' | cut -d' ' -f 1) == $(md5sum queuebench | cut -d' ' -f 1) ]]"
     silent: true
