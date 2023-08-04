@@ -19,7 +19,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"time"
 
@@ -27,13 +26,7 @@ import (
 	"github.com/elastic/apm-queue/kafka"
 )
 
-func consume(ctx context.Context, kafkaCommonCfg kafka.CommonConfig, cfg *config, timeout time.Duration) {
-	consumer, err := createConsumer(kafkaCommonCfg, cfg.topics)
-	if err != nil {
-		log.Fatal(fmt.Sprintf("cannot create consumer: %s", err))
-	}
-	defer consumer.Close()
-
+func consume(ctx context.Context, consumer *kafka.Consumer, cfg *config, timeout time.Duration) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
@@ -48,16 +41,4 @@ type dummyProcessor struct{}
 // Process implements apmqueue.Processor
 func (p dummyProcessor) Process(ctx context.Context, records ...apmqueue.Record) error {
 	return nil
-}
-
-func createConsumer(commoncfg kafka.CommonConfig, topics []apmqueue.Topic) (*kafka.Consumer, error) {
-	commoncfg.ClientID = fmt.Sprintf("%s-consumer", app)
-
-	return kafka.NewConsumer(kafka.ConsumerConfig{
-		CommonConfig: commoncfg,
-
-		Topics:    topics,
-		GroupID:   "zero",
-		Processor: dummyProcessor{},
-	})
 }

@@ -26,13 +26,7 @@ import (
 	"github.com/elastic/apm-queue/kafka"
 )
 
-func produce(ctx context.Context, kafkaCommonCfg kafka.CommonConfig, cfg *config) {
-	producer, err := createProducer(kafkaCommonCfg)
-	if err != nil {
-		log.Fatalf("cannot create kafka producer: %s", err)
-	}
-	defer producer.Close()
-
+func produce(ctx context.Context, producer *kafka.Producer, cfg *config) {
 	event, err := generateEvent(cfg.eventSize)
 	if err != nil {
 		log.Fatal(fmt.Sprintf("cannot generate event: %s", err))
@@ -48,12 +42,4 @@ func produce(ctx context.Context, kafkaCommonCfg kafka.CommonConfig, cfg *config
 	for {
 		producer.Produce(ctx, record)
 	}
-}
-
-func createProducer(commoncfg kafka.CommonConfig) (*kafka.Producer, error) {
-	commoncfg.ClientID = fmt.Sprintf("%s-producer", app)
-
-	return kafka.NewProducer(kafka.ProducerConfig{
-		CommonConfig: commoncfg,
-	})
 }

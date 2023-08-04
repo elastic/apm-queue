@@ -106,7 +106,7 @@ func main() {
 	defer bench.Teardown(ctx)
 
 	log.Println("staring producer")
-	go produce(ctx, kafkaCommonCfg, cfg)
+	go produce(ctx, bench.Producer, cfg)
 
 	log.Println("starting consumer")
 	go consume(ctx, bench.Consumer, cfg, cfg.duration*2)

@@ -36,7 +36,9 @@ func newBench(cfg *config) *bench {
 type bench struct {
 	cfg config
 
-	manager *kafka.Manager
+	manager  *kafka.Manager
+	Producer *kafka.Producer
+	Consumer *kafka.Consumer
 }
 
 func (b *bench) Setup(ctx context.Context, kafkaCommonCfg kafka.CommonConfig) {
@@ -58,6 +60,20 @@ func (b *bench) Setup(ctx context.Context, kafkaCommonCfg kafka.CommonConfig) {
 	if err := createTopics(ctx, mngr, b.cfg.partitions, b.cfg.topics); err != nil {
 		log.Fatal("cannot create topics: %w", err)
 	}
+
+	p, err := createProducer(kafkaCommonCfg)
+	if err != nil {
+		log.Fatalf("cannot create kafka producer: %s", err)
+	}
+
+	b.Producer = p
+
+	c, err := createConsumer(kafkaCommonCfg, b.cfg.topics)
+	if err != nil {
+		log.Fatal(fmt.Sprintf("cannot create consumer: %s", err))
+	}
+
+	b.Consumer = c
 }
 
 func (b *bench) Teardown(ctx context.Context) {
@@ -103,6 +119,14 @@ func deleteTopics(ctx context.Context, mngr *kafka.Manager, topics []apmqueue.To
 	}
 }
 
+func createProducer(commoncfg kafka.CommonConfig) (*kafka.Producer, error) {
+	commoncfg.ClientID = fmt.Sprintf("%s-producer", app)
+
+	return kafka.NewProducer(kafka.ProducerConfig{
+		CommonConfig: commoncfg,
+	})
+}
+
 func generateEvent(size int) ([]byte, error) {
 	buf := make([]byte, size)
 
@@ -112,4 +136,18 @@ func generateEvent(size int) ([]byte, error) {
 	}
 
 	return buf, nil
+}
+
+func createConsumer(commoncfg kafka.CommonConfig, topics []apmqueue.Topic) (*kafka.Consumer, error) {
+	commoncfg.ClientID = fmt.Sprintf("%s-consumer", app)
+
+	return kafka.NewConsumer(kafka.ConsumerConfig{
+		CommonConfig: commoncfg,
+
+		Topics:    topics,
+		GroupID:   "zero",
+		Processor: dummyProcessor{},
+
+		// ShutdownGracePeriod: 5 * time.Second,
+	})
 }
