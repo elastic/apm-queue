@@ -23,6 +23,8 @@ import (
 	"fmt"
 	"log"
 
+	"go.uber.org/zap"
+
 	apmqueue "github.com/elastic/apm-queue"
 	"github.com/elastic/apm-queue/kafka"
 )
@@ -43,7 +45,9 @@ type bench struct {
 
 func (b *bench) Setup(ctx context.Context, kafkaCommonCfg kafka.CommonConfig) {
 	log.Println("prep kafka.Manager")
-	mngr, err := newMngr(kafkaCommonCfg, b.cfg.brokers)
+	mCfg := kafkaCommonCfg
+	mCfg.Logger = mCfg.Logger.With(zap.String("role", "manager"))
+	mngr, err := newMngr(mCfg, b.cfg.brokers)
 	if err != nil {
 		log.Fatal(fmt.Sprintf("cannot create kafka manager: %s", err))
 	}
@@ -61,14 +65,18 @@ func (b *bench) Setup(ctx context.Context, kafkaCommonCfg kafka.CommonConfig) {
 		log.Fatal("cannot create topics: %w", err)
 	}
 
-	p, err := createProducer(kafkaCommonCfg)
+	pCfg := kafkaCommonCfg
+	pCfg.Logger = pCfg.Logger.With(zap.String("role", "producer"))
+	p, err := createProducer(pCfg)
 	if err != nil {
 		log.Fatalf("cannot create kafka producer: %s", err)
 	}
 
 	b.Producer = p
 
-	c, err := createConsumer(kafkaCommonCfg, b.cfg.topics)
+	cCfg := kafkaCommonCfg
+	cCfg.Logger = cCfg.Logger.With(zap.String("role", "consumer"))
+	c, err := createConsumer(cCfg, b.cfg.topics)
 	if err != nil {
 		log.Fatal(fmt.Sprintf("cannot create consumer: %s", err))
 	}
