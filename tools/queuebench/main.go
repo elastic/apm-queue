@@ -62,7 +62,7 @@ func flags2config() *config {
 
 	return &config{
 		brokers:    []string{*brokers},
-		duration:   time.Duration(*duration),
+		duration:   time.Duration(*duration) * time.Second,
 		eventSize:  *eventSize,
 		partitions: *partitions,
 		topics: []apmqueue.Topic{
@@ -109,12 +109,13 @@ func main() {
 	go produce(ctx, kafkaCommonCfg, cfg)
 
 	log.Println("starting consumer")
-	go consume(ctx, kafkaCommonCfg, cfg, cfg.duration+5*time.Second)
+	go consume(ctx, bench.Consumer, cfg, cfg.duration*2)
 
 	// TODO: properly wait for completion
 	// POOR MAN SYNC
 	log.Println("waiting bench to complete...")
-	time.Sleep(cfg.duration + 10*time.Second)
+	time.Sleep(cfg.duration)
+	log.Println("time's up!")
 
 	var rm metricdata.ResourceMetrics
 	rdr.Collect(context.Background(), &rm)
