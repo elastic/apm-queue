@@ -19,7 +19,6 @@ package main
 
 import (
 	"context"
-	"crypto/rand"
 	"fmt"
 	"log"
 
@@ -133,17 +132,6 @@ func createProducer(commoncfg kafka.CommonConfig) (*kafka.Producer, error) {
 	return kafka.NewProducer(kafka.ProducerConfig{
 		CommonConfig: commoncfg,
 	})
-}
-
-func generateEvent(size int) ([]byte, error) {
-	buf := make([]byte, size)
-
-	_, err := rand.Read(buf)
-	if err != nil {
-		return []byte{}, fmt.Errorf("error while generating random string: %w", err)
-	}
-
-	return buf, nil
 }
 
 func createConsumer(commoncfg kafka.CommonConfig, topics []apmqueue.Topic) (*kafka.Consumer, error) {
