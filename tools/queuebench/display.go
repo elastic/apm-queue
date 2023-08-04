@@ -28,12 +28,12 @@ import (
 func display(rm metricdata.ResourceMetrics) {
 	franzMetrics := filterMetrics("github.com/twmb/franz-go/plugin/kotel", rm.ScopeMetrics)
 	if len(franzMetrics) == 0 {
-		panic("there should be something")
+		panic("expected some franz metrics, found none")
 	}
 
 	kafkaMetrics := filterMetrics("github.com/elastic/apm-queue/kafka", rm.ScopeMetrics)
 	if len(kafkaMetrics) == 0 {
-		panic("there should be something")
+		panic("expected some kafka metrics, found none")
 	}
 
 	table := uitable.New()
