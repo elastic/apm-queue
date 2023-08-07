@@ -102,7 +102,7 @@ func main() {
 		MeterProvider:  mp,
 	}
 
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
 	bench := newBench(cfg)
 	bench.Setup(ctx, kafkaCommonCfg)
 	defer bench.Teardown(ctx)
@@ -126,6 +126,7 @@ func main() {
 			panic(err)
 		}
 
+		cancel()
 		log.Println("gracefully stopping consumer")
 		err = bench.Consumer.Close()
 		if err != nil {
