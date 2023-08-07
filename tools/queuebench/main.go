@@ -126,6 +126,13 @@ func main() {
 			panic(err)
 		}
 
+		log.Println("gracefully stopping consumer")
+		err = bench.Consumer.Close()
+		if err != nil {
+			panic(err)
+		}
+
+		log.Println("send bench complete mark")
 		quit <- struct{}{}
 	}()
 
@@ -133,6 +140,7 @@ func main() {
 	<-quit
 	log.Println("time's up!")
 
+	log.Println("collecting metrics")
 	var rm metricdata.ResourceMetrics
 	rdr.Collect(context.Background(), &rm)
 
