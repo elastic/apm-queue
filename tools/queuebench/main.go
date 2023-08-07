@@ -68,7 +68,7 @@ func flags2config() *config {
 		eventSize:  *eventSize,
 		partitions: *partitions,
 		topics: []apmqueue.Topic{
-			apmqueue.Topic(fmt.Sprintf("%s-%d", app, time.Now().Unix())),
+			apmqueue.Topic(fmt.Sprintf("%s-%d", "run", time.Now().Unix())),
 		},
 		verbose: *verbose,
 	}
