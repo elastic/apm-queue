@@ -113,10 +113,14 @@ func main() {
 	log.Println("starting consumer")
 	go consume(ctx, bench.Consumer, cfg, cfg.duration*2)
 
-	// TODO: properly wait for completion
-	// POOR MAN SYNC
+	var quit = make(chan struct{})
+	go func() {
+		time.Sleep(cfg.duration)
+		quit <- struct{}{}
+	}()
+
 	log.Println("waiting bench to complete...")
-	time.Sleep(cfg.duration)
+	<-quit
 	log.Println("time's up!")
 
 	var rm metricdata.ResourceMetrics
