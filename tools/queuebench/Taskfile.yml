@@ -7,14 +7,14 @@ vars:
   EC2_ID: "i-06cefcf9ce85defc7"
   EC2_DNS:
     sh: "aws ec2 describe-instances --instance-ids '{{.EC2_ID}}' --query 'Reservations[*].Instances[*].PublicDnsName' --output text --region {{.AWS_REGION}}"
-  BROKERS: "boot-0s2agmae.c3.kafka-serverless.eu-central-1.amazonaws.com:9098"
+  BROKERS: "boot-gcqtp1sz.c2.kafka-serverless.eu-central-1.amazonaws.com:9098"
 
 tasks:
   default:
     deps: ["upload"]
     cmds:
       - gum style --foreground 51 "3..2..1..run!!" # cyan1
-      - ssh ec2-user@{{.EC2_DNS}} -C "KAFKA_SASL_MECHANISM={{.KAFKA_SASL_MECHANISM}} ./queuebench --verbose --duration 1 --brokers '{{.BROKERS}}'"
+      - ssh ec2-user@{{.EC2_DNS}} -C "KAFKA_SASL_MECHANISM={{.KAFKA_SASL_MECHANISM}} ./queuebench --verbose --duration 5 --brokers '{{.BROKERS}}'"
     vars:
       KAFKA_SASL_MECHANISM: "AWS_MSK_IAM"
     silent: true
