@@ -4,7 +4,7 @@ go 1.20
 
 require (
 	cloud.google.com/go/monitoring v1.15.1
-	cloud.google.com/go/pubsub v1.32.0
+	cloud.google.com/go/pubsub v1.33.0
 	cloud.google.com/go/pubsublite v1.8.1
 	github.com/aws/aws-sdk-go-v2/config v1.18.32
 	github.com/google/go-cmp v0.5.9
