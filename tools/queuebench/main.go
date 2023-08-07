@@ -21,9 +21,11 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	flag "github.com/spf13/pflag"
+	"go.opentelemetry.io/otel/attribute"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	"go.opentelemetry.io/otel/trace"
@@ -121,23 +123,38 @@ func main() {
 	rdr.Collect(context.Background(), &rm)
 
 	log.Println("bench run complete")
+	if cfg.verbose {
+		rawPrintMetrics(rm)
+	}
 	display(rm)
 }
 
-// func startProducing(producer) {
-// 	producer.Start()
-// }
+func rawPrintMetrics(rm metricdata.ResourceMetrics) {
+	getAttrs := func(a attribute.Set) string {
+		s := strings.Builder{}
+		for _, v := range a.ToSlice() {
+			s.WriteString(fmt.Sprintf("(%s:%s)", v.Key, v.Value.AsString()))
+		}
+		return s.String()
+	}
 
-// func startConsuming(consumer) {
-// 	consumer.Start()
-// }
+	franzMetrics := filterMetrics("github.com/twmb/franz-go/plugin/kotel", rm.ScopeMetrics)
+	for _, m := range franzMetrics {
+		fmt.Println(m.Name)
 
-const app = "queuebench"
+		for _, dp := range m.Data.(metricdata.Sum[int64]).DataPoints {
+			fmt.Printf("%s %d (%s)\n", m.Name, dp.Value, getAttrs(dp.Attributes))
+		}
+	}
 
-func createProducer(commoncfg kafka.CommonConfig) (*kafka.Producer, error) {
-	commoncfg.ClientID = fmt.Sprintf("%s-producer", app)
+	kafkaMetrics := filterMetrics("github.com/elastic/apm-queue/kafka", rm.ScopeMetrics)
+	for _, m := range kafkaMetrics {
+		fmt.Println(m.Name)
 
-	return kafka.NewProducer(kafka.ProducerConfig{
-		CommonConfig: commoncfg,
-	})
+		if md, ok := m.Data.(metricdata.Sum[int64]); ok {
+			for _, dp := range md.DataPoints {
+				fmt.Printf("%s %d (%s)\n", m.Name, dp.Value, getAttrs(dp.Attributes))
+			}
+		}
+	}
 }
