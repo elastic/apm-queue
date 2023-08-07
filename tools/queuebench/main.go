@@ -108,7 +108,8 @@ func main() {
 	defer bench.Teardown(ctx)
 
 	log.Println("staring producer")
-	go produce(ctx, bench.Producer, cfg)
+	stopProducer := make(chan struct{})
+	go produce(ctx, bench.Producer, cfg, stopProducer)
 
 	log.Println("starting consumer")
 	go consume(ctx, bench.Consumer, cfg, cfg.duration*2)
@@ -116,6 +117,15 @@ func main() {
 	var quit = make(chan struct{})
 	go func() {
 		time.Sleep(cfg.duration)
+
+		log.Println("signal producer to stop")
+		stopProducer <- struct{}{}
+		err := bench.Producer.Close()
+		log.Println("closed producer")
+		if err != nil {
+			panic(err)
+		}
+
 		quit <- struct{}{}
 	}()
 

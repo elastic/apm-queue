@@ -27,7 +27,7 @@ import (
 	"github.com/elastic/apm-queue/kafka"
 )
 
-func produce(ctx context.Context, producer *kafka.Producer, cfg *config) {
+func produce(ctx context.Context, producer *kafka.Producer, cfg *config, stop <-chan struct{}) {
 	event, err := generateEvent(cfg.eventSize)
 	if err != nil {
 		log.Fatal(fmt.Sprintf("cannot generate event: %s", err))
@@ -41,7 +41,12 @@ func produce(ctx context.Context, producer *kafka.Producer, cfg *config) {
 
 	log.Println("producing...")
 	for {
-		producer.Produce(ctx, record)
+		select {
+		case <-stop:
+			return
+		default:
+			producer.Produce(ctx, record)
+		}
 	}
 }
 
