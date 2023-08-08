@@ -19,6 +19,7 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"fmt"
 	"log"
 	"time"
@@ -29,6 +30,7 @@ import (
 	"go.uber.org/zap"
 
 	apmqueue "github.com/elastic/apm-queue"
+	"github.com/elastic/apm-queue/kafka"
 )
 
 const namespace = "queuebench"
@@ -98,6 +100,7 @@ func main() {
 	}()
 
 	log.Println("start producing")
+	produce(ctx, bench.p, bench.Topics[0], cfg.eventSize)
 
 	log.Println("stop producing")
 
@@ -114,4 +117,27 @@ func main() {
 	}
 
 	log.Println("bench run completed successfully")
+}
+
+func produce(ctx context.Context, p *kafka.Producer, topic apmqueue.Topic, size int) error {
+	buf := make([]byte, size)
+
+	_, err := rand.Read(buf)
+	if err != nil {
+		return fmt.Errorf("cannot read random bytes: %w", err)
+	}
+
+	record := apmqueue.Record{
+		Topic: topic,
+		// OrderingKey: []byte{},
+		Value: buf,
+	}
+
+	for i := 0; i < 10; i++ {
+		if err = p.Produce(ctx, record); err != nil {
+			return err
+		}
+	}
+
+	return err
 }

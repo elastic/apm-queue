@@ -43,6 +43,7 @@ type bench struct {
 
 	c *kafka.Consumer
 	m *kafka.Manager
+	p *kafka.Producer
 }
 
 func (b *bench) Setup(ctx context.Context) error {
@@ -85,7 +86,15 @@ func (b *bench) Setup(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("cannot create consumer: %w", err)
 	}
+
 	b.c = consumer
+
+	producer, err := createProducer(kafkaCommonCfg)
+	if err != nil {
+		return fmt.Errorf("cannot create producer: %w", err)
+	}
+
+	b.p = producer
 
 	return nil
 }
@@ -141,4 +150,14 @@ func createConsumer(commonCfg kafka.CommonConfig, topics []apmqueue.Topic) (*kaf
 	cfg.CommonConfig.Logger = commonCfg.Logger.With(zap.String("role", "consumer"))
 
 	return kafka.NewConsumer(cfg)
+}
+
+func createProducer(commonCfg kafka.CommonConfig) (*kafka.Producer, error) {
+	cfg := kafka.ProducerConfig{
+		CommonConfig: commonCfg,
+	}
+	cfg.CommonConfig.ClientID = "queuebench-producer"
+	cfg.CommonConfig.Logger = commonCfg.Logger.With(zap.String("role", "producer"))
+
+	return kafka.NewProducer(cfg)
 }
