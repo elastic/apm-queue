@@ -143,9 +143,10 @@ func (d dummyProcessor) Process(ctx context.Context, records ...apmqueue.Record)
 func createConsumer(commonCfg kafka.CommonConfig, topics []apmqueue.Topic) (*kafka.Consumer, error) {
 	cfg := kafka.ConsumerConfig{
 		CommonConfig: commonCfg,
-		GroupID:      fmt.Sprintf("queuebench-%d", time.Now().Unix()),
-		Processor:    dummyProcessor{},
-		Topics:       topics,
+		// TODO: replace with a unique identifier for a single run
+		GroupID:   fmt.Sprintf("queuebench-%d", time.Now().Unix()),
+		Processor: dummyProcessor{},
+		Topics:    topics,
 	}
 	cfg.CommonConfig.ClientID = "queuebench-consumer"
 	cfg.CommonConfig.Logger = commonCfg.Logger.With(zap.String("role", "consumer"))

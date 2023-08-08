@@ -74,6 +74,7 @@ func main() {
 		Partitions:     cfg.partitions,
 		TopicNamespace: namespace,
 		Topics: []apmqueue.Topic{
+			// TODO: replace with a unique identifier for a single run
 			apmqueue.Topic(fmt.Sprintf("run-%d", time.Now().Unix())),
 		},
 
@@ -108,6 +109,7 @@ func main() {
 	log.Println("stop producing")
 
 	for {
+		// TODO: add timeout
 		if totalconsumed < totalproduced {
 			time.Sleep(100 * time.Millisecond)
 		} else {
@@ -144,6 +146,7 @@ func produce(ctx context.Context, p *kafka.Producer, topic apmqueue.Topic, size 
 		Value: buf,
 	}
 
+	// TODO: should produce for cfg.duration
 	deadline := time.Now().Add(1 * time.Second)
 	for time.Now().Before(deadline) {
 		if err = p.Produce(ctx, record); err != nil {

@@ -61,6 +61,7 @@ func display(rm metricdata.ResourceMetrics) error {
 				log.Printf("  %s %d | %s\n", m.Name, dp.Value, getAttrs(dp.Attributes))
 			}
 		}
+		// TODO: handle Histogram[float64]
 	}
 
 	return nil
