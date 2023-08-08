@@ -24,6 +24,7 @@ import (
 	"time"
 
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 
@@ -101,6 +102,11 @@ func main() {
 	log.Printf("it took %s", duration)
 
 	log.Println("collecting metrics")
+	var rm metricdata.ResourceMetrics
+	rdr.Collect(context.Background(), &rm)
+	if err = display(rm); err != nil {
+		log.Panicf("failed displaying metrics: %s", err)
+	}
 
 	log.Println("bench run completed successfully")
 }
