@@ -135,7 +135,8 @@ func deleteTopics(ctx context.Context, mngr *kafka.Manager, topics []apmqueue.To
 
 type dummyProcessor struct{}
 
-func (d dummyProcessor) Process(context.Context, ...apmqueue.Record) error {
+func (d dummyProcessor) Process(ctx context.Context, records ...apmqueue.Record) error {
+	totalconsumed += len(records)
 	return nil
 }
 

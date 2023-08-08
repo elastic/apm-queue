@@ -35,6 +35,9 @@ import (
 
 const namespace = "queuebench"
 
+var totalproduced = 0
+var totalconsumed = 0
+
 func main() {
 	// NOTE: intercept any panic and print a nice terminate gracefully
 	// This allows using log.Panic methods in main; those function
@@ -108,6 +111,7 @@ func main() {
 
 	duration := time.Since(start)
 	log.Printf("it took %s", duration)
+	log.Printf("total\n\tproduced: %d\n\tconsumed: %d", totalproduced, totalconsumed)
 
 	log.Println("collecting metrics")
 	var rm metricdata.ResourceMetrics
@@ -137,6 +141,7 @@ func produce(ctx context.Context, p *kafka.Producer, topic apmqueue.Topic, size 
 		if err = p.Produce(ctx, record); err != nil {
 			return err
 		}
+		totalproduced += 1
 	}
 
 	return err
