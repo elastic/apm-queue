@@ -21,6 +21,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"time"
 
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
@@ -40,6 +41,7 @@ type bench struct {
 	mp metric.MeterProvider
 	tp trace.TracerProvider
 
+	c *kafka.Consumer
 	m *kafka.Manager
 }
 
@@ -79,6 +81,12 @@ func (b *bench) Setup(ctx context.Context) error {
 		return fmt.Errorf("cannot create topics: %w", err)
 	}
 
+	consumer, err := createConsumer(kafkaCommonCfg, b.Topics)
+	if err != nil {
+		return fmt.Errorf("cannot create consumer: %w", err)
+	}
+	b.c = consumer
+
 	return nil
 }
 
@@ -114,4 +122,23 @@ func deleteTopics(ctx context.Context, mngr *kafka.Manager, topics []apmqueue.To
 	}
 
 	return nil
+}
+
+type dummyProcessor struct{}
+
+func (d dummyProcessor) Process(context.Context, ...apmqueue.Record) error {
+	return nil
+}
+
+func createConsumer(commonCfg kafka.CommonConfig, topics []apmqueue.Topic) (*kafka.Consumer, error) {
+	cfg := kafka.ConsumerConfig{
+		CommonConfig: commonCfg,
+		GroupID:      fmt.Sprintf("queuebench-%d", time.Now().Unix()),
+		Processor:    dummyProcessor{},
+		Topics:       topics,
+	}
+	cfg.CommonConfig.ClientID = "queuebench-consumer"
+	cfg.CommonConfig.Logger = commonCfg.Logger.With(zap.String("role", "consumer"))
+
+	return kafka.NewConsumer(cfg)
 }

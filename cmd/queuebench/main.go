@@ -91,6 +91,11 @@ func main() {
 	log.Println("==> running benchmark")
 
 	log.Println("start consumer")
+	go func() {
+		if err := bench.c.Run(ctx); err != nil {
+			log.Panicf("consumer run ended with an error: %s", err)
+		}
+	}()
 
 	log.Println("start producing")
 
