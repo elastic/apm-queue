@@ -107,6 +107,13 @@ func main() {
 
 	log.Println("stop producing")
 
+	for {
+		if totalconsumed < totalproduced {
+			time.Sleep(100 * time.Millisecond)
+		} else {
+			break
+		}
+	}
 	log.Println("==> benchmark ")
 
 	duration := time.Since(start)
