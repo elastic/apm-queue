@@ -144,7 +144,8 @@ func produce(ctx context.Context, p *kafka.Producer, topic apmqueue.Topic, size 
 		Value: buf,
 	}
 
-	for i := 0; i < 10; i++ {
+	deadline := time.Now().Add(1 * time.Second)
+	for time.Now().Before(deadline) {
 		if err = p.Produce(ctx, record); err != nil {
 			return err
 		}
