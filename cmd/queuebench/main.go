@@ -117,16 +117,21 @@ func main() {
 	log.Println("==> running benchmark")
 
 	log.Println("start consumer")
+	var consumptionduration time.Duration
 	go func() {
+		consumptionstart := time.Now()
 		if err := bench.c.Run(ctx); err != nil {
 			log.Panicf("consumer run ended with an error: %s", err)
 		}
+		consumptionduration = time.Since(consumptionstart)
 	}()
 
 	log.Printf("start producing, will produce for %s", cfg.duration)
+	productionstart := time.Now()
 	if err := produce(ctx, bench.p, bench.Topics[0], cfg.eventSize, cfg.duration); err != nil {
 		log.Panicf("error while producing records: %s", err)
 	}
+	productionduration := time.Since(productionstart)
 
 	log.Println("stop producing")
 
@@ -145,8 +150,10 @@ func main() {
 	log.Println("==> benchmark ")
 
 	duration := time.Since(start)
-	log.Printf("it took %s", duration)
-	log.Printf("total\n\tproduced: %d\n\tconsumed: %d", totalproduced, totalconsumed)
+	log.Printf("it took %s (-duration=%s)", duration, cfg.duration)
+	log.Printf("time spent producing: %s", productionduration)
+	log.Printf("time spent consuming: %s", consumptionduration)
+	log.Printf("total produced/consumed: %d/%d", totalproduced, totalconsumed)
 
 	log.Println("collecting metrics")
 	var rm metricdata.ResourceMetrics
