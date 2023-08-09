@@ -148,6 +148,9 @@ func main() {
 		}
 	}
 	log.Println("==> benchmark ")
+	if err := bench.p.Close(); err != nil {
+		log.Panicf("error closing producer: %s", err)
+	}
 
 	duration := time.Since(start)
 	log.Printf("it took %s (-duration=%s)", duration, cfg.duration)
