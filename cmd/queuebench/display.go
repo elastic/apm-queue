@@ -44,7 +44,8 @@ func display(rm metricdata.ResourceMetrics) error {
 		log.Println(m.Name)
 
 		for _, dp := range m.Data.(metricdata.Sum[int64]).DataPoints {
-			log.Printf("  %s %d | %s\n", m.Name, dp.Value, getAttrs(dp.Attributes))
+			log.Printf("  %s | %s\n", m.Name, getAttrs(dp.Attributes))
+			log.Printf("  %s: value: %d\n", m.Name, dp.Value)
 		}
 	}
 
@@ -58,7 +59,8 @@ func display(rm metricdata.ResourceMetrics) error {
 
 		if md, ok := m.Data.(metricdata.Sum[int64]); ok {
 			for _, dp := range md.DataPoints {
-				log.Printf("  %s %d | %s\n", m.Name, dp.Value, getAttrs(dp.Attributes))
+				log.Printf("  %s | %s\n", m.Name, getAttrs(dp.Attributes))
+				log.Printf("  %s: value: %d\n", m.Name, dp.Value)
 			}
 		}
 		// TODO: handle Histogram[float64]
