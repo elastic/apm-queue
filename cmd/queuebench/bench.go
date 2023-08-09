@@ -21,7 +21,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"time"
 
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
@@ -32,11 +31,12 @@ import (
 )
 
 type bench struct {
-	Brokers        []string
-	Logger         *zap.Logger
-	Partitions     int
-	TopicNamespace string
-	Topics         []apmqueue.Topic
+	Brokers         []string
+	ConsumerGroupID string
+	Logger          *zap.Logger
+	Partitions      int
+	TopicNamespace  string
+	Topics          []apmqueue.Topic
 
 	mp metric.MeterProvider
 	tp trace.TracerProvider
@@ -82,7 +82,7 @@ func (b *bench) Setup(ctx context.Context) error {
 		return fmt.Errorf("cannot create topics: %w", err)
 	}
 
-	consumer, err := createConsumer(kafkaCommonCfg, b.Topics)
+	consumer, err := createConsumer(kafkaCommonCfg, b.Topics, b.ConsumerGroupID)
 	if err != nil {
 		return fmt.Errorf("cannot create consumer: %w", err)
 	}
@@ -140,13 +140,12 @@ func (d dummyProcessor) Process(ctx context.Context, records ...apmqueue.Record)
 	return nil
 }
 
-func createConsumer(commonCfg kafka.CommonConfig, topics []apmqueue.Topic) (*kafka.Consumer, error) {
+func createConsumer(commonCfg kafka.CommonConfig, topics []apmqueue.Topic, groupID string) (*kafka.Consumer, error) {
 	cfg := kafka.ConsumerConfig{
 		CommonConfig: commonCfg,
-		// TODO: replace with a unique identifier for a single run
-		GroupID:   fmt.Sprintf("queuebench-%d", time.Now().Unix()),
-		Processor: dummyProcessor{},
-		Topics:    topics,
+		GroupID:      groupID,
+		Processor:    dummyProcessor{},
+		Topics:       topics,
 	}
 	cfg.CommonConfig.ClientID = "queuebench-consumer"
 	cfg.CommonConfig.Logger = commonCfg.Logger.With(zap.String("role", "consumer"))

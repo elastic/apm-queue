@@ -67,15 +67,17 @@ func main() {
 	)
 
 	ctx := context.Background()
+	run := time.Now().Unix()
+	log.Printf("running bench run: %d", run)
 
 	bench := bench{
-		Brokers:        []string{cfg.broker},
-		Logger:         logger,
-		Partitions:     cfg.partitions,
-		TopicNamespace: namespace,
+		Brokers:         []string{cfg.broker},
+		ConsumerGroupID: fmt.Sprintf("queuebench-%d", run),
+		Logger:          logger,
+		Partitions:      cfg.partitions,
+		TopicNamespace:  namespace,
 		Topics: []apmqueue.Topic{
-			// TODO: replace with a unique identifier for a single run
-			apmqueue.Topic(fmt.Sprintf("run-%d", time.Now().Unix())),
+			apmqueue.Topic(fmt.Sprintf("run-%d", run)),
 		},
 
 		mp: mp,
