@@ -19,7 +19,7 @@ clean:
 
 .PHONY: test
 test: go.mod
-	GODEBUG="tracebackancestors=10" go test -race -v -timeout=$(GO_TEST_TIMEOUT) ./...
+	go test -race -v -timeout=$(GO_TEST_TIMEOUT) ./...
 
 MODULE_DEPS=$(sort $(shell go list -deps -tags=darwin,linux,windows -f "{{with .Module}}{{if not .Main}}{{.Path}}{{end}}{{end}}"))
 
