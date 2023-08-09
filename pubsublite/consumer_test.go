@@ -125,7 +125,9 @@ func TestConsumerConsume(t *testing.T) {
 	consumer, err := NewConsumer(context.Background(), config)
 	require.NoError(t, err)
 	defer consumer.Close()
-	go consumer.Run(context.Background())
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go consumer.Run(ctx)
 
 	// We should receive 2 records for each subscription-partition.
 	records := make(map[subscriptionPartition][]apmqueue.Record)
