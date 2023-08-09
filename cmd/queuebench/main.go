@@ -162,6 +162,10 @@ func main() {
 		log.Panicf("failed displaying metrics: %s", err)
 	}
 
+	if totalproduced != totalconsumed {
+		log.Panicf("total produced and consumed don't match: %d vs %d", totalproduced, totalconsumed)
+	}
+
 	log.Println("bench run completed successfully")
 }
 
