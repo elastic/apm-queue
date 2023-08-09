@@ -22,6 +22,9 @@ import (
 	"crypto/rand"
 	"fmt"
 	"log"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
@@ -94,10 +97,19 @@ func main() {
 	if err = bench.Setup(ctx); err != nil {
 		log.Panicf("benchmark setup failed: %s", err)
 	}
-	defer func() {
+	teardown := func() {
 		log.Println("running benchmark teardown")
 		if err := bench.Teardown(ctx); err != nil {
 			log.Panicf("benchmark teardown failed: %s", err)
+		}
+
+	}
+	defer teardown()
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		for range c {
+			teardown()
 		}
 	}()
 
