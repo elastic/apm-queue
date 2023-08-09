@@ -123,6 +123,10 @@ func main() {
 		if totalconsumed < totalproduced {
 			time.Sleep(100 * time.Millisecond)
 		} else {
+			log.Println("stop consuming")
+			if err := bench.c.Close(); err != nil {
+				log.Panicf("error closing consumer: %s", err)
+			}
 			break
 		}
 	}
