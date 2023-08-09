@@ -54,6 +54,20 @@ func display(rm metricdata.ResourceMetrics) error {
 		return fmt.Errorf("expected some kafka metrics, found none")
 	}
 
+	avg := func(a metricdata.Extrema[float64], b metricdata.Extrema[float64]) float64 {
+		av, aok := a.Value()
+		bv, bok := b.Value()
+
+		if !aok {
+			av = 0.0
+		}
+		if !bok {
+			bv = 0.0
+		}
+
+		return (av + bv) / 2
+	}
+
 	for _, m := range kafkaMetrics {
 		log.Println(m.Name)
 
@@ -63,7 +77,32 @@ func display(rm metricdata.ResourceMetrics) error {
 				log.Printf("  %s: value: %d\n", m.Name, dp.Value)
 			}
 		}
-		// TODO: handle Histogram[float64]
+		if md, ok := m.Data.(metricdata.Histogram[float64]); ok {
+			for _, dp := range md.DataPoints {
+				log.Printf("  %s | %s", m.Name, getAttrs(dp.Attributes))
+
+				if v, ok := dp.Min.Value(); ok {
+					log.Printf("  %s: min   : %.3f\n", m.Name, v)
+				}
+				if v, ok := dp.Max.Value(); ok {
+					log.Printf("  %s: max   : %.3f\n", m.Name, v)
+				}
+				log.Printf("  %s: avg   : %.3f\n", m.Name, avg(dp.Min, dp.Max))
+				log.Printf("  %s: sum   : %.3f\n", m.Name, dp.Sum)
+				log.Printf("  %s: total : %d\n", m.Name, dp.Count)
+
+				top := strings.Builder{}
+				bottom := strings.Builder{}
+				for i, b := range dp.Bounds {
+					a := fmt.Sprintf("%.f\t", b)
+					top.WriteString(a)
+					width := fmt.Sprintf("%d", len(a)-1)
+					bottom.WriteString(fmt.Sprintf("%"+width+"d\t", dp.BucketCounts[i]))
+				}
+				log.Printf("  %s: bounds: %s\n", m.Name, top.String())
+				log.Printf("  %s: count : %s\n", m.Name, bottom.String())
+			}
+		}
 	}
 
 	return nil
