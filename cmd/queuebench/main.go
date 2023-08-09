@@ -116,7 +116,7 @@ func main() {
 	start := time.Now()
 	log.Println("==> running benchmark")
 
-	log.Println("start consumer")
+	log.Println("start consuming")
 	var consumptionduration time.Duration
 	go func() {
 		consumptionstart := time.Now()
@@ -133,20 +133,31 @@ func main() {
 	}
 	productionduration := time.Since(productionstart)
 
-	log.Println("stop producing")
+	log.Println("production ended")
 
+	log.Println("waiting for consumer to fetch all records")
+	ticker := time.NewTicker(100 * time.Millisecond)
+	timer := time.NewTimer(cfg.timeout)
+wait:
 	for {
-		// TODO: add timeout
-		if totalconsumed < totalproduced {
-			time.Sleep(100 * time.Millisecond)
-		} else {
-			log.Println("stop consuming")
-			if err := bench.c.Close(); err != nil {
-				log.Panicf("error closing consumer: %s", err)
+		select {
+		case <-timer.C:
+			ticker.Stop()
+			log.Println("reached timeout, moving on")
+			break wait
+		case <-ticker.C:
+			if totalconsumed >= totalproduced {
+				log.Println("consumption ended")
+				ticker.Stop()
+				break wait
 			}
-			break
 		}
 	}
+	timer.Stop()
+	if err := bench.c.Close(); err != nil {
+		log.Panicf("error closing consumer: %s", err)
+	}
+
 	log.Println("==> benchmark ")
 	if err := bench.p.Close(); err != nil {
 		log.Panicf("error closing producer: %s", err)
