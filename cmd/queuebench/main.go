@@ -104,7 +104,9 @@ func main() {
 	}()
 
 	log.Println("start producing")
-	produce(ctx, bench.p, bench.Topics[0], cfg.eventSize)
+	if err := produce(ctx, bench.p, bench.Topics[0], cfg.eventSize); err != nil {
+		log.Panicf("error while producing records: %s", err)
+	}
 
 	log.Println("stop producing")
 
