@@ -111,8 +111,8 @@ func main() {
 		}
 	}()
 
-	log.Println("start producing")
-	if err := produce(ctx, bench.p, bench.Topics[0], cfg.eventSize); err != nil {
+	log.Printf("start producing, will produce for %s", cfg.duration)
+	if err := produce(ctx, bench.p, bench.Topics[0], cfg.eventSize, cfg.duration); err != nil {
 		log.Panicf("error while producing records: %s", err)
 	}
 
@@ -142,7 +142,7 @@ func main() {
 	log.Println("bench run completed successfully")
 }
 
-func produce(ctx context.Context, p *kafka.Producer, topic apmqueue.Topic, size int) error {
+func produce(ctx context.Context, p *kafka.Producer, topic apmqueue.Topic, size int, duration time.Duration) error {
 	buf := make([]byte, size)
 
 	_, err := rand.Read(buf)
@@ -156,8 +156,7 @@ func produce(ctx context.Context, p *kafka.Producer, topic apmqueue.Topic, size 
 		Value: buf,
 	}
 
-	// TODO: should produce for cfg.duration
-	deadline := time.Now().Add(1 * time.Second)
+	deadline := time.Now().Add(duration)
 	for time.Now().Before(deadline) {
 		if err = p.Produce(ctx, record); err != nil {
 			return err
