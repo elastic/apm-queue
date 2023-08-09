@@ -55,9 +55,15 @@ func main() {
 	fmt.Printf("%+v\n", cfg)
 
 	log.Println("prep logger")
-	logger, err := zap.NewDevelopment()
-	if err != nil {
-		log.Fatalf("cannot create zap logger: %s", err)
+	var logger *zap.Logger
+	var err error
+	if cfg.verbose {
+		logger, err = zap.NewDevelopment()
+		if err != nil {
+			log.Fatalf("cannot create zap logger: %s", err)
+		}
+	} else {
+		logger = zap.NewNop()
 	}
 
 	log.Println("prep MeterProvider")
