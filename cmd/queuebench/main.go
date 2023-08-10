@@ -39,9 +39,6 @@ import (
 
 const namespace = "queuebench"
 
-var totalproduced = 0
-var totalconsumed = 0
-
 func main() {
 	// NOTE: intercept any panic and print a nice terminate gracefully
 	// This allows using log.Panic methods in main; those function
@@ -144,13 +141,21 @@ func main() {
 
 	profrun := fmt.Sprintf("./pprof-%d", run)
 	prof := profile.Start(profile.CPUProfile, profile.ProfilePath(profrun))
+	var rm metricdata.ResourceMetrics
+	totalproduced := int64(0)
+	totalconsumed := int64(0)
 wait:
 	for {
+		ctx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
+		defer cancel()
 		select {
 		case <-timer.C:
 			log.Println("reached timeout, moving on")
 			break wait
 		case <-ticker.C:
+			rdr.Collect(ctx, &rm)
+			totalproduced = getSumInt64Metric("github.com/elastic/apm-queue/kafka", "producer.messages.produced", rm)
+			totalconsumed = getSumInt64Metric("github.com/elastic/apm-queue/kafka", "consumer.messages.fetched", rm)
 			if totalconsumed >= totalproduced {
 				log.Println("consumption ended")
 				break wait
@@ -175,7 +180,6 @@ wait:
 	log.Printf("total produced/consumed: %d/%d", totalproduced, totalconsumed)
 
 	log.Println("collecting metrics")
-	var rm metricdata.ResourceMetrics
 	rdr.Collect(context.Background(), &rm)
 	if err = display(rm); err != nil {
 		log.Panicf("failed displaying metrics: %s", err)
@@ -206,7 +210,6 @@ func produce(ctx context.Context, p *kafka.Producer, topic apmqueue.Topic, size 
 		if err = p.Produce(ctx, record); err != nil {
 			return err
 		}
-		totalproduced += 1
 	}
 
 	return err
