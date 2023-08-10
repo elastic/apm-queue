@@ -137,23 +137,22 @@ func main() {
 
 	log.Println("waiting for consumer to fetch all records")
 	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
 	timer := time.NewTimer(cfg.timeout)
+	defer timer.Stop()
 wait:
 	for {
 		select {
 		case <-timer.C:
-			ticker.Stop()
 			log.Println("reached timeout, moving on")
 			break wait
 		case <-ticker.C:
 			if totalconsumed >= totalproduced {
 				log.Println("consumption ended")
-				ticker.Stop()
 				break wait
 			}
 		}
 	}
-	timer.Stop()
 	if err := bench.c.Close(); err != nil {
 		log.Panicf("error closing consumer: %s", err)
 	}
@@ -193,7 +192,6 @@ func produce(ctx context.Context, p *kafka.Producer, topic apmqueue.Topic, size 
 
 	record := apmqueue.Record{
 		Topic: topic,
-		// OrderingKey: []byte{},
 		Value: buf,
 	}
 
