@@ -56,6 +56,12 @@ type ConsumerConfig struct {
 	// fetch response to hit the minimum number of required bytes before
 	// returning, overriding the default 5s.
 	MaxPollWait time.Duration
+	// MaxPollBytes sets the maximum amount of bytes a broker will try to send
+	// during a fetch
+	MaxPollBytes int32
+	// MaxPollPartitionBytes sets the maximum amount of bytes that will be consumed for
+	// a single partition in a fetch request
+	MaxPollPartitionBytes int32
 	// ShutdownGracePeriod defines the maximum amount of time to wait for the
 	// partition consumers to process events before the underlying kgo.Client
 	// is closed, overriding the default 5s.
@@ -89,6 +95,12 @@ func (cfg *ConsumerConfig) finalize() error {
 	}
 	if cfg.Processor == nil {
 		errs = append(errs, errors.New("kafka: processor must be set"))
+	}
+	if cfg.MaxPollBytes < 0 {
+		errs = append(errs, errors.New("kafka: max poll bytes cannot be negative"))
+	}
+	if cfg.MaxPollPartitionBytes < 0 {
+		errs = append(errs, errors.New("kafka: max poll partition bytes cannot be negative"))
 	}
 	return errors.Join(errs...)
 }
@@ -154,6 +166,12 @@ func NewConsumer(cfg ConsumerConfig) (*Consumer, error) {
 	}
 	if cfg.MaxPollWait > 0 {
 		opts = append(opts, kgo.FetchMaxWait(cfg.MaxPollWait))
+	}
+	if cfg.MaxPollBytes != 0 {
+		opts = append(opts, kgo.FetchMaxBytes(cfg.MaxPollBytes))
+	}
+	if cfg.MaxPollPartitionBytes != 0 {
+		opts = append(opts, kgo.FetchMaxPartitionBytes(cfg.MaxPollPartitionBytes))
 	}
 	if cfg.ShutdownGracePeriod <= 0 {
 		cfg.ShutdownGracePeriod = 5 * time.Second

@@ -59,6 +59,15 @@ func ZstdCompression() CompressionCodec { return kgo.ZstdCompression() }
 type ProducerConfig struct {
 	CommonConfig
 
+	// MaxBufferedRecords sets the max amount of records the client will buffer
+	MaxBufferedRecords int
+
+	// ProducerBatchMaxBytes upper bounds the size of a record batch
+	ProducerBatchMaxBytes int32
+
+	// ManualFlushing disables auto-flushing when producing.
+	ManualFlushing bool
+
 	// Sync can be used to indicate whether production should be synchronous.
 	Sync bool
 
@@ -83,6 +92,12 @@ func (cfg *ProducerConfig) finalize() error {
 	var errs []error
 	if err := cfg.CommonConfig.finalize(); err != nil {
 		errs = append(errs, err)
+	}
+	if cfg.MaxBufferedRecords < 0 {
+		errs = append(errs, fmt.Errorf("kafka: max buffered records cannot be negative: %d", cfg.MaxBufferedRecords))
+	}
+	if cfg.ProducerBatchMaxBytes < 0 {
+		errs = append(errs, fmt.Errorf("kafka: producer batch max bytes cannot be negative: %d", cfg.ProducerBatchMaxBytes))
 	}
 	if len(cfg.CompressionCodec) == 0 {
 		if v := os.Getenv("KAFKA_PRODUCER_COMPRESSION_CODEC"); v != "" {
@@ -129,6 +144,15 @@ func NewProducer(cfg ProducerConfig) (*Producer, error) {
 	var opts []kgo.Opt
 	if len(cfg.CompressionCodec) > 0 {
 		opts = append(opts, kgo.ProducerBatchCompression(cfg.CompressionCodec...))
+	}
+	if cfg.MaxBufferedRecords != 0 {
+		opts = append(opts, kgo.MaxBufferedRecords(cfg.MaxBufferedRecords))
+	}
+	if cfg.ProducerBatchMaxBytes != 0 {
+		opts = append(opts, kgo.ProducerBatchMaxBytes(cfg.ProducerBatchMaxBytes))
+	}
+	if cfg.ManualFlushing {
+		opts = append(opts, kgo.ManualFlushing())
 	}
 	client, err := cfg.newClient(opts...)
 	if err != nil {
