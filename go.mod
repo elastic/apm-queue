@@ -9,7 +9,6 @@ require (
 	github.com/aws/aws-sdk-go-v2/config v1.18.32
 	github.com/google/go-cmp v0.5.9
 	github.com/googleapis/gax-go/v2 v2.12.0
-	github.com/pkg/profile v1.7.0
 	github.com/stretchr/testify v1.8.4
 	github.com/twmb/franz-go v1.14.3
 	github.com/twmb/franz-go/pkg/kadm v1.8.1
@@ -52,12 +51,10 @@ require (
 	github.com/aws/smithy-go v1.14.0 // indirect
 	github.com/benbjohnson/clock v1.1.0 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
-	github.com/felixge/fgprof v0.9.3 // indirect
 	github.com/go-logr/logr v1.2.4 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
 	github.com/golang/protobuf v1.5.3 // indirect
-	github.com/google/pprof v0.0.0-20211214055906-6f57359322fd // indirect
 	github.com/google/s2a-go v0.1.4 // indirect
 	github.com/google/uuid v1.3.0 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.2.5 // indirect

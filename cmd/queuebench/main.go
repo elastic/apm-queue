@@ -27,7 +27,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/pkg/profile"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	"go.opentelemetry.io/otel/trace"
@@ -139,8 +138,6 @@ func main() {
 	timer := time.NewTimer(cfg.timeout)
 	defer timer.Stop()
 
-	profrun := fmt.Sprintf("./pprof-%d", run)
-	prof := profile.Start(profile.CPUProfile, profile.ProfilePath(profrun))
 	var rm metricdata.ResourceMetrics
 	totalproduced := int64(0)
 	totalconsumed := int64(0)
@@ -162,8 +159,6 @@ wait:
 			}
 		}
 	}
-	prof.Stop()
-
 	if err := bench.c.Close(); err != nil {
 		log.Panicf("error closing consumer: %s", err)
 	}
