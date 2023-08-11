@@ -39,9 +39,9 @@ import (
 const namespace = "queuebench"
 
 func main() {
-	// NOTE: intercept any panic and print a nice terminate gracefully
-	// This allows using log.Panic methods in main; those function
-	// trigger deferred functions whereas log.Fatal don't.
+	// NOTE: intercept any panic and terminate gracefully
+	// This allows using log.Panic in main which triggers
+	// deferred functions (whereas log.Fatal don't).
 	defer func() {
 		if r := recover(); r != nil {
 			log.Fatal(r)
@@ -49,10 +49,8 @@ func main() {
 	}()
 
 	cfg := config{}
-
 	cfg.Parse()
-
-	fmt.Printf("%+v\n", cfg)
+	log.Printf("parsed config: %+v\n", cfg)
 
 	log.Println("prep logger")
 	var logger *zap.Logger
