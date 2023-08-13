@@ -322,20 +322,22 @@ func setupTestProducer(t testing.TB) (*Producer, sdkmetric.Reader) {
 
 	rdr := sdkmetric.NewManualReader()
 	_, brokers := newClusterWithTopics(t, 1, "name_space-default-topic")
-	producer, err := NewProducer(ProducerConfig{
+	mp := sdkmetric.NewMeterProvider(
+		sdkmetric.WithReader(rdr),
+	)
+	t.Cleanup(func() {
+		require.NoError(t, mp.Shutdown(context.Background()))
+	})
+	producer := newProducer(t, ProducerConfig{
 		CommonConfig: CommonConfig{
 			Brokers:        brokers,
 			Logger:         zap.NewNop(),
 			Namespace:      "name_space",
 			TracerProvider: trace.NewNoopTracerProvider(),
-			MeterProvider: sdkmetric.NewMeterProvider(
-				sdkmetric.WithReader(rdr),
-			),
+			MeterProvider:  mp,
 		},
 		Sync: true,
 	})
-	require.NoError(t, err)
-	require.NotNil(t, producer)
 	return producer, rdr
 }
 

@@ -345,7 +345,17 @@ func TestConsumerDelivery(t *testing.T) {
 			case <-time.After(time.Second):
 				t.Fatal("timed out waiting for consumer to process event")
 			}
-			consumer.Close()
+			closeCh := make(chan struct{})
+			go func() {
+				defer close(closeCh)
+				require.NoError(t, consumer.Close())
+			}()
+
+			select {
+			case <-closeCh:
+			case <-time.After(time.Second):
+				t.Fatal("timed out waiting for consumer to close")
+			}
 
 			assert.Eventually(t, func() bool {
 				return int(errored.Load()) == int(tc.errored)

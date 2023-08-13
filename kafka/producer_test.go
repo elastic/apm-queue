@@ -67,6 +67,7 @@ func TestNewProducer(t *testing.T) {
 		p, err := NewProducer(validConfig)
 		require.NoError(t, err)
 		require.NotNil(t, p)
+		require.NoError(t, p.Close())
 	})
 
 	t.Run("compression_from_environment", func(t *testing.T) {
@@ -79,6 +80,7 @@ func TestNewProducer(t *testing.T) {
 			GzipCompression(),
 			NoCompression(),
 		}, p.cfg.CompressionCodec)
+		require.NoError(t, p.Close())
 	})
 
 	t.Run("invalid_compression_from_environment", func(t *testing.T) {
@@ -93,12 +95,6 @@ func TestNewProducer(t *testing.T) {
 }
 
 func TestNewProducerBasic(t *testing.T) {
-	exp := tracetest.NewInMemoryExporter()
-	tp := sdktrace.NewTracerProvider(
-		sdktrace.WithSyncer(exp),
-	)
-	defer tp.Shutdown(context.Background())
-
 	// This test ensures that basic producing is working, it tests:
 	// * Producing to a single topic
 	// * Producing a set number of records
@@ -108,8 +104,14 @@ func TestNewProducerBasic(t *testing.T) {
 			topic := apmqueue.Topic("default-topic")
 			namespacedTopic := "name_space-default-topic"
 			partitionCount := 10
+			exp := tracetest.NewInMemoryExporter()
+			tp := sdktrace.NewTracerProvider(
+				sdktrace.WithSyncer(exp),
+			)
+			defer tp.Shutdown(context.Background())
+
 			client, brokers := newClusterWithTopics(t, int32(partitionCount), namespacedTopic)
-			producer, err := NewProducer(ProducerConfig{
+			producer := newProducer(t, ProducerConfig{
 				CommonConfig: CommonConfig{
 					Brokers:        brokers,
 					Logger:         zap.NewNop(),
@@ -118,7 +120,6 @@ func TestNewProducerBasic(t *testing.T) {
 				},
 				Sync: sync,
 			})
-			require.NoError(t, err)
 
 			ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 			defer cancel()
