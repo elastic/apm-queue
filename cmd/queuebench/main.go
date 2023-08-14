@@ -152,7 +152,12 @@ wait:
 			log.Println("reached timeout, moving on")
 			break wait
 		case <-ticker.C:
-			rdr.Collect(ctx, &rm)
+			if err := rdr.Collect(ctx, &rm); err != nil {
+				// NOTE: consider any error here as transient and don't trigger termination
+				log.Printf("cannot collect otel metrics: %s", err)
+				continue
+			}
+
 			totalproduced = getSumInt64Metric("github.com/elastic/apm-queue/kafka", "producer.messages.produced", rm)
 			totalconsumed = getSumInt64Metric("github.com/elastic/apm-queue/kafka", "consumer.messages.fetched", rm)
 			if totalconsumed >= totalproduced {
