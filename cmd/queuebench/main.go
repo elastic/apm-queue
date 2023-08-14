@@ -112,6 +112,12 @@ func main() {
 	log.Println("start consuming")
 	var consumptionduration time.Duration
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Panicf("consumer loop panicked: %s", r)
+			}
+		}()
+
 		consumptionstart := time.Now()
 		if err := bench.c.Run(ctx); err != nil {
 			log.Printf("consumer run ended with an error: %s", err)
