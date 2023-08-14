@@ -145,8 +145,6 @@ func main() {
 	totalconsumed := int64(0)
 wait:
 	for {
-		ctx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
-		defer cancel()
 		select {
 		case <-ctx.Done():
 			log.Panic("context closed, terminating execution")
