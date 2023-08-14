@@ -71,6 +71,9 @@ func main() {
 	)
 
 	ctx := context.Background()
+	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
 	run := time.Now().Unix()
 	log.Printf("running bench run: %d", run)
 
@@ -94,19 +97,14 @@ func main() {
 	}
 	teardown := func() {
 		log.Println("running benchmark teardown")
-		if err := bench.Teardown(ctx); err != nil {
+		// NOTE: using a different context to prevent this function
+		// being affected by main context being closed
+		if err := bench.Teardown(context.Background()); err != nil {
 			log.Panicf("benchmark teardown failed: %s", err)
 		}
 
 	}
 	defer teardown()
-	c := make(chan os.Signal, 1)
-	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
-	go func() {
-		for range c {
-			teardown()
-		}
-	}()
 
 	start := time.Now()
 	log.Println("==> running benchmark")
@@ -144,6 +142,8 @@ wait:
 		ctx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
 		defer cancel()
 		select {
+		case <-ctx.Done():
+			log.Panic("context closed, terminating execution")
 		case <-timer.C:
 			log.Println("reached timeout, moving on")
 			break wait
@@ -200,6 +200,11 @@ func produce(ctx context.Context, p *kafka.Producer, topic apmqueue.Topic, size 
 
 	deadline := time.Now().Add(duration)
 	for time.Now().Before(deadline) {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
 		if err = p.Produce(ctx, record); err != nil {
 			return err
 		}
