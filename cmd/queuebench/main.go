@@ -197,8 +197,7 @@ wait:
 func produce(ctx context.Context, p *kafka.Producer, topic apmqueue.Topic, size int, duration time.Duration) error {
 	buf := make([]byte, size)
 
-	_, err := rand.Read(buf)
-	if err != nil {
+	if _, err := rand.Read(buf); err != nil {
 		return fmt.Errorf("cannot read random bytes: %w", err)
 	}
 
@@ -209,10 +208,10 @@ func produce(ctx context.Context, p *kafka.Producer, topic apmqueue.Topic, size 
 
 	deadline := time.Now().Add(duration)
 	for time.Now().Before(deadline) {
-		if err = p.Produce(ctx, record); err != nil {
+		if err := p.Produce(ctx, record); err != nil {
 			return err
 		}
 	}
 
-	return err
+	return nil
 }
