@@ -209,11 +209,6 @@ func produce(ctx context.Context, p *kafka.Producer, topic apmqueue.Topic, size 
 
 	deadline := time.Now().Add(duration)
 	for time.Now().Before(deadline) {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-		}
 		if err = p.Produce(ctx, record); err != nil {
 			return err
 		}
