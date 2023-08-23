@@ -175,6 +175,7 @@ func (m *Manager) MonitorConsumerLag(topicConsumers []apmqueue.TopicConsumer) (m
 		for _, group := range groups.Sorted() {
 			consumerGroups = append(consumerGroups, group.Group)
 		}
+		m.cfg.Logger.Debug("reporting consumer lag", zap.Strings("groups", consumerGroups))
 		commits := m.adminClient.FetchManyOffsets(ctx, consumerGroups...)
 
 		// Fetch end offsets.
