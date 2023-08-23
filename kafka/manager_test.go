@@ -205,7 +205,7 @@ func TestManagerMetrics(t *testing.T) {
 						}).AppendTo(nil),
 					}},
 				},
-				{Group: "connect", ProtocolType: "connect"}, // ignored
+				{Group: "connect", ProtocolType: "connect"},
 				{
 					Group:        "consumer2",
 					ProtocolType: "consumer",
@@ -360,6 +360,7 @@ func TestManagerMetrics(t *testing.T) {
 	assert.Equal(t, &kmsg.OffsetFetchRequest{
 		Version: 8,
 		Groups: []kmsg.OffsetFetchRequestGroup{
+			{Group: "connect"},
 			{Group: "consumer1"},
 			{Group: "consumer2"},
 			{Group: "consumer3"},
@@ -373,17 +374,6 @@ func TestManagerMetrics(t *testing.T) {
 
 	matchingLogs := observedLogs.FilterFieldKey("group")
 	assert.Equal(t, []observer.LoggedEntry{{
-		Entry: zapcore.Entry{
-			Level:      zapcore.DebugLevel,
-			LoggerName: "kafka",
-			Message:    "ignoring non-consumer group",
-		},
-		Context: []zapcore.Field{
-			zap.String("namespace", "name_space"),
-			zap.String("group", "connect"),
-			zap.String("protocol_type", "connect"),
-		},
-	}, {
 		Entry: zapcore.Entry{
 			Level:      zapcore.WarnLevel,
 			LoggerName: "kafka",

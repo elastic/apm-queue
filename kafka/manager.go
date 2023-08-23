@@ -173,16 +173,9 @@ func (m *Manager) MonitorConsumerLag(topicConsumers []apmqueue.TopicConsumer) (m
 		}
 		consumerGroups := make([]string, 0, len(groups))
 		for _, group := range groups.Sorted() {
-			if group.ProtocolType != "consumer" {
-				m.cfg.Logger.Debug(
-					"ignoring non-consumer group",
-					zap.String("group", group.Group),
-					zap.String("protocol_type", group.ProtocolType),
-				)
-				continue
-			}
 			consumerGroups = append(consumerGroups, group.Group)
 		}
+		m.cfg.Logger.Debug("reporting consumer lag", zap.Strings("groups", consumerGroups))
 		commits := m.adminClient.FetchManyOffsets(ctx, consumerGroups...)
 
 		// Fetch end offsets.
@@ -201,7 +194,7 @@ func (m *Manager) MonitorConsumerLag(topicConsumers []apmqueue.TopicConsumer) (m
 
 		// Calculate lag per consumer group.
 		for _, group := range groups {
-			if group.ProtocolType != "consumer" || group.Err != nil {
+			if group.Err != nil {
 				continue
 			}
 			groupLag := kadm.CalculateGroupLag(group, commits[group.Group].Fetched, endOffsets)
