@@ -275,12 +275,37 @@ func TestManagerMetrics(t *testing.T) {
 						Offset:    1,
 					}},
 				}},
-			}, {
-				Group:     "consumer3",
-				ErrorCode: kerr.GroupAuthorizationFailed.Code,
 			}},
 		}, nil, true
 	})
+	var metadataRequest *kmsg.MetadataRequest
+	handleMetadata := func(req kmsg.Request) (kmsg.Response, error, bool) {
+		if len(req.(*kmsg.MetadataRequest).Topics) == 0 {
+			return nil, nil, false
+		}
+
+		metadataRequest = req.(*kmsg.MetadataRequest)
+		//cluster.KeepControl() // FIXME
+		return &kmsg.MetadataResponse{
+			Version: metadataRequest.Version,
+			Brokers: []kmsg.MetadataResponseBroker{},
+			Topics: []kmsg.MetadataResponseTopic{{
+				Topic:      kmsg.StringPtr("name_space-topic1"),
+				Partitions: []kmsg.MetadataResponseTopicPartition{{Partition: 1}, {Partition: 2}},
+			}, {
+				Topic:      kmsg.StringPtr("name_space-topic2"),
+				Partitions: []kmsg.MetadataResponseTopicPartition{{Partition: 3}},
+			}, {
+				Topic:      kmsg.StringPtr("name_space-topic3"),
+				Partitions: []kmsg.MetadataResponseTopicPartition{{Partition: 4}},
+			}},
+		}, nil, true
+	}
+	// TODO(axw) fix cluster.KeepControl
+	for i := 0; i < 2; i++ {
+		cluster.ControlKey(kmsg.Metadata.Int16(), handleMetadata)
+	}
+
 	var listOffsetsRequest *kmsg.ListOffsetsRequest
 	cluster.ControlKey(kmsg.ListOffsets.Int16(), func(req kmsg.Request) (kmsg.Response, error, bool) {
 		listOffsetsRequest = req.(*kmsg.ListOffsetsRequest)
@@ -330,47 +355,83 @@ func TestManagerMetrics(t *testing.T) {
 				attribute.String("topic", "topic1"),
 				attribute.Int("partition", 1),
 			),
-			Value: 1,
+			Value: 0, // end offset = 1, committed = 1
 		}, {
 			Attributes: attribute.NewSet(
 				attribute.String("group", "consumer2"),
 				attribute.String("topic", "topic1"),
 				attribute.Int("partition", 2),
 			),
-			Value: 2,
+			Value: 1, // end offset = 2, committed = 1
 		}, {
 			Attributes: attribute.NewSet(
 				attribute.String("group", "consumer2"),
 				attribute.String("topic", "topic2"),
 				attribute.Int("partition", 3),
 			),
-			Value: 3,
+			Value: 2, // end offset = 3, committed = 1
 		}, {
 			Attributes: attribute.NewSet(
 				attribute.String("group", "consumer3"),
 				attribute.String("topic", "topic3"),
 				attribute.Int("partition", 4),
 			),
-			Value: 4,
+			Value: 4, // end offset  = 4, nothing committed
 		}},
 	}, metrics[0].Data, metricdatatest.IgnoreTimestamp())
 
 	assert.Equal(t, int16(5), describeGroupsRequest.Version)
 	assert.ElementsMatch(t, []string{"connect", "consumer1", "consumer2", "consumer3"}, describeGroupsRequest.Groups)
-	assert.Equal(t, &kmsg.OffsetFetchRequest{
-		Version: 8,
-		Groups: []kmsg.OffsetFetchRequestGroup{
-			{Group: "connect"},
-			{Group: "consumer1"},
-			{Group: "consumer2"},
-			{Group: "consumer3"},
-		},
-	}, offsetFetchRequest)
-	assert.ElementsMatch(t, []kmsg.ListOffsetsRequestTopic{
-		{Topic: "name_space-topic1"},
-		{Topic: "name_space-topic2"},
-		{Topic: "name_space-topic3"},
-	}, listOffsetsRequest.Topics)
+	assert.ElementsMatch(t, []kmsg.OffsetFetchRequestGroup{
+		{Group: "connect"},
+		{Group: "consumer1"},
+		{Group: "consumer2"},
+		{Group: "consumer3"},
+	}, offsetFetchRequest.Groups)
+	assert.ElementsMatch(t, []kmsg.MetadataRequestTopic{
+		{Topic: kmsg.StringPtr("name_space-topic1")},
+		{Topic: kmsg.StringPtr("name_space-topic2")},
+		{Topic: kmsg.StringPtr("name_space-topic3")},
+	}, metadataRequest.Topics)
+
+	sort.Slice(listOffsetsRequest.Topics, func(i, j int) bool {
+		return listOffsetsRequest.Topics[i].Topic < listOffsetsRequest.Topics[j].Topic
+	})
+	for _, topic := range listOffsetsRequest.Topics {
+		sort.Slice(topic.Partitions, func(i, j int) bool {
+			return topic.Partitions[i].Partition < topic.Partitions[j].Partition
+		})
+	}
+	assert.Equal(t, []kmsg.ListOffsetsRequestTopic{{
+		Topic: "name_space-topic1",
+		Partitions: []kmsg.ListOffsetsRequestTopicPartition{{
+			Partition:          1,
+			CurrentLeaderEpoch: -1,
+			Timestamp:          -1,
+			MaxNumOffsets:      1,
+		}, {
+			Partition:          2,
+			CurrentLeaderEpoch: -1,
+			Timestamp:          -1,
+			MaxNumOffsets:      1,
+		}},
+	}, {
+		Topic: "name_space-topic2",
+		Partitions: []kmsg.ListOffsetsRequestTopicPartition{{
+			Partition:          3,
+			CurrentLeaderEpoch: -1,
+			Timestamp:          -1,
+			MaxNumOffsets:      1,
+		}},
+	}, {
+		Topic: "name_space-topic3",
+		Partitions: []kmsg.ListOffsetsRequestTopicPartition{{
+			Partition:          4,
+			CurrentLeaderEpoch: -1,
+			Timestamp:          -1,
+			MaxNumOffsets:      1,
+		}},
+	}}, listOffsetsRequest.Topics)
 
 	matchingLogs := observedLogs.FilterFieldKey("group")
 	assert.Equal(t, []observer.LoggedEntry{{

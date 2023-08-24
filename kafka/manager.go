@@ -163,42 +163,24 @@ func (m *Manager) MonitorConsumerLag(topicConsumers []apmqueue.TopicConsumer) (m
 		for consumer := range consumerSet {
 			consumers = append(consumers, consumer)
 		}
+		m.cfg.Logger.Debug("reporting consumer lag", zap.Strings("consumers", consumers))
 
-		// Fetch commits for consumer groups.
-		groups, err := m.adminClient.DescribeGroups(ctx, consumers...)
+		lag, err := m.adminClient.Lag(ctx, consumers...)
 		if err != nil {
 			span.RecordError(err)
 			span.SetStatus(codes.Error, err.Error())
-			return fmt.Errorf("failed to describe groups: %w", err)
+			return fmt.Errorf("failed to calculate consumer lag: %w", err)
 		}
-		consumerGroups := make([]string, 0, len(groups))
-		for _, group := range groups.Sorted() {
-			consumerGroups = append(consumerGroups, group.Group)
-		}
-		m.cfg.Logger.Debug("reporting consumer lag", zap.Strings("groups", consumerGroups))
-		commits := m.adminClient.FetchManyOffsets(ctx, consumerGroups...)
-
-		// Fetch end offsets.
-		var endOffsets kadm.ListedOffsets
-		listPartitions := groups.AssignedPartitions()
-		listPartitions.Merge(commits.CommittedPartitions())
-		if topics := listPartitions.Topics(); len(topics) > 0 {
-			res, err := m.adminClient.ListEndOffsets(ctx, topics...)
-			if err != nil {
-				span.RecordError(err)
-				span.SetStatus(codes.Error, err.Error())
-				return fmt.Errorf("error fetching end offsets: %w", err)
+		lag.Each(func(l kadm.DescribedGroupLag) {
+			if err := l.Error(); err != nil {
+				m.cfg.Logger.Warn(
+					"error calculating consumer lag",
+					zap.String("group", l.Group),
+					zap.Error(err),
+				)
+				return
 			}
-			endOffsets = res
-		}
-
-		// Calculate lag per consumer group.
-		for _, group := range groups {
-			if group.Err != nil {
-				continue
-			}
-			groupLag := kadm.CalculateGroupLag(group, commits[group.Group].Fetched, endOffsets)
-			for topic, partitions := range groupLag {
+			for topic, partitions := range l.Lag {
 				if !strings.HasPrefix(topic, namespacePrefix) {
 					// Ignore topics outside the namespace.
 					continue
@@ -207,7 +189,7 @@ func (m *Manager) MonitorConsumerLag(topicConsumers []apmqueue.TopicConsumer) (m
 
 				if _, ok := monitorTopicConsumers[apmqueue.TopicConsumer{
 					Topic:    apmqueue.Topic(topic),
-					Consumer: group.Group,
+					Consumer: l.Group,
 				}]; !ok {
 					// Ignore unmonitored topics.
 					continue
@@ -216,7 +198,7 @@ func (m *Manager) MonitorConsumerLag(topicConsumers []apmqueue.TopicConsumer) (m
 					if lag.Err != nil {
 						m.cfg.Logger.Warn(
 							"error getting consumer group lag",
-							zap.String("group", group.Group),
+							zap.String("group", l.Group),
 							zap.String("topic", topic),
 							zap.Int32("partition", partition),
 							zap.Error(lag.Err),
@@ -226,14 +208,14 @@ func (m *Manager) MonitorConsumerLag(topicConsumers []apmqueue.TopicConsumer) (m
 					o.ObserveInt64(
 						consumerGroupLagMetric, lag.Lag,
 						metric.WithAttributes(
-							attribute.String("group", group.Group),
+							attribute.String("group", l.Group),
 							attribute.String("topic", topic),
 							attribute.Int("partition", int(partition)),
 						),
 					)
 				}
 			}
-		}
+		})
 		return nil
 	}
 
