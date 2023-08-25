@@ -246,6 +246,7 @@ func TestManagerMetrics(t *testing.T) {
 			},
 		}, nil, true
 	})
+
 	var offsetFetchRequest *kmsg.OffsetFetchRequest
 	cluster.ControlKey(kmsg.OffsetFetch.Int16(), func(req kmsg.Request) (kmsg.Response, error, bool) {
 		offsetFetchRequest = req.(*kmsg.OffsetFetchRequest)
@@ -278,14 +279,15 @@ func TestManagerMetrics(t *testing.T) {
 			}},
 		}, nil, true
 	})
+
 	var metadataRequest *kmsg.MetadataRequest
-	handleMetadata := func(req kmsg.Request) (kmsg.Response, error, bool) {
+	cluster.ControlKey(kmsg.Metadata.Int16(), func(req kmsg.Request) (kmsg.Response, error, bool) {
 		if len(req.(*kmsg.MetadataRequest).Topics) == 0 {
 			return nil, nil, false
 		}
 
 		metadataRequest = req.(*kmsg.MetadataRequest)
-		//cluster.KeepControl() // FIXME
+		cluster.KeepControl()
 		return &kmsg.MetadataResponse{
 			Version: metadataRequest.Version,
 			Brokers: []kmsg.MetadataResponseBroker{},
@@ -300,11 +302,7 @@ func TestManagerMetrics(t *testing.T) {
 				Partitions: []kmsg.MetadataResponseTopicPartition{{Partition: 4}},
 			}},
 		}, nil, true
-	}
-	// TODO(axw) fix cluster.KeepControl
-	for i := 0; i < 2; i++ {
-		cluster.ControlKey(kmsg.Metadata.Int16(), handleMetadata)
-	}
+	})
 
 	var listOffsetsRequest *kmsg.ListOffsetsRequest
 	cluster.ControlKey(kmsg.ListOffsets.Int16(), func(req kmsg.Request) (kmsg.Response, error, bool) {
