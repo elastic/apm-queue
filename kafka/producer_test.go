@@ -121,10 +121,8 @@ func TestNewProducerBasic(t *testing.T) {
 				Sync: sync,
 			})
 
-			ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
-			defer cancel()
+			ctx := queuecontext.WithMetadata(context.Background(), map[string]string{"a": "b", "c": "d"})
 
-			ctx = queuecontext.WithMetadata(ctx, map[string]string{"a": "b", "c": "d"})
 			batch := []apmqueue.Record{
 				{Topic: topic, OrderingKey: nil, Value: []byte("1")},
 				{Topic: topic, OrderingKey: nil, Value: []byte("2")},
@@ -142,13 +140,18 @@ func TestNewProducerBasic(t *testing.T) {
 				cancelProduce()
 				producer.Produce(ctxCancelled, batch...)
 			} else {
-				producer.Produce(ctx, batch...)
+				produceCtx, cancel := context.WithTimeout(ctx, time.Second)
+				defer cancel()
+				producer.Produce(produceCtx, batch...)
 			}
 
 			var actual []apmqueue.Record
 			orderingKeyToPartitionM := make(map[string]int32)
 			client.AddConsumeTopics(namespacedTopic)
 			for i := 0; i < len(batch)*partitionCount && len(actual) < len(batch); i++ {
+				ctx, cancel := context.WithTimeout(ctx, time.Second)
+				defer cancel()
+
 				fetches := client.PollRecords(ctx, 1)
 				require.NoError(t, fetches.Err())
 
