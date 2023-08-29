@@ -204,7 +204,7 @@ func (c *Consumer) Close() error {
 	case <-c.closed:
 	default:
 		close(c.closed)
-		defer c.client.Close() // Last, close the `kgo.Client`
+		defer c.client.CloseAllowingRebalance() // Last, close the `kgo.Client`
 		// Cancel the context used in client.PollRecords, triggering graceful
 		// cancellation.
 		c.stopPoll()
