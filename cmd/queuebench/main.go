@@ -27,6 +27,7 @@ import (
 	"syscall"
 	"time"
 
+	"go.opentelemetry.io/otel/sdk/instrumentation"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	"go.opentelemetry.io/otel/trace"
@@ -68,6 +69,19 @@ func main() {
 	rdr := sdkmetric.NewManualReader()
 	mp := sdkmetric.NewMeterProvider(
 		sdkmetric.WithReader(rdr),
+		sdkmetric.WithView(
+			sdkmetric.NewView(
+				sdkmetric.Instrument{
+					Name:  "consumer.messages.delay",
+					Scope: instrumentation.Scope{Name: "github.com/elastic/apm-queue/kafka"},
+				},
+				sdkmetric.Stream{
+					Aggregation: sdkmetric.AggregationExplicitBucketHistogram{
+						Boundaries: customHistogramBoundaries,
+					},
+				},
+			),
+		),
 	)
 
 	ctx := context.Background()
