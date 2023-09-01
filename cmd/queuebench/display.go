@@ -94,7 +94,7 @@ func display(rm metricdata.ResourceMetrics) error {
 				top := strings.Builder{}
 				bottom := strings.Builder{}
 				for i, b := range dp.Bounds {
-					a := fmt.Sprintf("%.f\t", b)
+					a := fmt.Sprintf("%f\t", b)
 					top.WriteString(a)
 					width := fmt.Sprintf("%d", len(a)-1)
 					bottom.WriteString(fmt.Sprintf("%"+width+"d\t", dp.BucketCounts[i]))
