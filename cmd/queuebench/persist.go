@@ -1,9 +1,7 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
-	"log"
 	"os"
 
 	"github.com/elastic/apm-queue/cmd/queuebench/pkg/benchmark"
@@ -27,16 +25,7 @@ func persist(file string, r benchmark.Result) error {
 		}
 	}
 
-	b, err := json.Marshal(r)
-	if err != nil {
-		return fmt.Errorf("cannot marshal result to json: %w", err)
-	}
-
-	log.Println("persisting results")
-	if _, err := o.Write(b); err != nil {
-		log.Panicf("cannot persist results to io.Writer: %s", err)
-	}
-	o.Write([]byte("\n"))
+	r.WriteToJSON(o)
 
 	return nil
 }
