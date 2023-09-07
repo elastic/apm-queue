@@ -28,6 +28,10 @@ type Result struct {
 	SumConsumptionDelay float64   `json:"sum"`
 	// Total is the sum of all samples count.
 	ConsumptionDelayTotalCount uint64 `json:"count"`
+
+	P50 float64 `json:"p50"`
+	P90 float64 `json:"p90"`
+	P95 float64 `json:"p95"`
 }
 
 type Meta struct {

@@ -212,6 +212,9 @@ wait:
 			Counts: delay.Counts,
 		},
 	}
+	result.P50 = P(50, result.ConsumptionDelay)
+	result.P90 = P(90, result.ConsumptionDelay)
+	result.P95 = P(95, result.ConsumptionDelay)
 
 	persist(cfg.output, result)
 
