@@ -213,6 +213,8 @@ wait:
 		},
 	}
 
+	persist(cfg.output, result)
+
 	if totalproduced != totalconsumed {
 		log.Panicf("total produced and consumed don't match: %d vs %d", totalproduced, totalconsumed)
 	}
