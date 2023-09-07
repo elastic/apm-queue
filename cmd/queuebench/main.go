@@ -32,6 +32,7 @@ import (
 	"go.uber.org/zap"
 
 	apmqueue "github.com/elastic/apm-queue"
+	"github.com/elastic/apm-queue/cmd/queuebench/pkg/benchmark"
 	"github.com/elastic/apm-queue/kafka"
 )
 
@@ -46,6 +47,8 @@ func main() {
 			log.Fatal(r)
 		}
 	}()
+
+	start := time.Now()
 
 	cfg := config{}
 	cfg.Parse()
@@ -62,17 +65,17 @@ func main() {
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	run := time.Now().Unix()
-	log.Printf("running bench run: %d", run)
+	run := fmt.Sprintf("%d", start.Unix())
+	log.Printf("running bench run: %s", run)
 
 	bench := bench{
 		Brokers:         []string{cfg.broker},
-		ConsumerGroupID: fmt.Sprintf("queuebench-%d", run),
+		ConsumerGroupID: fmt.Sprintf("queuebench-%s", run),
 		Logger:          logger,
 		Partitions:      cfg.partitions,
 		TopicNamespace:  namespace,
 		Topics: []apmqueue.Topic{
-			apmqueue.Topic(fmt.Sprintf("run-%d", run)),
+			apmqueue.Topic(fmt.Sprintf("run-%s", run)),
 		},
 
 		mp: mp,
@@ -94,7 +97,7 @@ func main() {
 	}
 	defer teardown()
 
-	start := time.Now()
+	benchstart := time.Now()
 	log.Println("==> running benchmark")
 
 	log.Println("start consuming")
@@ -158,13 +161,14 @@ wait:
 	if err := bench.c.Close(); err != nil {
 		log.Panicf("error closing consumer: %s", err)
 	}
-
 	log.Println("==> benchmark ")
 	if err := bench.p.Close(); err != nil {
 		log.Panicf("error closing producer: %s", err)
 	}
 
-	duration := time.Since(start)
+	totalproduced = getSumInt64Metric("github.com/elastic/apm-queue/kafka", "producer.messages.produced", rm)
+	totalconsumed = getSumInt64Metric("github.com/elastic/apm-queue/kafka", "consumer.messages.fetched", rm)
+	duration := time.Since(benchstart)
 	log.Printf("it took %s (-duration=%s)", duration, cfg.duration)
 	log.Printf("time spent producing: %s", productionduration)
 	log.Printf("time spent consuming: %s", consumptionduration)
@@ -174,6 +178,39 @@ wait:
 	rdr.Collect(context.Background(), &rm)
 	if err = display(rm); err != nil {
 		log.Panicf("failed displaying metrics: %s", err)
+	}
+
+	delay := getHistogramFloat64Metric("github.com/elastic/apm-queue/kafka", "consumer.messages.delay", rm)
+	result := benchmark.Result{
+		Meta: benchmark.Meta{
+			RunID:     fmt.Sprintf("%s", run),
+			StartTime: start,
+			EndTime:   time.Now(),
+			Config: benchmark.Config{
+				Duration:   cfg.duration.Seconds(),
+				EventSize:  cfg.eventSize,
+				Partitions: cfg.partitions,
+				Timeout:    cfg.timeout.Seconds(),
+			},
+		},
+		Duration: benchmark.Duration{
+			Total:       duration.Seconds(),
+			Production:  productionduration.Seconds(),
+			Consumption: consumptionduration.Seconds(),
+		},
+		Produced:                   totalproduced,
+		Consumed:                   totalconsumed,
+		Leftover:                   totalproduced - totalconsumed,
+		ProducedBytes:              getSumInt64Metric("github.com/twmb/franz-go/plugin/kotel", "messaging.kafka.produce_bytes.count", rm),
+		ConsumedBytes:              getSumInt64Metric("github.com/twmb/franz-go/plugin/kotel", "messaging.kafka.fetch_bytes.count", rm),
+		MaxConsumptionDelay:        delay.Max,
+		MinConsumptionDelay:        delay.Min,
+		SumConsumptionDelay:        delay.Sum,
+		ConsumptionDelayTotalCount: delay.Count,
+		ConsumptionDelay: benchmark.Histogram{
+			Values: delay.Boundaries,
+			Counts: delay.Counts,
+		},
 	}
 
 	if totalproduced != totalconsumed {

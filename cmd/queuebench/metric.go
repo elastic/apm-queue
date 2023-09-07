@@ -75,3 +75,50 @@ func getSumInt64Metric(instrument string, metric string, rm metricdata.ResourceM
 
 	return 0
 }
+
+type HistogramResult struct {
+	Min   float64
+	Max   float64
+	Avg   float64
+	Sum   float64
+	Count uint64
+
+	Boundaries []float64
+	Counts     []uint64
+}
+
+func getHistogramFloat64Metric(instrument, metric string, rm metricdata.ResourceMetrics) HistogramResult {
+	metrics := filterMetrics(instrument, rm.ScopeMetrics)
+	if len(metrics) == 0 {
+		return HistogramResult{}
+	}
+
+	var values metricdata.Histogram[float64]
+	for _, m := range metrics {
+		if m.Name == metric {
+			values = m.Data.(metricdata.Histogram[float64])
+		}
+	}
+
+	data := values.DataPoints[0]
+
+	getValueOrEmpty := func(value metricdata.Extrema[float64]) float64 {
+		if v, ok := value.Value(); ok {
+			return v
+		}
+		return 0.0
+	}
+	avg := func(a metricdata.Extrema[float64], b metricdata.Extrema[float64]) float64 {
+		return (getValueOrEmpty(a) + getValueOrEmpty(b)) / 2
+	}
+
+	return HistogramResult{
+		Min:        getValueOrEmpty(data.Min),
+		Max:        getValueOrEmpty(data.Max),
+		Avg:        avg(data.Min, data.Max),
+		Sum:        data.Sum,
+		Count:      data.Count,
+		Boundaries: data.Bounds,
+		Counts:     data.BucketCounts,
+	}
+}
