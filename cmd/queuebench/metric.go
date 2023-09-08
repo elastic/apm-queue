@@ -18,6 +18,8 @@
 package main
 
 import (
+	"go.opentelemetry.io/otel/sdk/instrumentation"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 )
 
@@ -29,6 +31,27 @@ var customHistogramBoundaries = []float64{
 	90.5097, 128, 181.019, 256, 362.039, 512, 724.077, 1024, 1448.15, 2048,
 	2896.31, 4096, 5792.62, 8192, 11585.2, 16384, 23170.5, 32768, 46341.0, 65536,
 	92681.9, 131072,
+}
+
+func metering() (*sdkmetric.MeterProvider, *sdkmetric.ManualReader) {
+	rdr := sdkmetric.NewManualReader()
+	mp := sdkmetric.NewMeterProvider(
+		sdkmetric.WithReader(rdr),
+		sdkmetric.WithView(
+			sdkmetric.NewView(
+				sdkmetric.Instrument{
+					Name:  "consumer.messages.delay",
+					Scope: instrumentation.Scope{Name: "github.com/elastic/apm-queue/kafka"},
+				},
+				sdkmetric.Stream{
+					Aggregation: sdkmetric.AggregationExplicitBucketHistogram{
+						Boundaries: customHistogramBoundaries,
+					},
+				},
+			),
+		),
+	)
+	return mp, rdr
 }
 
 func sum(dps []metricdata.DataPoint[int64]) (val int64) {
