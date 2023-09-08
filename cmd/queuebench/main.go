@@ -137,6 +137,7 @@ func main() {
 	log.Println("waiting for consumer to fetch all records")
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
+	log.Printf("timeout set to: %s", time.Now().Add(cfg.timeout))
 	timer := time.NewTimer(cfg.timeout)
 	defer timer.Stop()
 
