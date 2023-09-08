@@ -27,7 +27,6 @@ import (
 	"syscall"
 	"time"
 
-	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
@@ -65,10 +64,7 @@ func main() {
 	}
 
 	log.Println("prep MeterProvider")
-	rdr := sdkmetric.NewManualReader()
-	mp := sdkmetric.NewMeterProvider(
-		sdkmetric.WithReader(rdr),
-	)
+	mp, rdr := metering()
 
 	ctx := context.Background()
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
