@@ -52,16 +52,8 @@ func main() {
 	log.Printf("parsed config: %+v\n", cfg)
 
 	log.Println("prep logger")
-	var logger *zap.Logger
 	var err error
-	if cfg.verbose {
-		logger, err = zap.NewDevelopment()
-		if err != nil {
-			log.Fatalf("cannot create zap logger: %s", err)
-		}
-	} else {
-		logger = zap.NewNop()
-	}
+	logger := logging(cfg.verbose)
 
 	log.Println("prep MeterProvider")
 	mp, rdr := metering()
@@ -211,4 +203,19 @@ func produce(ctx context.Context, p *kafka.Producer, topic apmqueue.Topic, size 
 	}
 
 	return nil
+}
+
+func logging(verbose bool) *zap.Logger {
+	var logger *zap.Logger
+	var err error
+	if verbose {
+		logger, err = zap.NewDevelopment()
+		if err != nil {
+			log.Fatalf("cannot create zap logger: %s", err)
+		}
+	} else {
+		logger = zap.NewNop()
+	}
+
+	return logger
 }
