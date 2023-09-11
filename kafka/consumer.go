@@ -163,6 +163,7 @@ func NewConsumer(cfg ConsumerConfig) (*Consumer, error) {
 		kgo.OnPartitionsAssigned(consumer.assigned),
 		kgo.OnPartitionsLost(consumer.lost),
 		kgo.OnPartitionsRevoked(consumer.lost),
+		kgo.FetchMinBytes(10),
 	}
 	if cfg.MaxPollWait > 0 {
 		opts = append(opts, kgo.FetchMaxWait(cfg.MaxPollWait))
