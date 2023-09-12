@@ -35,6 +35,7 @@ type config struct {
 func (c *config) Parse() {
 	b := flag.String("broker", "", "Broker bootstrap URL (host:port) to connect to for this benchmark run")
 	d := flag.Int("duration", 0, "Duration is seconds of the production phase of the benchmark")
+	p := flag.Int("partitions", 1, "The number of topic partitions to create")
 	t := flag.String("timeout", "1m", "Timeout for consuming all records. Benchmark will stop regardless of completion.")
 	v := flag.Bool("verbose", false, "Enable additional logging")
 
@@ -55,7 +56,7 @@ func (c *config) Parse() {
 	c.broker = *b
 	c.duration = time.Duration(*d) * time.Second
 	c.eventSize = 1024
-	c.partitions = 1
+	c.partitions = *p
 	c.timeout = timeout
 	c.verbose = *v
 }
