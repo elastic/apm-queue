@@ -51,16 +51,28 @@ type ConsumerConfig struct {
 	//
 	// It is best to keep the number of polled records small or the consumer
 	// risks being forced out of the group if it exceeds rebalance.timeout.ms.
+	// Default: 100
+	// Kafka consumer setting: max.poll.records
+	// Docs: https://kafka.apache.org/28/documentation.html#consumerconfigs_max.poll.records
 	MaxPollRecords int
 	// MaxPollWait defines the maximum amount of time a broker will wait for a
 	// fetch response to hit the minimum number of required bytes before
-	// returning, overriding the default 5s.
+	// returning
+	// Default: 5s
+	// Kafka consumer setting: fetch.max.wait.ms
+	// Docs: https://kafka.apache.org/28/documentation.html#consumerconfigs_fetch.max.wait.ms
 	MaxPollWait time.Duration
 	// MaxPollBytes sets the maximum amount of bytes a broker will try to send
 	// during a fetch
+	// Default: 52428800 bytes (~52MB, 50MiB)
+	// Kafka consumer setting: fetch.max.bytes
+	// Docs: https://kafka.apache.org/28/documentation.html#brokerconfigs_fetch.max.bytes
 	MaxPollBytes int32
 	// MaxPollPartitionBytes sets the maximum amount of bytes that will be consumed for
 	// a single partition in a fetch request
+	// Default: 1048576 bytes (~1MB, 1MiB)
+	// Kafka consumer setting: max.partition.fetch.bytes
+	// Docs: https://kafka.apache.org/28/documentation.html#consumerconfigs_max.partition.fetch.bytes
 	MaxPollPartitionBytes int32
 	// ShutdownGracePeriod defines the maximum amount of time to wait for the
 	// partition consumers to process events before the underlying kgo.Client
