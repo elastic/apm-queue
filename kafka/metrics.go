@@ -18,6 +18,8 @@
 package kafka
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -34,19 +36,29 @@ const (
 
 	unitCount = "1"
 
-	msgFetchedKey = "consumer.messages.fetched"
-	msgDelayKey   = "consumer.messages.delay"
+	msgProducedCountKey = "producer.messages.count"
+	msgFetchedKey       = "consumer.messages.fetched"
+	msgDelayKey         = "consumer.messages.delay"
 )
 
 type metricHooks struct {
-	namespace      string
-	topicPrefix    string
-	messageFetched metric.Int64Counter
-	messageDelay   metric.Float64Histogram
+	namespace   string
+	topicPrefix string
+
+	messageProduced metric.Int64Counter
+	messageFetched  metric.Int64Counter
+	messageDelay    metric.Float64Histogram
 }
 
 func newKgoHooks(mp metric.MeterProvider, namespace, topicPrefix string) (*metricHooks, error) {
 	m := mp.Meter(instrumentName)
+	messageProducedCounter, err := m.Int64Counter(msgProducedCountKey,
+		metric.WithDescription("The number of messages produced"),
+		metric.WithUnit(unitCount),
+	)
+	if err != nil {
+		return nil, formatMetricError(msgProducedCountKey, err)
+	}
 	messageFetchedCounter, err := m.Int64Counter(msgFetchedKey,
 		metric.WithDescription("The number of messages that were fetched from a kafka topic"),
 		metric.WithUnit(unitCount),
@@ -66,6 +78,8 @@ func newKgoHooks(mp metric.MeterProvider, namespace, topicPrefix string) (*metri
 	return &metricHooks{
 		namespace:   namespace,
 		topicPrefix: topicPrefix,
+		// Producer
+		messageProduced: messageProducedCounter,
 		// Consumer
 		messageFetched: messageFetchedCounter,
 		messageDelay:   messageDelayHistogram,
@@ -88,8 +102,25 @@ func (h *metricHooks) OnProduceRecordUnbuffered(r *kgo.Record, err error) {
 	}
 
 	if err != nil {
+		errorTypeAttr := attribute.String("error", "other")
+		if errors.Is(err, context.DeadlineExceeded) {
+			errorTypeAttr = attribute.String("error", "timeout")
+		} else if errors.Is(err, context.Canceled) {
+			errorTypeAttr = attribute.String("error", "canceled")
+		}
+
+		outcomeAttr := attribute.String("outcome", "failure")
+		h.messageProduced.Add(context.Background(), 1,
+			metric.WithAttributes(append(attrs, outcomeAttr, errorTypeAttr)...),
+		)
+
 		return
 	}
+
+	outcomeAttr := attribute.String("outcome", "success")
+	h.messageProduced.Add(context.Background(), 1,
+		metric.WithAttributes(append(attrs, outcomeAttr)...),
+	)
 }
 
 // OnFetchRecordUnbuffered records the number of fetched messages.
