@@ -18,8 +18,6 @@
 package kafka
 
 import (
-	"context"
-	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -36,37 +34,19 @@ const (
 
 	unitCount = "1"
 
-	msgProducedKey = "producer.messages.produced"
-	msgErroredKey  = "producer.messages.errored"
-	msgFetchedKey  = "consumer.messages.fetched"
-	msgDelayKey    = "consumer.messages.delay"
+	msgFetchedKey = "consumer.messages.fetched"
+	msgDelayKey   = "consumer.messages.delay"
 )
 
 type metricHooks struct {
-	namespace       string
-	topicPrefix     string
-	messageProduced metric.Int64Counter
-	messageErrored  metric.Int64Counter
-	messageFetched  metric.Int64Counter
-	messageDelay    metric.Float64Histogram
+	namespace      string
+	topicPrefix    string
+	messageFetched metric.Int64Counter
+	messageDelay   metric.Float64Histogram
 }
 
 func newKgoHooks(mp metric.MeterProvider, namespace, topicPrefix string) (*metricHooks, error) {
 	m := mp.Meter(instrumentName)
-	messageProducedCounter, err := m.Int64Counter(msgProducedKey,
-		metric.WithDescription("The number of messages produced"),
-		metric.WithUnit(unitCount),
-	)
-	if err != nil {
-		return nil, formatMetricError(msgProducedKey, err)
-	}
-	messageErroredCounter, err := m.Int64Counter(msgErroredKey,
-		metric.WithDescription("The number of messages that failed to be produced"),
-		metric.WithUnit(unitCount),
-	)
-	if err != nil {
-		return nil, formatMetricError(msgErroredKey, err)
-	}
 	messageFetchedCounter, err := m.Int64Counter(msgFetchedKey,
 		metric.WithDescription("The number of messages that were fetched from a kafka topic"),
 		metric.WithUnit(unitCount),
@@ -86,9 +66,6 @@ func newKgoHooks(mp metric.MeterProvider, namespace, topicPrefix string) (*metri
 	return &metricHooks{
 		namespace:   namespace,
 		topicPrefix: topicPrefix,
-		// Producer
-		messageProduced: messageProducedCounter,
-		messageErrored:  messageErroredCounter,
 		// Consumer
 		messageFetched: messageFetchedCounter,
 		messageDelay:   messageDelayHistogram,
@@ -111,21 +88,8 @@ func (h *metricHooks) OnProduceRecordUnbuffered(r *kgo.Record, err error) {
 	}
 
 	if err != nil {
-		errorType := attribute.String("error", "other")
-		if errors.Is(err, context.DeadlineExceeded) {
-			errorType = attribute.String("error", "timeout")
-		} else if errors.Is(err, context.Canceled) {
-			errorType = attribute.String("error", "canceled")
-		}
-
-		h.messageErrored.Add(context.Background(), 1,
-			metric.WithAttributes(append(attrs, errorType)...),
-		)
 		return
 	}
-	h.messageProduced.Add(context.Background(), 1,
-		metric.WithAttributes(attrs...),
-	)
 }
 
 // OnFetchRecordUnbuffered records the number of fetched messages.
