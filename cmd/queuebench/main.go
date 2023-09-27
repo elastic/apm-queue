@@ -27,8 +27,6 @@ import (
 	"syscall"
 	"time"
 
-	"go.opentelemetry.io/otel/sdk/instrumentation"
-	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
@@ -54,35 +52,11 @@ func main() {
 	log.Printf("parsed config: %+v\n", cfg)
 
 	log.Println("prep logger")
-	var logger *zap.Logger
 	var err error
-	if cfg.verbose {
-		logger, err = zap.NewDevelopment()
-		if err != nil {
-			log.Fatalf("cannot create zap logger: %s", err)
-		}
-	} else {
-		logger = zap.NewNop()
-	}
+	logger := logging(cfg.verbose)
 
 	log.Println("prep MeterProvider")
-	rdr := sdkmetric.NewManualReader()
-	mp := sdkmetric.NewMeterProvider(
-		sdkmetric.WithReader(rdr),
-		sdkmetric.WithView(
-			sdkmetric.NewView(
-				sdkmetric.Instrument{
-					Name:  "consumer.messages.delay",
-					Scope: instrumentation.Scope{Name: "github.com/elastic/apm-queue/kafka"},
-				},
-				sdkmetric.Stream{
-					Aggregation: sdkmetric.AggregationExplicitBucketHistogram{
-						Boundaries: customHistogramBoundaries,
-					},
-				},
-			),
-		),
-	)
+	mp, rdr := metering()
 
 	ctx := context.Background()
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
@@ -151,6 +125,7 @@ func main() {
 	log.Println("waiting for consumer to fetch all records")
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
+	log.Printf("timeout set to: %s", time.Now().Add(cfg.timeout))
 	timer := time.NewTimer(cfg.timeout)
 	defer timer.Stop()
 
@@ -228,4 +203,19 @@ func produce(ctx context.Context, p *kafka.Producer, topic apmqueue.Topic, size 
 	}
 
 	return nil
+}
+
+func logging(verbose bool) *zap.Logger {
+	var logger *zap.Logger
+	var err error
+	if verbose {
+		logger, err = zap.NewDevelopment()
+		if err != nil {
+			log.Fatalf("cannot create zap logger: %s", err)
+		}
+	} else {
+		logger = zap.NewNop()
+	}
+
+	return logger
 }
