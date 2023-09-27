@@ -401,7 +401,14 @@ func TestManagerMetrics(t *testing.T) {
 				attribute.String("group", "consumer2"),
 				attribute.String("topic", "topic2"),
 			),
-			Value: 2,
+			Value: 1,
+		}, {
+			Attributes: attribute.NewSet(
+				attribute.String("client_id", "client_id"),
+				attribute.String("group", "consumer2"),
+				attribute.String("topic", "topic1"),
+			),
+			Value: 1,
 		}, {
 			Attributes: attribute.NewSet(
 				attribute.String("client_id", "client_id"),

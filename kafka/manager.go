@@ -135,9 +135,9 @@ func (m *Manager) Healthy(ctx context.Context) error {
 	return nil
 }
 
-type topicPartitionCount struct {
-	topic string
-	count int64
+type memberTopic struct {
+	clientID string
+	topic    string
 }
 
 // MonitorConsumerLag registers a callback with OpenTelemetry
@@ -189,7 +189,7 @@ func (m *Manager) MonitorConsumerLag(topicConsumers []apmqueue.TopicConsumer) (m
 				return
 			}
 			// Map Consumer group member assignments.
-			memberAssignments := make(map[string]topicPartitionCount)
+			memberAssignments := make(map[memberTopic]int64)
 			for topic, partitions := range l.Lag {
 				if !strings.HasPrefix(topic, namespacePrefix) {
 					// Ignore topics outside the namespace.
@@ -214,10 +214,10 @@ func (m *Manager) MonitorConsumerLag(topicConsumers []apmqueue.TopicConsumer) (m
 						)
 						continue
 					}
-					tpc := memberAssignments[lag.Member.ClientID]
-					tpc.topic = topic
-					tpc.count++
-					memberAssignments[lag.Member.ClientID] = tpc
+					key := memberTopic{topic: topic, clientID: lag.Member.ClientID}
+					count := memberAssignments[key]
+					count++
+					memberAssignments[key] = count
 					o.ObserveInt64(
 						consumerGroupLagMetric, lag.Lag,
 						metric.WithAttributes(
@@ -228,12 +228,12 @@ func (m *Manager) MonitorConsumerLag(topicConsumers []apmqueue.TopicConsumer) (m
 					)
 				}
 			}
-			for member, assignment := range memberAssignments {
-				o.ObserveInt64(assignmentMetric, assignment.count,
+			for key, count := range memberAssignments {
+				o.ObserveInt64(assignmentMetric, count,
 					metric.WithAttributes(
 						attribute.String("group", l.Group),
-						attribute.String("topic", assignment.topic),
-						attribute.String("client_id", member),
+						attribute.String("topic", key.topic),
+						attribute.String("client_id", key.clientID),
 					),
 				)
 			}
