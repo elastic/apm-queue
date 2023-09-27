@@ -135,6 +135,11 @@ func (m *Manager) Healthy(ctx context.Context) error {
 	return nil
 }
 
+type topicPartitionCount struct {
+	topic string
+	count int64
+}
+
 // MonitorConsumerLag registers a callback with OpenTelemetry
 // to measure consumer group lag for the given topics.
 func (m *Manager) MonitorConsumerLag(topicConsumers []apmqueue.TopicConsumer) (metric.Registration, error) {
@@ -148,6 +153,10 @@ func (m *Manager) MonitorConsumerLag(topicConsumers []apmqueue.TopicConsumer) (m
 	consumerGroupLagMetric, err := meter.Int64ObservableGauge("consumer_group_lag")
 	if err != nil {
 		return nil, fmt.Errorf("kafka: failed to create consumer_group_lag metric: %w", err)
+	}
+	assignmentMetric, err := meter.Int64ObservableGauge("consumer_group_assignment")
+	if err != nil {
+		return nil, fmt.Errorf("kafka: failed to create consumer_group.assignment metric: %w", err)
 	}
 
 	namespacePrefix := m.cfg.namespacePrefix()
@@ -173,13 +182,14 @@ func (m *Manager) MonitorConsumerLag(topicConsumers []apmqueue.TopicConsumer) (m
 		}
 		lag.Each(func(l kadm.DescribedGroupLag) {
 			if err := l.Error(); err != nil {
-				m.cfg.Logger.Warn(
-					"error calculating consumer lag",
+				m.cfg.Logger.Warn("error calculating consumer lag",
 					zap.String("group", l.Group),
 					zap.Error(err),
 				)
 				return
 			}
+			// Map Consumer group member assignments.
+			memberAssignments := make(map[string]topicPartitionCount)
 			for topic, partitions := range l.Lag {
 				if !strings.HasPrefix(topic, namespacePrefix) {
 					// Ignore topics outside the namespace.
@@ -196,8 +206,7 @@ func (m *Manager) MonitorConsumerLag(topicConsumers []apmqueue.TopicConsumer) (m
 				}
 				for partition, lag := range partitions {
 					if lag.Err != nil {
-						m.cfg.Logger.Warn(
-							"error getting consumer group lag",
+						m.cfg.Logger.Warn("error getting consumer group lag",
 							zap.String("group", l.Group),
 							zap.String("topic", topic),
 							zap.Int32("partition", partition),
@@ -205,6 +214,10 @@ func (m *Manager) MonitorConsumerLag(topicConsumers []apmqueue.TopicConsumer) (m
 						)
 						continue
 					}
+					tpc := memberAssignments[lag.Member.ClientID]
+					tpc.topic = topic
+					tpc.count++
+					memberAssignments[lag.Member.ClientID] = tpc
 					o.ObserveInt64(
 						consumerGroupLagMetric, lag.Lag,
 						metric.WithAttributes(
@@ -215,9 +228,19 @@ func (m *Manager) MonitorConsumerLag(topicConsumers []apmqueue.TopicConsumer) (m
 					)
 				}
 			}
+			for member, assignment := range memberAssignments {
+				o.ObserveInt64(assignmentMetric, assignment.count,
+					metric.WithAttributes(
+						attribute.String("group", l.Group),
+						attribute.String("topic", assignment.topic),
+						attribute.String("client_id", member),
+					),
+				)
+			}
 		})
 		return nil
 	}
-
-	return meter.RegisterCallback(gatherMetrics, consumerGroupLagMetric)
+	return meter.RegisterCallback(gatherMetrics, consumerGroupLagMetric,
+		assignmentMetric,
+	)
 }

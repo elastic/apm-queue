@@ -344,7 +344,16 @@ func TestManagerMetrics(t *testing.T) {
 	assert.Equal(t, "github.com/elastic/apm-queue/kafka", rm.ScopeMetrics[0].Scope.Name)
 
 	metrics := rm.ScopeMetrics[0].Metrics
-	require.Len(t, metrics, 1)
+	require.Len(t, metrics, 2)
+	var lagMetric, assignmentMetric metricdata.Metrics
+	for _, metric := range metrics {
+		switch metric.Name {
+		case "consumer_group_lag":
+			lagMetric = metric
+		case "consumer_group_assignment":
+			assignmentMetric = metric
+		}
+	}
 	assert.Equal(t, "consumer_group_lag", metrics[0].Name)
 	metricdatatest.AssertAggregationsEqual(t, metricdata.Gauge[int64]{
 		DataPoints: []metricdata.DataPoint[int64]{{
@@ -376,7 +385,32 @@ func TestManagerMetrics(t *testing.T) {
 			),
 			Value: 4, // end offset  = 4, nothing committed
 		}},
-	}, metrics[0].Data, metricdatatest.IgnoreTimestamp())
+	}, lagMetric.Data, metricdatatest.IgnoreTimestamp())
+
+	metricdatatest.AssertAggregationsEqual(t, metricdata.Gauge[int64]{
+		DataPoints: []metricdata.DataPoint[int64]{{
+			Attributes: attribute.NewSet(
+				attribute.String("client_id", "client_id"),
+				attribute.String("group", "consumer1"),
+				attribute.String("topic", "topic1"),
+			),
+			Value: 1,
+		}, {
+			Attributes: attribute.NewSet(
+				attribute.String("client_id", "client_id"),
+				attribute.String("group", "consumer2"),
+				attribute.String("topic", "topic2"),
+			),
+			Value: 2,
+		}, {
+			Attributes: attribute.NewSet(
+				attribute.String("client_id", "client_id"),
+				attribute.String("group", "consumer3"),
+				attribute.String("topic", "topic3"),
+			),
+			Value: 1,
+		}},
+	}, assignmentMetric.Data, metricdatatest.IgnoreTimestamp())
 
 	assert.Equal(t, int16(5), describeGroupsRequest.Version)
 	assert.ElementsMatch(t, []string{"connect", "consumer1", "consumer2", "consumer3"}, describeGroupsRequest.Groups)
