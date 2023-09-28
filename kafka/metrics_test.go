@@ -75,7 +75,7 @@ func TestProducerMetrics(t *testing.T) {
 					{
 						Value: 3, Attributes: attribute.NewSet(
 							attribute.String("outcome", "failure"),
-							attribute.String("error", "timeout"),
+							attribute.String(errorReasonKey, "timeout"),
 							attribute.String("namespace", "name_space"),
 							semconv.MessagingSystem("kafka"),
 							semconv.MessagingDestinationName("default-topic"),
@@ -102,7 +102,7 @@ func TestProducerMetrics(t *testing.T) {
 					{
 						Value: 3, Attributes: attribute.NewSet(
 							attribute.String("outcome", "failure"),
-							attribute.String("error", "canceled"),
+							attribute.String(errorReasonKey, "canceled"),
 							attribute.String("namespace", "name_space"),
 							semconv.MessagingSystem("kafka"),
 							semconv.MessagingDestinationName("default-topic"),
@@ -130,7 +130,7 @@ func TestProducerMetrics(t *testing.T) {
 						Value: 3,
 						Attributes: attribute.NewSet(
 							attribute.String("outcome", "failure"),
-							attribute.String("error", "other"),
+							attribute.String(errorReasonKey, "other"),
 							attribute.String("namespace", "name_space"),
 							semconv.MessagingSystem("kafka"),
 							semconv.MessagingDestinationName("default-topic"),
