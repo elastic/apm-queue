@@ -103,7 +103,7 @@ func (h *metricHooks) OnProduceRecordUnbuffered(r *kgo.Record, err error) {
 	}
 
 	if err != nil {
-		errorReasonAttr := attribute.String(errorReasonKey, "other")
+		errorReasonAttr := attribute.String(errorReasonKey, "unknown")
 		if errors.Is(err, context.DeadlineExceeded) {
 			errorReasonAttr = attribute.String(errorReasonKey, "timeout")
 		} else if errors.Is(err, context.Canceled) {

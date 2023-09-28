@@ -116,7 +116,7 @@ func TestProducerMetrics(t *testing.T) {
 		cancel()
 		test(ctx, t, producer, rdr, want)
 	})
-	t.Run("Other", func(t *testing.T) {
+	t.Run("Unknown error reason", func(t *testing.T) {
 		producer, rdr := setupTestProducer(t)
 		want := metricdata.Metrics{
 			Name:        "producer.messages.count",
@@ -130,7 +130,7 @@ func TestProducerMetrics(t *testing.T) {
 						Value: 3,
 						Attributes: attribute.NewSet(
 							attribute.String("outcome", "failure"),
-							attribute.String(errorReasonKey, "other"),
+							attribute.String(errorReasonKey, "unknown"),
 							attribute.String("namespace", "name_space"),
 							semconv.MessagingSystem("kafka"),
 							semconv.MessagingDestinationName("default-topic"),
