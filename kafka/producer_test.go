@@ -118,7 +118,8 @@ func TestNewProducerBasic(t *testing.T) {
 					Namespace:      "name_space",
 					TracerProvider: tp,
 				},
-				Sync: sync,
+				Sync:               sync,
+				MaxBufferedRecords: 0,
 			})
 
 			ctx := queuecontext.WithMetadata(context.Background(), map[string]string{"a": "b", "c": "d"})
@@ -138,11 +139,11 @@ func TestNewProducerBasic(t *testing.T) {
 				// Cancel the context before calling Produce
 				ctxCancelled, cancelProduce := context.WithCancel(ctx)
 				cancelProduce()
-				producer.Produce(ctxCancelled, batch...)
+				require.NoError(t, producer.Produce(ctxCancelled, batch...))
 			} else {
 				produceCtx, cancel := context.WithTimeout(ctx, time.Second)
 				defer cancel()
-				producer.Produce(produceCtx, batch...)
+				require.NoError(t, producer.Produce(produceCtx, batch...))
 			}
 
 			var actual []apmqueue.Record
