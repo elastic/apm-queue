@@ -88,7 +88,7 @@ func (m *Manager) NewTopicCreator(cfg TopicCreatorConfig) (*TopicCreator, error)
 
 // CreateTopics creates one or more topics.
 //
-// Topics that already exist will be left unmodified.
+// Topics that already exist will be updated.
 func (c *TopicCreator) CreateTopics(ctx context.Context, topics ...apmqueue.Topic) error {
 	// TODO(axw) how should we record topics?
 	ctx, span := c.m.tracer.Start(ctx, "CreateTopics", trace.WithAttributes(
@@ -121,7 +121,9 @@ func (c *TopicCreator) CreateTopics(ctx context.Context, topics ...apmqueue.Topi
 			zap.Reflect("topic_configs", c.origTopicConfigs),
 		)
 	}
-	var createErrors []error
+
+	var existingTopics []string
+	var updateErrors []error
 	for _, response := range responses.Sorted() {
 		topicName := strings.TrimPrefix(response.Topic, namespacePrefix)
 		logger := c.m.cfg.Logger.With(zap.String("topic", topicName))
@@ -133,10 +135,11 @@ func (c *TopicCreator) CreateTopics(ctx context.Context, topics ...apmqueue.Topi
 				span.AddEvent("kafka topic already exists", trace.WithAttributes(
 					semconv.MessagingDestinationKey.String(topicName),
 				))
+				existingTopics = append(existingTopics, response.Topic)
 			} else {
 				span.RecordError(err)
 				span.SetStatus(codes.Error, err.Error())
-				createErrors = append(createErrors,
+				updateErrors = append(updateErrors,
 					fmt.Errorf(
 						"failed to create topic %q: %w",
 						topicName, err,
@@ -147,5 +150,33 @@ func (c *TopicCreator) CreateTopics(ctx context.Context, topics ...apmqueue.Topi
 		}
 		logger.Info("created kafka topic", createTopicParamsFields...)
 	}
-	return errors.Join(createErrors...)
+
+	if len(existingTopics) != 0 {
+		responses, err := c.m.adminClient.UpdatePartitions(ctx, c.partitionCount, existingTopics...)
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
+			return fmt.Errorf("failed to update partitions for kafka topics: %w", err)
+		}
+		for _, response := range responses.Sorted() {
+			topicName := strings.TrimPrefix(response.Topic, namespacePrefix)
+			logger := c.m.cfg.Logger.With(zap.String("topic", topicName))
+			if err := response.Err; err != nil {
+				span.RecordError(err)
+				span.SetStatus(codes.Error, err.Error())
+				updateErrors = append(updateErrors, fmt.Errorf(
+					"failed to update partitions for topic %q: %w",
+					topicName, err,
+				))
+				continue
+			}
+			logger.Info(
+				"updated partitions for kafka topic",
+				zap.Int("partition_count", c.partitionCount),
+			)
+		}
+		// TODO update topic configs...
+	}
+
+	return errors.Join(updateErrors...)
 }
