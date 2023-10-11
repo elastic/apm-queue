@@ -281,8 +281,9 @@ func TestConsumerDelivery(t *testing.T) {
 
 			var processed atomic.Int32
 			var errored atomic.Int32
-			newProcessor := func(processRecord, failRecord <-chan struct{}) apmqueue.Processor {
+			newProcessor := func(processRecord, failRecord <-chan struct{}, fn func()) apmqueue.Processor {
 				return apmqueue.ProcessorFunc(func(_ context.Context, r ...apmqueue.Record) error {
+					defer fn()
 					select {
 					// Records are marked as processed on receive processRecord.
 					case <-processRecord:
@@ -296,7 +297,10 @@ func TestConsumerDelivery(t *testing.T) {
 				})
 			}
 			failRecord := make(chan struct{})
-			processRecord := make(chan struct{})
+			// Context used for the consumer
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
 			cfg := ConsumerConfig{
 				CommonConfig: CommonConfig{
 					Brokers:   addrs,
@@ -307,7 +311,7 @@ func TestConsumerDelivery(t *testing.T) {
 				Topics:         []apmqueue.Topic{"topic"},
 				GroupID:        "groupid",
 				MaxPollRecords: tc.maxPollRecords,
-				Processor:      newProcessor(processRecord, failRecord),
+				Processor:      newProcessor(nil, failRecord, cancel),
 			}
 
 			record := &kgo.Record{
@@ -315,16 +319,15 @@ func TestConsumerDelivery(t *testing.T) {
 				Value: []byte("content"),
 			}
 
-			// Context used for the consumer
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
 			for i := 0; i < int(tc.initialRecords); i++ {
 				produceRecord(ctx, t, client, record)
 			}
 
 			cfg.Logger = baseLogger.Named("1")
 			consumer := newConsumer(t, cfg)
+			consumerDone := make(chan struct{})
 			go func() {
+				defer close(consumerDone)
 				err := consumer.Run(ctx)
 				if err != nil {
 					assert.Equal(t, ErrCommitFailed, err)
@@ -345,14 +348,10 @@ func TestConsumerDelivery(t *testing.T) {
 			case <-time.After(time.Second):
 				t.Fatal("timed out waiting for consumer to process event")
 			}
-			closeCh := make(chan struct{})
-			go func() {
-				defer close(closeCh)
-				require.NoError(t, consumer.Close())
-			}()
+			require.NoError(t, consumer.Close())
 
 			select {
-			case <-closeCh:
+			case <-consumerDone:
 			case <-time.After(time.Second):
 				t.Fatal("timed out waiting for consumer to close")
 			}
@@ -373,7 +372,8 @@ func TestConsumerDelivery(t *testing.T) {
 			}
 			cfg.MaxPollRecords = tc.lastRecords
 			cfg.Logger = baseLogger.Named("2")
-			cfg.Processor = newProcessor(processRecord, nil)
+			processRecord := make(chan struct{})
+			cfg.Processor = newProcessor(processRecord, nil, func() {})
 			consumer = newConsumer(t, cfg)
 			go func() {
 				assert.NoError(t, consumer.Run(ctx))
@@ -462,6 +462,7 @@ func TestConsumerGracefulShutdown(t *testing.T) {
 		assert.NoError(t, consumerErr) // Assert the consumer error.
 		//  Ensure all records are processed.
 		assert.Equal(t, int32(records), processed.Load())
+		assert.Zero(t, errored.Load())
 	}
 
 	t.Run("AtLeastOnceDelivery", func(t *testing.T) {
