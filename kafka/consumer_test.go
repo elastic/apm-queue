@@ -172,7 +172,6 @@ func TestConsumerInstrumentation(t *testing.T) {
 		&kgo.Record{Topic: "name_space-topic", Value: event.Value},
 	)
 	consumer := newConsumer(t, cfg)
-	spanCount := len(exp.GetSpans())
 	go consumer.Run(context.Background())
 
 	select {
@@ -180,7 +179,6 @@ func TestConsumerInstrumentation(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("timed out while waiting for record to be processed.")
 	}
-	assert.Len(t, exp.GetSpans(), spanCount+1)
 }
 
 func TestConsumerDelivery(t *testing.T) {

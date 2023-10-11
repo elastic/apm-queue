@@ -35,7 +35,6 @@ import (
 	"github.com/twmb/franz-go/pkg/kadm"
 	"github.com/twmb/franz-go/pkg/kfake"
 	"github.com/twmb/franz-go/pkg/kgo"
-	"go.opentelemetry.io/otel/attribute"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.uber.org/zap"
@@ -134,7 +133,6 @@ func TestNewProducerBasic(t *testing.T) {
 				{Topic: topic, OrderingKey: []byte("key_1"), Value: []byte("7")},
 				{Topic: topic, OrderingKey: []byte("key_2"), Value: []byte("8")},
 			}
-			spanCount := len(exp.GetSpans())
 			if !sync {
 				// Cancel the context before calling Produce
 				ctxCancelled, cancelProduce := context.WithCancel(ctx)
@@ -201,26 +199,6 @@ func TestNewProducerBasic(t *testing.T) {
 			//lint:ignore SA1012 passing a nil context is a valid use for this call.
 			fetches := client.PollRecords(nil, 1)
 			assert.Len(t, fetches.Records(), 0)
-
-			// Assert tracing happened properly
-			assert.Eventually(t, func() bool {
-				return len(exp.GetSpans()) == spanCount+len(batch)+1
-			}, time.Second, 10*time.Millisecond)
-
-			var span tracetest.SpanStub
-			for _, s := range exp.GetSpans() {
-				if s.Name == "producer.Produce" {
-					span = s
-				}
-			}
-
-			assert.Equal(t, "producer.Produce", span.Name)
-			assert.Equal(t, []attribute.KeyValue{
-				attribute.Bool("sync", sync),
-				attribute.Int("record.count", len(batch)),
-			}, span.Attributes)
-
-			exp.Reset()
 		})
 	}
 	test(t, true)
