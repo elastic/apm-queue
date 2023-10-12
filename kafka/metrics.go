@@ -39,6 +39,7 @@ const (
 	msgProducedCountKey = "producer.messages.count"
 	msgFetchedKey       = "consumer.messages.fetched"
 	msgDelayKey         = "consumer.messages.delay"
+	errorReasonKey      = "error_reason"
 )
 
 type metricHooks struct {
@@ -102,16 +103,16 @@ func (h *metricHooks) OnProduceRecordUnbuffered(r *kgo.Record, err error) {
 	}
 
 	if err != nil {
-		errorTypeAttr := attribute.String("error", "other")
+		errorReasonAttr := attribute.String(errorReasonKey, "unknown")
 		if errors.Is(err, context.DeadlineExceeded) {
-			errorTypeAttr = attribute.String("error", "timeout")
+			errorReasonAttr = attribute.String(errorReasonKey, "timeout")
 		} else if errors.Is(err, context.Canceled) {
-			errorTypeAttr = attribute.String("error", "canceled")
+			errorReasonAttr = attribute.String(errorReasonKey, "canceled")
 		}
 
 		outcomeAttr := attribute.String("outcome", "failure")
 		h.messageProduced.Add(context.Background(), 1,
-			metric.WithAttributes(append(attrs, outcomeAttr, errorTypeAttr)...),
+			metric.WithAttributes(append(attrs, outcomeAttr, errorReasonAttr)...),
 		)
 
 		return
