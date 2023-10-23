@@ -65,8 +65,8 @@ func TestProducerMetrics(t *testing.T) {
 	t.Run("DeadlineExceeded", func(t *testing.T) {
 		producer, rdr := setupTestProducer(t)
 		want := metricdata.Metrics{
-			Name:        "producer.messages.errored",
-			Description: "The number of messages that failed to be produced",
+			Name:        "producer.messages.count",
+			Description: "The number of messages produced",
 			Unit:        "1",
 			Data: metricdata.Sum[int64]{
 				Temporality: metricdata.CumulativeTemporality,
@@ -74,7 +74,8 @@ func TestProducerMetrics(t *testing.T) {
 				DataPoints: []metricdata.DataPoint[int64]{
 					{
 						Value: 3, Attributes: attribute.NewSet(
-							attribute.String("error", "timeout"),
+							attribute.String("outcome", "failure"),
+							attribute.String(errorReasonKey, "timeout"),
 							attribute.String("namespace", "name_space"),
 							semconv.MessagingSystem("kafka"),
 							semconv.MessagingDestinationName("default-topic"),
@@ -91,8 +92,8 @@ func TestProducerMetrics(t *testing.T) {
 	t.Run("ContextCanceled", func(t *testing.T) {
 		producer, rdr := setupTestProducer(t)
 		want := metricdata.Metrics{
-			Name:        "producer.messages.errored",
-			Description: "The number of messages that failed to be produced",
+			Name:        "producer.messages.count",
+			Description: "The number of messages produced",
 			Unit:        "1",
 			Data: metricdata.Sum[int64]{
 				Temporality: metricdata.CumulativeTemporality,
@@ -100,7 +101,8 @@ func TestProducerMetrics(t *testing.T) {
 				DataPoints: []metricdata.DataPoint[int64]{
 					{
 						Value: 3, Attributes: attribute.NewSet(
-							attribute.String("error", "canceled"),
+							attribute.String("outcome", "failure"),
+							attribute.String(errorReasonKey, "canceled"),
 							attribute.String("namespace", "name_space"),
 							semconv.MessagingSystem("kafka"),
 							semconv.MessagingDestinationName("default-topic"),
@@ -114,11 +116,11 @@ func TestProducerMetrics(t *testing.T) {
 		cancel()
 		test(ctx, t, producer, rdr, want)
 	})
-	t.Run("Other", func(t *testing.T) {
+	t.Run("Unknown error reason", func(t *testing.T) {
 		producer, rdr := setupTestProducer(t)
 		want := metricdata.Metrics{
-			Name:        "producer.messages.errored",
-			Description: "The number of messages that failed to be produced",
+			Name:        "producer.messages.count",
+			Description: "The number of messages produced",
 			Unit:        "1",
 			Data: metricdata.Sum[int64]{
 				Temporality: metricdata.CumulativeTemporality,
@@ -127,7 +129,8 @@ func TestProducerMetrics(t *testing.T) {
 					{
 						Value: 3,
 						Attributes: attribute.NewSet(
-							attribute.String("error", "other"),
+							attribute.String("outcome", "failure"),
+							attribute.String(errorReasonKey, "unknown"),
 							attribute.String("namespace", "name_space"),
 							semconv.MessagingSystem("kafka"),
 							semconv.MessagingDestinationName("default-topic"),
@@ -143,7 +146,7 @@ func TestProducerMetrics(t *testing.T) {
 	t.Run("Produced", func(t *testing.T) {
 		producer, rdr := setupTestProducer(t)
 		want := metricdata.Metrics{
-			Name:        "producer.messages.produced",
+			Name:        "producer.messages.count",
 			Description: "The number of messages produced",
 			Unit:        "1",
 			Data: metricdata.Sum[int64]{
@@ -153,6 +156,7 @@ func TestProducerMetrics(t *testing.T) {
 					{
 						Value: 3,
 						Attributes: attribute.NewSet(
+							attribute.String("outcome", "success"),
 							attribute.String("namespace", "name_space"),
 							semconv.MessagingSystem("kafka"),
 							semconv.MessagingDestinationName("default-topic"),
@@ -167,7 +171,7 @@ func TestProducerMetrics(t *testing.T) {
 	t.Run("ProducedWithHeaders", func(t *testing.T) {
 		producer, rdr := setupTestProducer(t)
 		want := metricdata.Metrics{
-			Name:        "producer.messages.produced",
+			Name:        "producer.messages.count",
 			Description: "The number of messages produced",
 			Unit:        "1",
 			Data: metricdata.Sum[int64]{
@@ -177,6 +181,7 @@ func TestProducerMetrics(t *testing.T) {
 					{
 						Value: 3,
 						Attributes: attribute.NewSet(
+							attribute.String("outcome", "success"),
 							attribute.String("namespace", "name_space"),
 							semconv.MessagingSystem("kafka"),
 							semconv.MessagingDestinationName("default-topic"),

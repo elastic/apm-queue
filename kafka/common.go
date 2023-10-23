@@ -271,7 +271,8 @@ func (cfg *CommonConfig) newClient(additionalOpts ...kgo.Opt) (*kgo.Client, erro
 	opts = append(opts, additionalOpts...)
 	if !cfg.DisableTelemetry {
 		kotelService := kotel.NewKotel(
-			kotel.WithTracer(kotel.NewTracer(kotel.TracerProvider(cfg.tracerProvider()))),
+			// NOTE(marclop) do not trace on a per-record basis.
+			// kotel.WithTracer(kotel.NewTracer(kotel.TracerProvider(cfg.tracerProvider()))),
 			kotel.WithMeter(kotel.NewMeter(kotel.MeterProvider(cfg.meterProvider()))),
 		)
 		metricHooks, err := newKgoHooks(cfg.meterProvider(), cfg.Namespace, cfg.namespacePrefix())
