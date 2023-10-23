@@ -23,6 +23,7 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/twmb/franz-go/pkg/kerr"
@@ -264,7 +265,22 @@ func TestTopicCreatorCreateTopics(t *testing.T) {
 			zap.Any("topic_configs", map[string]string{"retention.ms": "123"}),
 			zap.String("topic", "topic4"),
 		},
-	}}, matchingLogs.AllUntimed())
+	}}, matchingLogs.AllUntimed(), cmpopts.SortSlices(func(a, b observer.LoggedEntry) bool {
+		var ai, bi int
+		for i, v := range a.Context {
+			if v.Key == "topic" {
+				ai = i
+				break
+			}
+		}
+		for i, v := range b.Context {
+			if v.Key == "topic" {
+				bi = i
+				break
+			}
+		}
+		return a.Context[ai].String < b.Context[bi].String
+	}))
 	if diff != "" {
 		t.Error(diff)
 	}
