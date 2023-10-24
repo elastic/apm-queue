@@ -122,7 +122,7 @@ func (c *TopicCreator) CreateTopics(ctx context.Context, topics ...apmqueue.Topi
 		)
 	}
 
-	var existingTopics []string
+	existingTopics := make([]string, 0, len(topicNames))
 	var updateErrors []error
 	logger := c.m.cfg.Logger.With(createTopicParamsFields...)
 	for _, response := range responses.Sorted() {
