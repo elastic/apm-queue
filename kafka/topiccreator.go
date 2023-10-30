@@ -101,30 +101,51 @@ func (c *TopicCreator) CreateTopics(ctx context.Context, topics ...apmqueue.Topi
 	for i, topic := range topics {
 		topicNames[i] = fmt.Sprintf("%s%s", namespacePrefix, topic)
 	}
-	responses, err := c.m.adminClient.CreateTopics(
-		ctx,
+
+	existing, err := c.m.adminClient.ListTopics(ctx)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return fmt.Errorf("failed to list kafka topics: %w", err)
+	}
+
+	// Build two lists, one for the topics that haven't been created yet, and
+	// another one that can be used to update a topic's partitions.
+	missingTopics := make([]string, 0, len(topicNames))
+	updatePartitions := make([]string, 0, len(topicNames))
+	for _, wantTopic := range topicNames {
+		if !existing.Has(wantTopic) {
+			missingTopics = append(missingTopics, wantTopic)
+			continue
+		}
+		if len(existing[wantTopic].Partitions) < c.partitionCount {
+			updatePartitions = append(updatePartitions, wantTopic)
+		}
+	}
+	fmt.Printf("%+v\n", missingTopics)
+
+	responses, err := c.m.adminClient.CreateTopics(ctx,
 		int32(c.partitionCount),
 		-1, // default.replication.factor
 		c.topicConfigs,
-		topicNames...,
+		missingTopics...,
 	)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
 		return fmt.Errorf("failed to create kafka topics: %w", err)
 	}
-	createTopicParamsFields := []zap.Field{
+	loggerFields := []zap.Field{
 		zap.Int("partition_count", c.partitionCount),
 	}
 	if len(c.origTopicConfigs) > 0 {
-		createTopicParamsFields = append(createTopicParamsFields,
+		loggerFields = append(loggerFields,
 			zap.Reflect("topic_configs", c.origTopicConfigs),
 		)
 	}
 
-	existingTopics := make([]string, 0, len(topicNames))
 	var updateErrors []error
-	logger := c.m.cfg.Logger.With(createTopicParamsFields...)
+	logger := c.m.cfg.Logger.With(loggerFields...)
 	for _, response := range responses.Sorted() {
 		topicName := strings.TrimPrefix(response.Topic, namespacePrefix)
 		if err := response.Err; err != nil {
@@ -137,7 +158,6 @@ func (c *TopicCreator) CreateTopics(ctx context.Context, topics ...apmqueue.Topi
 				span.AddEvent("kafka topic already exists", trace.WithAttributes(
 					semconv.MessagingDestinationKey.String(topicName),
 				))
-				existingTopics = append(existingTopics, response.Topic)
 			} else {
 				span.RecordError(err)
 				span.SetStatus(codes.Error, err.Error())
@@ -150,13 +170,17 @@ func (c *TopicCreator) CreateTopics(ctx context.Context, topics ...apmqueue.Topi
 		logger.Info("created kafka topic", zap.String("topic", topicName))
 	}
 
-	if len(existingTopics) > 0 {
-		updateResp, err := c.m.adminClient.UpdatePartitions(ctx, c.partitionCount, existingTopics...)
+	// Update the topic partitions.
+	if len(updatePartitions) > 0 {
+		updateResp, err := c.m.adminClient.UpdatePartitions(ctx,
+			c.partitionCount,
+			updatePartitions...,
+		)
 		if err != nil {
 			span.RecordError(err)
 			span.SetStatus(codes.Error, err.Error())
 			return fmt.Errorf("failed to update partitions for kafka topics: %v: %w",
-				existingTopics, err,
+				updatePartitions, err,
 			)
 		}
 		for _, response := range updateResp.Sorted() {
@@ -180,37 +204,37 @@ func (c *TopicCreator) CreateTopics(ctx context.Context, topics ...apmqueue.Topi
 				zap.String("topic", topicName),
 			)
 		}
-		if len(c.topicConfigs) > 0 {
-			alterCfg := make([]kadm.AlterConfig, 0, len(c.topicConfigs))
-			for k, v := range c.topicConfigs {
-				alterCfg = append(alterCfg, kadm.AlterConfig{Name: k, Value: v})
-			}
-			alterResp, err := c.m.adminClient.AlterTopicConfigs(ctx, alterCfg,
-				existingTopics...,
+	}
+	if len(c.topicConfigs) > 0 {
+		alterCfg := make([]kadm.AlterConfig, 0, len(c.topicConfigs))
+		for k, v := range c.topicConfigs {
+			alterCfg = append(alterCfg, kadm.AlterConfig{Name: k, Value: v})
+		}
+		alterResp, err := c.m.adminClient.AlterTopicConfigs(ctx,
+			alterCfg, topicNames...,
+		)
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
+			return fmt.Errorf(
+				"failed to update configuration for kafka topics: %v:%w",
+				topicNames, err,
 			)
-			if err != nil {
+		}
+		for _, response := range alterResp {
+			topicName := strings.TrimPrefix(response.Name, namespacePrefix)
+			if err := response.Err; err != nil {
 				span.RecordError(err)
 				span.SetStatus(codes.Error, err.Error())
-				return fmt.Errorf(
-					"failed to update configuration for kafka topics: %v:%w",
-					existingTopics, err,
-				)
+				updateErrors = append(updateErrors, fmt.Errorf(
+					"failed to alter configuration for topic %q: %w",
+					topicName, err,
+				))
+				continue
 			}
-			for _, response := range alterResp {
-				topicName := strings.TrimPrefix(response.Name, namespacePrefix)
-				if err := response.Err; err != nil {
-					span.RecordError(err)
-					span.SetStatus(codes.Error, err.Error())
-					updateErrors = append(updateErrors, fmt.Errorf(
-						"failed to alter configuration for topic %q: %w",
-						topicName, err,
-					))
-					continue
-				}
-				logger.Info("altered configuration for kafka topic",
-					zap.String("topic", topicName),
-				)
-			}
+			logger.Info("altered configuration for kafka topic",
+				zap.String("topic", topicName),
+			)
 		}
 	}
 	return errors.Join(updateErrors...)
