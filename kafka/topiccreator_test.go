@@ -194,7 +194,7 @@ func TestTopicCreatorCreateTopics(t *testing.T) {
 	// Ensure only the existing topic config is updated since it already exists.
 	assert.Len(t, alterConfigsRequest.Resources, 1)
 	assert.Equal(t, []kmsg.IncrementalAlterConfigsRequestResource{{
-		ResourceType: 2,
+		ResourceType: kmsg.ConfigResourceTypeTopic,
 		ResourceName: "name_space-topic0",
 		Configs: []kmsg.IncrementalAlterConfigsRequestResourceConfig{{
 			Name:  "retention.ms",
