@@ -21,6 +21,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -67,9 +68,7 @@ func TestTopicCreatorCreateTopics(t *testing.T) {
 	commonConfig.Logger = zap.New(core)
 	commonConfig.TracerProvider = tp
 
-	m, err := NewManager(ManagerConfig{
-		CommonConfig: commonConfig,
-	})
+	m, err := NewManager(ManagerConfig{CommonConfig: commonConfig})
 	require.NoError(t, err)
 	t.Cleanup(func() { m.Close() })
 	c, err := m.NewTopicCreator(TopicCreatorConfig{
@@ -86,7 +85,7 @@ func TestTopicCreatorCreateTopics(t *testing.T) {
 	cluster.ControlKey(kmsg.CreateTopics.Int16(), func(req kmsg.Request) (kmsg.Response, error, bool) {
 		createTopicsRequest = req.(*kmsg.CreateTopicsRequest)
 		return &kmsg.CreateTopicsResponse{
-			Version: createTopicsRequest.Version,
+			Version: req.GetVersion(),
 			Topics: []kmsg.CreateTopicsResponseTopic{{
 				Topic:        "name_space-topic1",
 				ErrorCode:    kerr.TopicAlreadyExists.Code,
@@ -110,33 +109,47 @@ func TestTopicCreatorCreateTopics(t *testing.T) {
 	var createPartitionsRequest *kmsg.CreatePartitionsRequest
 	cluster.ControlKey(kmsg.CreatePartitions.Int16(), func(req kmsg.Request) (kmsg.Response, error, bool) {
 		createPartitionsRequest = req.(*kmsg.CreatePartitionsRequest)
-		return &kmsg.CreatePartitionsResponse{
-			Version: createPartitionsRequest.Version,
-			Topics: []kmsg.CreatePartitionsResponseTopic{
-				{Topic: "name_space-topic1"},
-				{Topic: "name_space-topic4"},
-			},
-		}, nil, true
+		res := kmsg.CreatePartitionsResponse{Version: req.GetVersion()}
+		for _, t := range createPartitionsRequest.Topics {
+			res.Topics = append(res.Topics, kmsg.CreatePartitionsResponseTopic{
+				Topic: t.Topic,
+			})
+		}
+		return &res, nil, true
 	})
+
 	// Since topic 1 and 4 already exist, their configuration is altered.
 	var alterConfigsRequest *kmsg.IncrementalAlterConfigsRequest
 	cluster.ControlKey(kmsg.IncrementalAlterConfigs.Int16(), func(req kmsg.Request) (kmsg.Response, error, bool) {
 		alterConfigsRequest = req.(*kmsg.IncrementalAlterConfigsRequest)
-		return &kmsg.IncrementalAlterConfigsResponse{
-			Version: alterConfigsRequest.Version,
-			Resources: []kmsg.IncrementalAlterConfigsResponseResource{
-				{
-					ResourceName: "name_space-topic1",
-					ResourceType: kmsg.ConfigResourceTypeTopic,
-				},
-				{
-					ResourceName: "name_space-topic4",
-					ResourceType: kmsg.ConfigResourceTypeTopic,
-				},
-			},
+		res := kmsg.IncrementalAlterConfigsResponse{Version: req.GetVersion()}
+		for _, r := range alterConfigsRequest.Resources {
+			res.Resources = append(res.Resources, kmsg.IncrementalAlterConfigsResponseResource{
+				ResourceType: r.ResourceType,
+				ResourceName: r.ResourceName,
+			})
+		}
+		return &res, nil, true
+	})
+
+	// Allow some time for the ForceMetadataRefresh to run.
+	<-time.After(10 * time.Millisecond)
+
+	// Simulate topic0 already exists in Kafka.
+	cluster.ControlKey(kmsg.Metadata.Int16(), func(r kmsg.Request) (kmsg.Response, error, bool) {
+		return &kmsg.MetadataResponse{
+			Version: r.GetVersion(),
+			Topics: []kmsg.MetadataResponseTopic{{
+				Topic:   kmsg.StringPtr("name_space-topic0"),
+				TopicID: [16]byte{111},
+				Partitions: []kmsg.MetadataResponseTopicPartition{{
+					Partition: 0,
+				}},
+			}},
 		}, nil, true
 	})
-	err = c.CreateTopics(context.Background(), "topic1", "topic2", "topic3", "topic4")
+
+	err = c.CreateTopics(context.Background(), "topic0", "topic1", "topic2", "topic3", "topic4")
 	require.Error(t, err)
 	assert.EqualError(t, err, `failed to create topic "topic2": `+
 		`INVALID_TOPIC_EXCEPTION: The request attempted to perform an operation on an invalid topic.`,
@@ -177,6 +190,23 @@ func TestTopicCreatorCreateTopics(t *testing.T) {
 		}},
 	}}, createTopicsRequest.Topics)
 
+	// Ensure only `topic0` partitions are updated since it already exists.
+	assert.Equal(t, []kmsg.CreatePartitionsRequestTopic{
+		{Topic: "name_space-topic0", Count: 123},
+	}, createPartitionsRequest.Topics)
+
+	// Ensure only the existing topic config is updated since it already exists.
+	assert.Len(t, alterConfigsRequest.Resources, 1)
+	assert.Equal(t, []kmsg.IncrementalAlterConfigsRequestResource{{
+		ResourceType: kmsg.ConfigResourceTypeTopic,
+		ResourceName: "name_space-topic0",
+		Configs: []kmsg.IncrementalAlterConfigsRequestResourceConfig{{
+			Name:  "retention.ms",
+			Value: kmsg.StringPtr("123"),
+		}},
+	}}, alterConfigsRequest.Resources)
+
+	// Log assertions.
 	matchingLogs := observedLogs.FilterFieldKey("topic")
 	for _, ml := range matchingLogs.AllUntimed() {
 		t.Log(ml.Message)
@@ -218,52 +248,20 @@ func TestTopicCreatorCreateTopics(t *testing.T) {
 			zap.String("topic", "topic3"),
 		},
 	}, {
-		Entry: zapcore.Entry{
-			Level:      zapcore.InfoLevel,
-			LoggerName: "kafka",
-			Message:    "updated partitions for kafka topic",
-		},
+		Entry: zapcore.Entry{LoggerName: "kafka", Message: "updated partitions for kafka topic"},
 		Context: []zapcore.Field{
 			zap.String("namespace", "name_space"),
 			zap.Int("partition_count", 123),
 			zap.Any("topic_configs", map[string]string{"retention.ms": "123"}),
-			zap.String("topic", "topic1"),
+			zap.String("topic", "topic0"),
 		},
 	}, {
-		Entry: zapcore.Entry{
-			Level:      zapcore.InfoLevel,
-			LoggerName: "kafka",
-			Message:    "updated partitions for kafka topic",
-		},
+		Entry: zapcore.Entry{LoggerName: "kafka", Message: "altered configuration for kafka topic"},
 		Context: []zapcore.Field{
 			zap.String("namespace", "name_space"),
 			zap.Int("partition_count", 123),
 			zap.Any("topic_configs", map[string]string{"retention.ms": "123"}),
-			zap.String("topic", "topic4"),
-		},
-	}, {
-		Entry: zapcore.Entry{
-			Level:      zapcore.InfoLevel,
-			LoggerName: "kafka",
-			Message:    "altered configuration for kafka topic",
-		},
-		Context: []zapcore.Field{
-			zap.String("namespace", "name_space"),
-			zap.Int("partition_count", 123),
-			zap.Any("topic_configs", map[string]string{"retention.ms": "123"}),
-			zap.String("topic", "topic1"),
-		},
-	}, {
-		Entry: zapcore.Entry{
-			Level:      zapcore.InfoLevel,
-			LoggerName: "kafka",
-			Message:    "altered configuration for kafka topic",
-		},
-		Context: []zapcore.Field{
-			zap.String("namespace", "name_space"),
-			zap.Int("partition_count", 123),
-			zap.Any("topic_configs", map[string]string{"retention.ms": "123"}),
-			zap.String("topic", "topic4"),
+			zap.String("topic", "topic0"),
 		},
 	}}, matchingLogs.AllUntimed(), cmpopts.SortSlices(func(a, b observer.LoggedEntry) bool {
 		var ai, bi int
