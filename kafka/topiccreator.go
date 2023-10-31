@@ -109,10 +109,11 @@ func (c *TopicCreator) CreateTopics(ctx context.Context, topics ...apmqueue.Topi
 		return fmt.Errorf("failed to list kafka topics: %w", err)
 	}
 
-	// Build two lists, one for the topics that haven't been created yet, and
-	// another one that can be used to update a topic's partitions.
+	// missingTopics contains topics which need to be created.
 	missingTopics := make([]string, 0, len(topicNames))
+	// updatePartitions contains topics which partitions' need to be updated.
 	updatePartitions := make([]string, 0, len(topicNames))
+	// existingTopics contains the existing topics, used by AlterTopicConfigs.
 	existingTopics := make([]string, 0, len(topicNames))
 	for _, wantTopic := range topicNames {
 		if !existing.Has(wantTopic) {
