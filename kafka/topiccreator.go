@@ -207,7 +207,7 @@ func (c *TopicCreator) CreateTopics(ctx context.Context, topics ...apmqueue.Topi
 			)
 		}
 	}
-	if len(c.topicConfigs) > 0 {
+	if len(existingTopics) > 0 && len(c.topicConfigs) > 0 {
 		alterCfg := make([]kadm.AlterConfig, 0, len(c.topicConfigs))
 		for k, v := range c.topicConfigs {
 			alterCfg = append(alterCfg, kadm.AlterConfig{Name: k, Value: v})
