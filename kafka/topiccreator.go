@@ -113,16 +113,17 @@ func (c *TopicCreator) CreateTopics(ctx context.Context, topics ...apmqueue.Topi
 	// another one that can be used to update a topic's partitions.
 	missingTopics := make([]string, 0, len(topicNames))
 	updatePartitions := make([]string, 0, len(topicNames))
+	existingTopics := make([]string, 0, len(topicNames))
 	for _, wantTopic := range topicNames {
 		if !existing.Has(wantTopic) {
 			missingTopics = append(missingTopics, wantTopic)
 			continue
 		}
+		existingTopics = append(existingTopics, wantTopic)
 		if len(existing[wantTopic].Partitions) < c.partitionCount {
 			updatePartitions = append(updatePartitions, wantTopic)
 		}
 	}
-	fmt.Printf("%+v\n", missingTopics)
 
 	responses, err := c.m.adminClient.CreateTopics(ctx,
 		int32(c.partitionCount),
@@ -211,14 +212,14 @@ func (c *TopicCreator) CreateTopics(ctx context.Context, topics ...apmqueue.Topi
 			alterCfg = append(alterCfg, kadm.AlterConfig{Name: k, Value: v})
 		}
 		alterResp, err := c.m.adminClient.AlterTopicConfigs(ctx,
-			alterCfg, topicNames...,
+			alterCfg, existingTopics...,
 		)
 		if err != nil {
 			span.RecordError(err)
 			span.SetStatus(codes.Error, err.Error())
 			return fmt.Errorf(
 				"failed to update configuration for kafka topics: %v:%w",
-				topicNames, err,
+				existingTopics, err,
 			)
 		}
 		for _, response := range alterResp {
