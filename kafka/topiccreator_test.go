@@ -21,6 +21,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -78,20 +79,6 @@ func TestTopicCreatorCreateTopics(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Simulate topic0 already exists in Kafka.
-	cluster.ControlKey(kmsg.Metadata.Int16(), func(r kmsg.Request) (kmsg.Response, error, bool) {
-		return &kmsg.MetadataResponse{
-			Version: r.GetVersion(),
-			Topics: []kmsg.MetadataResponseTopic{{
-				Topic:   kmsg.StringPtr("name_space-topic0"),
-				TopicID: [16]byte{111},
-				Partitions: []kmsg.MetadataResponseTopicPartition{{
-					Partition: 0,
-				}},
-			}},
-		}, nil, true
-	})
-
 	// Simulate a situation where topic1, topic4 exists, topic2 is invalid and
 	// topic3 is successfully created.
 	var createTopicsRequest *kmsg.CreateTopicsRequest
@@ -143,6 +130,23 @@ func TestTopicCreatorCreateTopics(t *testing.T) {
 			})
 		}
 		return &res, nil, true
+	})
+
+	// Allow some time for the ForceMetadataRefresh to run.
+	<-time.After(10 * time.Millisecond)
+
+	// Simulate topic0 already exists in Kafka.
+	cluster.ControlKey(kmsg.Metadata.Int16(), func(r kmsg.Request) (kmsg.Response, error, bool) {
+		return &kmsg.MetadataResponse{
+			Version: r.GetVersion(),
+			Topics: []kmsg.MetadataResponseTopic{{
+				Topic:   kmsg.StringPtr("name_space-topic0"),
+				TopicID: [16]byte{111},
+				Partitions: []kmsg.MetadataResponseTopicPartition{{
+					Partition: 0,
+				}},
+			}},
+		}, nil, true
 	})
 
 	err = c.CreateTopics(context.Background(), "topic0", "topic1", "topic2", "topic3", "topic4")
