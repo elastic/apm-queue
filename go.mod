@@ -10,7 +10,7 @@ require (
 	github.com/google/go-cmp v0.6.0
 	github.com/googleapis/gax-go/v2 v2.12.0
 	github.com/stretchr/testify v1.8.4
-	github.com/twmb/franz-go v1.15.1
+	github.com/twmb/franz-go v1.15.2
 	github.com/twmb/franz-go/pkg/kadm v1.10.0
 	github.com/twmb/franz-go/pkg/kfake v0.0.0-20230824183127-a1a2a452c33e
 	github.com/twmb/franz-go/pkg/kmsg v1.7.0
