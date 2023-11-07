@@ -26,6 +26,7 @@ import (
 	"sync"
 
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 
@@ -250,7 +251,11 @@ func (p *Producer) Produce(ctx context.Context, rs ...apmqueue.Record) error {
 // Healthy returns an error if the Kafka client fails to reach a discovered
 // broker.
 func (p *Producer) Healthy(ctx context.Context) error {
+	ctx, span := p.tracer.Start(ctx, "producer.Healthy")
+	defer span.End()
 	if err := p.client.Ping(ctx); err != nil {
+		span.SetStatus(codes.Error, err.Error())
+		span.RecordError(err)
 		return fmt.Errorf("health probe: %w", err)
 	}
 	return nil

@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/twmb/franz-go/pkg/kgo"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 
@@ -322,7 +323,11 @@ func (c *Consumer) fetch(ctx, clientCtx context.Context) error {
 // Healthy returns an error if the Kafka client fails to reach a discovered
 // broker.
 func (c *Consumer) Healthy(ctx context.Context) error {
+	ctx, span := c.tracer.Start(ctx, "consumer.Healthy")
+	defer span.End()
 	if err := c.client.Ping(ctx); err != nil {
+		span.SetStatus(codes.Error, err.Error())
+		span.RecordError(err)
 		return fmt.Errorf("health probe: %w", err)
 	}
 	return nil

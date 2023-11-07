@@ -129,7 +129,11 @@ func (m *Manager) DeleteTopics(ctx context.Context, topics ...apmqueue.Topic) er
 
 // Healthy returns an error if the Kafka client fails to reach a discovered broker.
 func (m *Manager) Healthy(ctx context.Context) error {
+	ctx, span := m.tracer.Start(ctx, "Healthy")
+	defer span.End()
 	if err := m.client.Ping(ctx); err != nil {
+		span.SetStatus(codes.Error, err.Error())
+		span.RecordError(err)
 		return fmt.Errorf("failed to ping kafka brokers: %w", err)
 	}
 	return nil
