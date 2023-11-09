@@ -174,7 +174,7 @@ func (p *Producer) Close() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if err := p.client.Flush(context.Background()); err != nil {
-		return err
+		return fmt.Errorf("cannot flush on close: %w", err)
 	}
 	p.client.Close()
 	return nil
