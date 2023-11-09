@@ -128,7 +128,7 @@ func TestTopicCreatorCreateTopics(t *testing.T) {
 	err = creator.CreateTopics(context.Background(), "topic_name")
 	require.Error(t, err)
 	assert.EqualError(t, err,
-		`failed to create pubsublite topic "topic_name": rpc error: code = PermissionDenied desc = nope`,
+		`failed to create pubsublite topic "topic_name": cannot create pubsublite topic: rpc error: code = PermissionDenied desc = nope`,
 	)
 
 	assert.Equal(t, []observer.LoggedEntry{{
