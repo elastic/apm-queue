@@ -159,5 +159,5 @@ func (c *TopicCreator) createTopic(ctx context.Context, name string) error {
 		zap.Int("subscribe_capacity", c.cfg.SubscribeCapacityMiBPerSec),
 		zap.Duration("retention_duration", c.cfg.RetentionDuration),
 	)
-	return err
+	return nil
 }
