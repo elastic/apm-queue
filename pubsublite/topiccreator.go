@@ -148,7 +148,7 @@ func (c *TopicCreator) createTopic(ctx context.Context, name string) error {
 			logger.Debug("pubsublite topic already exists")
 			return nil
 		}
-		return err
+		return fmt.Errorf("cannot create pubsublite topic: %w", err)
 	}
 	logger.Info(
 		"created pubsublite topic",
@@ -159,5 +159,5 @@ func (c *TopicCreator) createTopic(ctx context.Context, name string) error {
 		zap.Int("subscribe_capacity", c.cfg.SubscribeCapacityMiBPerSec),
 		zap.Duration("retention_duration", c.cfg.RetentionDuration),
 	)
-	return err
+	return nil
 }

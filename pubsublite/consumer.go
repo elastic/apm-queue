@@ -207,7 +207,7 @@ func (c *Consumer) Run(ctx context.Context) error {
 					c.cfg.Logger.Info("transient error found, re-starting consumer...", zap.Error(err))
 					continue
 				}
-				return err
+				return fmt.Errorf("cannot receive messages: %w", err)
 			}
 		})
 	}

@@ -273,7 +273,7 @@ func (c *Consumer) Run(ctx context.Context) error {
 			if errors.Is(err, context.Canceled) {
 				return nil // Return no error if err == context.Canceled.
 			}
-			return err
+			return fmt.Errorf("cannot fetch records: %w", err)
 		}
 	}
 }

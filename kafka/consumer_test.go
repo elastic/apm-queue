@@ -328,7 +328,7 @@ func TestConsumerDelivery(t *testing.T) {
 				defer close(consumerDone)
 				err := consumer.Run(ctx)
 				if err != nil {
-					assert.Equal(t, ErrCommitFailed, err)
+					assert.ErrorIs(t, err, ErrCommitFailed)
 				}
 			}()
 
