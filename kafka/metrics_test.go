@@ -32,7 +32,7 @@ import (
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata/metricdatatest"
 	semconv "go.opentelemetry.io/otel/semconv/v1.17.0"
-	"go.opentelemetry.io/otel/trace"
+	"go.opentelemetry.io/otel/trace/noop"
 	"go.uber.org/zap"
 
 	apmqueue "github.com/elastic/apm-queue"
@@ -338,7 +338,7 @@ func setupTestProducer(t testing.TB) (*Producer, sdkmetric.Reader) {
 			Brokers:        brokers,
 			Logger:         zap.NewNop(),
 			Namespace:      "name_space",
-			TracerProvider: trace.NewNoopTracerProvider(),
+			TracerProvider: noop.NewTracerProvider(),
 			MeterProvider:  mp,
 		},
 		Sync: true,
@@ -363,7 +363,7 @@ func setupTestConsumer(t testing.TB, p apmqueue.Processor) (mc testMetricConsume
 		CommonConfig: CommonConfig{
 			Logger:         zap.NewNop(),
 			Namespace:      "name_space",
-			TracerProvider: trace.NewNoopTracerProvider(),
+			TracerProvider: noop.NewTracerProvider(),
 			MeterProvider: sdkmetric.NewMeterProvider(
 				sdkmetric.WithReader(mc.reader),
 			),

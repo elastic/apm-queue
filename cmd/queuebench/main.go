@@ -28,7 +28,7 @@ import (
 	"time"
 
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
-	"go.opentelemetry.io/otel/trace"
+	"go.opentelemetry.io/otel/trace/noop"
 	"go.uber.org/zap"
 
 	apmqueue "github.com/elastic/apm-queue"
@@ -76,7 +76,7 @@ func main() {
 		},
 
 		mp: mp,
-		tp: trace.NewNoopTracerProvider(),
+		tp: noop.NewTracerProvider(),
 	}
 
 	log.Println("running benchmark setup")
