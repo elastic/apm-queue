@@ -108,7 +108,7 @@ func Consumer(
 			}
 		}
 
-		metrics.fetched.Add(ctx, 1, metric.WithAttributes(
+		metrics.fetched.Add(context.Background(), 1, metric.WithAttributes(
 			attrs...,
 		))
 
@@ -130,7 +130,7 @@ func Consumer(
 		span.SetAttributes(
 			attribute.Float64(msgDelayKey, delay),
 		)
-		metrics.queuedDelay.Record(ctx, delay, metric.WithAttributes(
+		metrics.queuedDelay.Record(context.Background(), delay, metric.WithAttributes(
 			attrs...,
 		))
 
