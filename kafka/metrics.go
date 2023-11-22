@@ -135,7 +135,7 @@ func (h *metricHooks) OnFetchRecordUnbuffered(r *kgo.Record, _ bool) {
 		attrs = append(attrs, attribute.String("namespace", h.namespace))
 	}
 
-	h.messageFetched.Add(r.Context, 1,
+	h.messageFetched.Add(context.Background(), 1,
 		metric.WithAttributes(attrs...),
 	)
 
@@ -144,7 +144,7 @@ func (h *metricHooks) OnFetchRecordUnbuffered(r *kgo.Record, _ bool) {
 	span.SetAttributes(
 		attribute.Float64(msgDelayKey, delay),
 	)
-	h.messageDelay.Record(r.Context, delay, metric.WithAttributes(
+	h.messageDelay.Record(context.Background(), delay, metric.WithAttributes(
 		attrs...,
 	))
 }
