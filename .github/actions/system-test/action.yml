@@ -28,7 +28,7 @@ runs:
         secrets: |
           secret/observability-team/ci/service-account/apm-queue-system-tests credentials | GOOGLE_CREDS ;
     - id: gcp-auth
-      uses: 'google-github-actions/auth@v1'
+      uses: 'google-github-actions/auth@v2'
       with:
         credentials_json: '${{ env.GOOGLE_CREDS }}'
     - uses: 'google-github-actions/setup-gcloud@v1'
