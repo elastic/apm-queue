@@ -62,6 +62,14 @@ type ConsumerConfig struct {
 	// Kafka consumer setting: fetch.max.wait.ms
 	// Docs: https://kafka.apache.org/28/documentation.html#consumerconfigs_fetch.max.wait.ms
 	MaxPollWait time.Duration
+	// // MaxConcurrentFetches sets the maximum number of fetch requests to allow in
+	// flight or buffered at once, overriding the unbounded (i.e. number of
+	// brokers) default.
+	// This setting, paired with FetchMaxBytes, can upper bound the maximum amount
+	// of memory that the client can use for consuming.
+	// Default: Unbounded, total number of brokers.
+	// Docs: https://pkg.go.dev/github.com/twmb/franz-go/pkg/kgo#MaxConcurrentFetches
+	MaxConcurrentFetches int
 	// MaxPollBytes sets the maximum amount of bytes a broker will try to send
 	// during a fetch
 	// Default: 52428800 bytes (~52MB, 50MiB)
@@ -184,6 +192,9 @@ func NewConsumer(cfg ConsumerConfig) (*Consumer, error) {
 	}
 	if cfg.MaxPollPartitionBytes != 0 {
 		opts = append(opts, kgo.FetchMaxPartitionBytes(cfg.MaxPollPartitionBytes))
+	}
+	if cfg.MaxConcurrentFetches > 0 {
+		opts = append(opts, kgo.MaxConcurrentFetches(cfg.MaxConcurrentFetches))
 	}
 	if cfg.ShutdownGracePeriod <= 0 {
 		cfg.ShutdownGracePeriod = 5 * time.Second
