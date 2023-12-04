@@ -44,6 +44,9 @@ type ConsumerConfig struct {
 	CommonConfig
 	// Topics that the consumer will consume messages from
 	Topics []apmqueue.Topic
+	// ConsumeRegex sets the client to parse all topics passed to ConsumeTopics
+	// as regular expressions.
+	ConsumeRegex bool
 	// GroupID to join as part of the consumer group.
 	GroupID string
 	// MaxPollRecords defines an upper bound to the number of records that can
@@ -183,6 +186,9 @@ func NewConsumer(cfg ConsumerConfig) (*Consumer, error) {
 		kgo.OnPartitionsAssigned(consumer.assigned),
 		kgo.OnPartitionsLost(consumer.lost),
 		kgo.OnPartitionsRevoked(consumer.lost),
+	}
+	if cfg.ConsumeRegex {
+		opts = append(opts, kgo.ConsumeRegex())
 	}
 	if cfg.MaxPollWait > 0 {
 		opts = append(opts, kgo.FetchMaxWait(cfg.MaxPollWait))
