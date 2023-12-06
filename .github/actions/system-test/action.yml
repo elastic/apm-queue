@@ -37,7 +37,7 @@ runs:
         project_id: ${{ steps.gcp-auth.outputs.project_id }}
         cluster_name: 'autopilot-oblt'
         location: 'us-central1'
-    - uses: actions/setup-go@v4
+    - uses: actions/setup-go@v5
       with:
         go-version-file: 'go.mod'
         cache: true
