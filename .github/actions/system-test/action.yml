@@ -31,7 +31,7 @@ runs:
       uses: 'google-github-actions/auth@v2'
       with:
         credentials_json: '${{ env.GOOGLE_CREDS }}'
-    - uses: 'google-github-actions/setup-gcloud@v1'
+    - uses: 'google-github-actions/setup-gcloud@v2'
     - uses: 'google-github-actions/get-gke-credentials@v1'
       with:
         project_id: ${{ steps.gcp-auth.outputs.project_id }}
