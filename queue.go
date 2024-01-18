@@ -103,7 +103,12 @@ func (f ProcessorFunc) Process(ctx context.Context, rs ...Record) error {
 // Topic represents a destination topic where to produce a message/record.
 type Topic string
 
+// TopicConsumer is used to monitor a set of consumer topics.
 type TopicConsumer struct {
-	Topic    Topic
+	// Optional topic to monitor.
+	Topic Topic
+	// Optional regex expression to match topics for monitoring.
+	Regex string
+	// Required consumer name.
 	Consumer string
 }
