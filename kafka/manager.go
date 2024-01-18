@@ -21,6 +21,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/twmb/franz-go/pkg/kadm"
@@ -140,12 +141,30 @@ type memberTopic struct {
 	topic    string
 }
 
+type regexConsumer struct {
+	regex    *regexp.Regexp
+	consumer string
+}
+
 // MonitorConsumerLag registers a callback with OpenTelemetry
 // to measure consumer group lag for the given topics.
 func (m *Manager) MonitorConsumerLag(topicConsumers []apmqueue.TopicConsumer) (metric.Registration, error) {
 	monitorTopicConsumers := make(map[apmqueue.TopicConsumer]struct{}, len(topicConsumers))
+	var regex []regexConsumer
 	for _, tc := range topicConsumers {
 		monitorTopicConsumers[tc] = struct{}{}
+		if tc.Regex != "" {
+			re, err := regexp.Compile(tc.Regex)
+			if err != nil {
+				return nil, fmt.Errorf("failed to compile regex %s: %w",
+					tc.Regex, err,
+				)
+			}
+			regex = append(regex, regexConsumer{
+				regex:    re,
+				consumer: tc.Consumer,
+			})
+		}
 	}
 
 	mp := m.cfg.meterProvider()
@@ -197,11 +216,18 @@ func (m *Manager) MonitorConsumerLag(topicConsumers []apmqueue.TopicConsumer) (m
 				}
 				topic = topic[len(namespacePrefix):]
 
+				var matchesRegex bool
+				for _, re := range regex {
+					if l.Group == re.consumer && re.regex.MatchString(topic) {
+						matchesRegex = true
+						break
+					}
+				}
 				if _, ok := monitorTopicConsumers[apmqueue.TopicConsumer{
 					Topic:    apmqueue.Topic(topic),
 					Consumer: l.Group,
-				}]; !ok {
-					// Ignore unmonitored topics.
+				}]; !ok && !matchesRegex {
+					// Skip when no topic matches explicit name or regex.
 					continue
 				}
 				for partition, lag := range partitions {

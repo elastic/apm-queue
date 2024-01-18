@@ -178,6 +178,10 @@ func TestManagerMetrics(t *testing.T) {
 			Topic:    "",
 			Consumer: "connect",
 		},
+		{
+			Regex:    "my.*",
+			Consumer: "consumer3",
+		},
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { registration.Unregister() })
@@ -239,6 +243,28 @@ func TestManagerMetrics(t *testing.T) {
 							Topics: []kmsg.ConsumerMemberAssignmentTopic{{
 								Topic:      "name_space-topic3",
 								Partitions: []int32{4},
+							}, {
+								Topic:      "name_space-mytopic",
+								Partitions: []int32{1},
+							}},
+						}).AppendTo(nil),
+					}},
+				},
+				{
+					// Consumer 4 and its topics are ignored since it's not
+					// captured by the monitoring list.
+					Group:        "consumer4",
+					ProtocolType: "consumer",
+					Members: []kmsg.DescribeGroupsResponseGroupMember{{
+						MemberID:   "member_id_3",
+						InstanceID: kmsg.StringPtr("instance_id_3"),
+						ClientID:   "client_id",
+						ClientHost: "127.0.0.1",
+						MemberAssignment: (&kmsg.ConsumerMemberAssignment{
+							Version: 2,
+							Topics: []kmsg.ConsumerMemberAssignmentTopic{{
+								Topic:      "name_space-mytopic",
+								Partitions: []int32{1},
 							}},
 						}).AppendTo(nil),
 					}},
@@ -276,6 +302,26 @@ func TestManagerMetrics(t *testing.T) {
 						Offset:    1,
 					}},
 				}},
+			}, {
+				Group: "consumer3",
+				Topics: []kmsg.OffsetFetchResponseGroupTopic{{
+					Topic: "name_space-mytopic",
+					Partitions: []kmsg.OffsetFetchResponseGroupTopicPartition{{
+						Partition: 1,
+						Offset:    1,
+					}},
+				}},
+			}, {
+				// Consumer 4 and its topics are ignored since it's not
+				// captured by the monitoring list.
+				Group: "consumer4",
+				Topics: []kmsg.OffsetFetchResponseGroupTopic{{
+					Topic: "name_space-mytopic",
+					Partitions: []kmsg.OffsetFetchResponseGroupTopicPartition{{
+						Partition: 1,
+						Offset:    1,
+					}},
+				}},
 			}},
 		}, nil, true
 	})
@@ -300,6 +346,9 @@ func TestManagerMetrics(t *testing.T) {
 			}, {
 				Topic:      kmsg.StringPtr("name_space-topic3"),
 				Partitions: []kmsg.MetadataResponseTopicPartition{{Partition: 4}},
+			}, {
+				Topic:      kmsg.StringPtr("name_space-mytopic"),
+				Partitions: []kmsg.MetadataResponseTopicPartition{{Partition: 1}},
 			}},
 		}, nil, true
 	})
@@ -329,6 +378,12 @@ func TestManagerMetrics(t *testing.T) {
 				Partitions: []kmsg.ListOffsetsResponseTopicPartition{{
 					Partition: 4,
 					Offset:    4,
+				}},
+			}, {
+				Topic: "name_space-mytopic",
+				Partitions: []kmsg.ListOffsetsResponseTopicPartition{{
+					Partition: 1,
+					Offset:    2,
 				}},
 			}},
 		}, nil, true
@@ -384,6 +439,13 @@ func TestManagerMetrics(t *testing.T) {
 				attribute.Int("partition", 4),
 			),
 			Value: 4, // end offset  = 4, nothing committed
+		}, {
+			Attributes: attribute.NewSet(
+				attribute.String("group", "consumer3"),
+				attribute.String("topic", "mytopic"),
+				attribute.Int("partition", 1),
+			),
+			Value: 1, // end offset  = 1, nothing committed
 		}},
 	}, lagMetric.Data, metricdatatest.IgnoreTimestamp())
 
@@ -416,6 +478,13 @@ func TestManagerMetrics(t *testing.T) {
 				attribute.String("topic", "topic3"),
 			),
 			Value: 1,
+		}, {
+			Attributes: attribute.NewSet(
+				attribute.String("client_id", "client_id"),
+				attribute.String("group", "consumer3"),
+				attribute.String("topic", "mytopic"),
+			),
+			Value: 1,
 		}},
 	}, assignmentMetric.Data, metricdatatest.IgnoreTimestamp())
 
@@ -431,6 +500,7 @@ func TestManagerMetrics(t *testing.T) {
 		{Topic: kmsg.StringPtr("name_space-topic1")},
 		{Topic: kmsg.StringPtr("name_space-topic2")},
 		{Topic: kmsg.StringPtr("name_space-topic3")},
+		{Topic: kmsg.StringPtr("name_space-mytopic")},
 	}, metadataRequest.Topics)
 
 	sort.Slice(listOffsetsRequest.Topics, func(i, j int) bool {
@@ -442,6 +512,14 @@ func TestManagerMetrics(t *testing.T) {
 		})
 	}
 	assert.Equal(t, []kmsg.ListOffsetsRequestTopic{{
+		Topic: "name_space-mytopic",
+		Partitions: []kmsg.ListOffsetsRequestTopicPartition{{
+			Partition:          1,
+			CurrentLeaderEpoch: -1,
+			Timestamp:          -1,
+			MaxNumOffsets:      1,
+		}},
+	}, {
 		Topic: "name_space-topic1",
 		Partitions: []kmsg.ListOffsetsRequestTopicPartition{{
 			Partition:          1,
