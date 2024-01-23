@@ -23,7 +23,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/elastic/apm-queue/metrictest"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/stretchr/testify/assert"
@@ -39,6 +38,8 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"go.uber.org/zap/zaptest/observer"
+
+	"github.com/elastic/apm-queue/metrictest"
 )
 
 func TestNewTopicCreator(t *testing.T) {
