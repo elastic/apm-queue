@@ -326,6 +326,10 @@ func TestTopicCreatorCreateTopics(t *testing.T) {
 	}
 	// Ensure only 1 topic was created, which also matches the number of spans.
 	assert.Equal(t, metrictest.Int64Metrics{
-		{Name: "topics.created.count"}: {{K: "messaging.system", V: "kafka"}: 1},
+		{Name: "topics.created.count"}: {
+			{K: "messaging.system", V: "kafka"}: 2,
+			{K: "outcome", V: "failure"}:        1,
+			{K: "outcome", V: "success"}:        1,
+		},
 	}, metrictest.GatherInt64Metric(metrics))
 }

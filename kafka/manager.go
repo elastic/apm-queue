@@ -132,12 +132,17 @@ func (m *Manager) DeleteTopics(ctx context.Context, topics ...apmqueue.Topic) er
 				deleteErrors = append(deleteErrors,
 					fmt.Errorf("failed to delete topic %q: %w", topic, err),
 				)
+				m.deleted.Add(context.Background(), 1, metric.WithAttributes(
+					semconv.MessagingSystemKey.String("kafka"),
+					attribute.String("outcome", "failure"),
+				))
 			}
 			continue
 		}
 		m.deleted.Add(context.Background(), 1, metric.WithAttributes(
-			semconv.MessagingSystemKey.String("kafka")),
-		)
+			semconv.MessagingSystemKey.String("kafka"),
+			attribute.String("outcome", "success"),
+		))
 		logger.Info("deleted kafka topic")
 	}
 	return errors.Join(deleteErrors...)

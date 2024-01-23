@@ -26,6 +26,7 @@ import (
 	"github.com/twmb/franz-go/pkg/kadm"
 	"github.com/twmb/franz-go/pkg/kerr"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/metric"
 	semconv "go.opentelemetry.io/otel/semconv/v1.4.0"
@@ -183,12 +184,17 @@ func (c *TopicCreator) CreateTopics(ctx context.Context, topics ...apmqueue.Topi
 				updateErrors = append(updateErrors, fmt.Errorf(
 					"failed to create topic %q: %w", topicName, err,
 				))
+				c.created.Add(context.Background(), 1, metric.WithAttributes(
+					semconv.MessagingSystemKey.String("kafka"),
+					attribute.String("outcome", "failure"),
+				))
 			}
 			continue
 		}
 		c.created.Add(context.Background(), 1, metric.WithAttributes(
-			semconv.MessagingSystemKey.String("kafka")),
-		)
+			semconv.MessagingSystemKey.String("kafka"),
+			attribute.String("outcome", "success"),
+		))
 		logger.Info("created kafka topic", zap.String("topic", topicName))
 	}
 
