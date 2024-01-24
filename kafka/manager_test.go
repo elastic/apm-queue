@@ -42,6 +42,7 @@ import (
 	"go.uber.org/zap/zaptest/observer"
 
 	apmqueue "github.com/elastic/apm-queue"
+	"github.com/elastic/apm-queue/metrictest"
 )
 
 func TestNewManager(t *testing.T) {
@@ -60,10 +61,12 @@ func TestManagerDeleteTopics(t *testing.T) {
 	)
 	defer tp.Shutdown(context.Background())
 
+	mt := metrictest.New()
 	cluster, commonConfig := newFakeCluster(t)
 	core, observedLogs := observer.New(zapcore.DebugLevel)
 	commonConfig.Logger = zap.New(core)
 	commonConfig.TracerProvider = tp
+	commonConfig.MeterProvider = mt.MeterProvider
 	m, err := NewManager(ManagerConfig{CommonConfig: commonConfig})
 	require.NoError(t, err)
 	t.Cleanup(func() { m.Close() })
@@ -138,6 +141,24 @@ func TestManagerDeleteTopics(t *testing.T) {
 			"INVALID_TOPIC_EXCEPTION: The request attempted to perform an operation on an invalid topic.",
 		),
 	}, spans[0].Events[0].Attributes)
+	rm, err := mt.Collect(context.Background())
+	require.NoError(t, err)
+	// Filter all other kafka metrics.
+	var metrics []metricdata.Metrics
+	for _, sm := range rm.ScopeMetrics {
+		if sm.Scope.Name == "github.com/elastic/apm-queue/kafka" {
+			metrics = sm.Metrics
+			break
+		}
+	}
+	// Ensure only 1 topic was deleted, which also matches the number of spans.
+	assert.Equal(t, metrictest.Int64Metrics{
+		{Name: "topics.deleted.count"}: {
+			{K: "messaging.system", V: "kafka"}: 2,
+			{K: "outcome", V: "failure"}:        1,
+			{K: "outcome", V: "success"}:        1,
+		},
+	}, metrictest.GatherInt64Metric(metrics))
 }
 
 func TestManagerMetrics(t *testing.T) {

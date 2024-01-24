@@ -31,12 +31,15 @@ import (
 	"github.com/twmb/franz-go/pkg/kmsg"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	semconv "go.opentelemetry.io/otel/semconv/v1.4.0"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"go.uber.org/zap/zaptest/observer"
+
+	"github.com/elastic/apm-queue/metrictest"
 )
 
 func TestNewTopicCreator(t *testing.T) {
@@ -63,6 +66,7 @@ func TestTopicCreatorCreateTopics(t *testing.T) {
 	)
 	defer tp.Shutdown(context.Background())
 
+	mt := metrictest.New()
 	cluster, commonConfig := newFakeCluster(t)
 	core, observedLogs := observer.New(zapcore.DebugLevel)
 	commonConfig.Logger = zap.New(core)
@@ -76,6 +80,7 @@ func TestTopicCreatorCreateTopics(t *testing.T) {
 		TopicConfigs: map[string]string{
 			"retention.ms": "123",
 		},
+		MeterProvider: mt.MeterProvider,
 	})
 	require.NoError(t, err)
 
@@ -309,4 +314,23 @@ func TestTopicCreatorCreateTopics(t *testing.T) {
 	assert.Equal(t, []attribute.KeyValue{
 		semconv.MessagingDestinationKey.String("topic4"),
 	}, spans[0].Events[2].Attributes)
+
+	rm, err := mt.Collect(context.Background())
+	require.NoError(t, err)
+	// Filter all other kafka metrics.
+	var metrics []metricdata.Metrics
+	for _, sm := range rm.ScopeMetrics {
+		if sm.Scope.Name == "github.com/elastic/apm-queue/kafka" {
+			metrics = sm.Metrics
+			break
+		}
+	}
+	// Ensure only 1 topic was created, which also matches the number of spans.
+	assert.Equal(t, metrictest.Int64Metrics{
+		{Name: "topics.created.count"}: {
+			{K: "messaging.system", V: "kafka"}: 2,
+			{K: "outcome", V: "failure"}:        1,
+			{K: "outcome", V: "success"}:        1,
+		},
+	}, metrictest.GatherInt64Metric(metrics))
 }

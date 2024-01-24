@@ -27,6 +27,7 @@ import (
 	"github.com/twmb/franz-go/pkg/kadm"
 	"github.com/twmb/franz-go/pkg/kerr"
 	"github.com/twmb/franz-go/pkg/kgo"
+	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/metric"
@@ -59,6 +60,7 @@ type Manager struct {
 	client      *kgo.Client
 	adminClient *kadm.Client
 	tracer      trace.Tracer
+	deleted     metric.Int64Counter
 }
 
 // NewManager returns a new Manager with the given config.
@@ -70,13 +72,23 @@ func NewManager(cfg ManagerConfig) (*Manager, error) {
 	if err != nil {
 		return nil, fmt.Errorf("kafka: failed creating kafka client: %w", err)
 	}
-	m := &Manager{
+	if cfg.MeterProvider == nil {
+		cfg.MeterProvider = otel.GetMeterProvider()
+	}
+	meter := cfg.MeterProvider.Meter("github.com/elastic/apm-queue/kafka")
+	deleted, err := meter.Int64Counter("topics.deleted.count",
+		metric.WithDescription("The number of deleted topics"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed creating 'topics.deleted.count' metric: %w", err)
+	}
+	return &Manager{
 		cfg:         cfg,
 		client:      client,
 		adminClient: kadm.NewClient(client),
 		tracer:      cfg.tracerProvider().Tracer("kafka"),
-	}
-	return m, nil
+		deleted:     deleted,
+	}, nil
 }
 
 // Close closes the manager's resources, including its connections to the
@@ -120,9 +132,17 @@ func (m *Manager) DeleteTopics(ctx context.Context, topics ...apmqueue.Topic) er
 				deleteErrors = append(deleteErrors,
 					fmt.Errorf("failed to delete topic %q: %w", topic, err),
 				)
+				m.deleted.Add(context.Background(), 1, metric.WithAttributes(
+					semconv.MessagingSystemKey.String("kafka"),
+					attribute.String("outcome", "failure"),
+				))
 			}
 			continue
 		}
+		m.deleted.Add(context.Background(), 1, metric.WithAttributes(
+			semconv.MessagingSystemKey.String("kafka"),
+			attribute.String("outcome", "success"),
+		))
 		logger.Info("deleted kafka topic")
 	}
 	return errors.Join(deleteErrors...)

@@ -25,7 +25,10 @@ import (
 
 	"github.com/twmb/franz-go/pkg/kadm"
 	"github.com/twmb/franz-go/pkg/kerr"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/metric"
 	semconv "go.opentelemetry.io/otel/semconv/v1.4.0"
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
@@ -47,6 +50,9 @@ type TopicCreatorConfig struct {
 	//
 	// See https://kafka.apache.org/documentation/#topicconfigs
 	TopicConfigs map[string]string
+
+	// MeterProvider used to create meters and record metrics (Optional).
+	MeterProvider metric.MeterProvider
 }
 
 // Validate ensures the configuration is valid, returning an error otherwise.
@@ -64,12 +70,23 @@ type TopicCreator struct {
 	partitionCount   int
 	origTopicConfigs map[string]string
 	topicConfigs     map[string]*string
+	created          metric.Int64Counter
 }
 
 // NewTopicCreator returns a new TopicCreator with the given config.
 func (m *Manager) NewTopicCreator(cfg TopicCreatorConfig) (*TopicCreator, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("kafka: invalid topic creator config: %w", err)
+	}
+	if cfg.MeterProvider == nil {
+		cfg.MeterProvider = otel.GetMeterProvider()
+	}
+	meter := cfg.MeterProvider.Meter("github.com/elastic/apm-queue/kafka")
+	created, err := meter.Int64Counter("topics.created.count",
+		metric.WithDescription("The number of created topics"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed creating 'topics.created.count' metric: %w", err)
 	}
 	var topicConfigs map[string]*string
 	if len(cfg.TopicConfigs) != 0 {
@@ -83,6 +100,7 @@ func (m *Manager) NewTopicCreator(cfg TopicCreatorConfig) (*TopicCreator, error)
 		partitionCount:   cfg.PartitionCount,
 		origTopicConfigs: cfg.TopicConfigs,
 		topicConfigs:     topicConfigs,
+		created:          created,
 	}, nil
 }
 
@@ -166,9 +184,17 @@ func (c *TopicCreator) CreateTopics(ctx context.Context, topics ...apmqueue.Topi
 				updateErrors = append(updateErrors, fmt.Errorf(
 					"failed to create topic %q: %w", topicName, err,
 				))
+				c.created.Add(context.Background(), 1, metric.WithAttributes(
+					semconv.MessagingSystemKey.String("kafka"),
+					attribute.String("outcome", "failure"),
+				))
 			}
 			continue
 		}
+		c.created.Add(context.Background(), 1, metric.WithAttributes(
+			semconv.MessagingSystemKey.String("kafka"),
+			attribute.String("outcome", "success"),
+		))
 		logger.Info("created kafka topic", zap.String("topic", topicName))
 	}
 
