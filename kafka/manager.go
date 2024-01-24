@@ -77,7 +77,7 @@ func NewManager(cfg ManagerConfig) (*Manager, error) {
 	}
 	meter := cfg.MeterProvider.Meter("github.com/elastic/apm-queue/kafka")
 	deleted, err := meter.Int64Counter("topics.deleted.count",
-		metric.WithDescription("The number deleted topics"),
+		metric.WithDescription("The number of deleted topics"),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed creating 'topics.deleted.count' metric: %w", err)

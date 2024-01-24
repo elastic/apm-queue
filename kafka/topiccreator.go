@@ -83,7 +83,7 @@ func (m *Manager) NewTopicCreator(cfg TopicCreatorConfig) (*TopicCreator, error)
 	}
 	meter := cfg.MeterProvider.Meter("github.com/elastic/apm-queue/kafka")
 	created, err := meter.Int64Counter("topics.created.count",
-		metric.WithDescription("The number created topics"),
+		metric.WithDescription("The number of created topics"),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed creating 'topics.created.count' metric: %w", err)
