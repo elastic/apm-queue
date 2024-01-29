@@ -135,6 +135,7 @@ func (m *Manager) DeleteTopics(ctx context.Context, topics ...apmqueue.Topic) er
 				m.deleted.Add(context.Background(), 1, metric.WithAttributes(
 					semconv.MessagingSystemKey.String("kafka"),
 					attribute.String("outcome", "failure"),
+					attribute.String("topic", topic),
 				))
 			}
 			continue
@@ -142,6 +143,7 @@ func (m *Manager) DeleteTopics(ctx context.Context, topics ...apmqueue.Topic) er
 		m.deleted.Add(context.Background(), 1, metric.WithAttributes(
 			semconv.MessagingSystemKey.String("kafka"),
 			attribute.String("outcome", "success"),
+			attribute.String("topic", topic),
 		))
 		logger.Info("deleted kafka topic")
 	}

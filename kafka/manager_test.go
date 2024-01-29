@@ -154,9 +154,11 @@ func TestManagerDeleteTopics(t *testing.T) {
 	// Ensure only 1 topic was deleted, which also matches the number of spans.
 	assert.Equal(t, metrictest.Int64Metrics{
 		{Name: "topics.deleted.count"}: {
+			{K: "topic", V: "topic2"}:           1,
 			{K: "messaging.system", V: "kafka"}: 2,
 			{K: "outcome", V: "failure"}:        1,
 			{K: "outcome", V: "success"}:        1,
+			{K: "topic", V: "topic3"}:           1,
 		},
 	}, metrictest.GatherInt64Metric(metrics))
 }
