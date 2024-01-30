@@ -9,6 +9,10 @@ updates:
     directory: "/" # Location of package manifests
     schedule:
       interval: "daily"
+    groups:
+      otel:
+        patterns:
+          - "go.opentelemetry.io/otel*"
   - package-ecosystem: "gomod" # See documentation for possible values
     directory: "/tools" # Location of package manifests
     schedule:
