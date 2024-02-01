@@ -497,8 +497,7 @@ func newTestAdminAndMetricService(t testing.TB) (*adminAndMetricServiceServer, C
 		Namespace: "name_space",
 		Logger:    zap.NewNop(),
 		ClientOptions: []option.ClientOption{
-			option.WithGRPCDialOption(grpc.WithUnaryInterceptor(otelgrpc.UnaryClientInterceptor())),
-			option.WithGRPCDialOption(grpc.WithStreamInterceptor(otelgrpc.StreamClientInterceptor())),
+			option.WithGRPCDialOption(grpc.WithStatsHandler(otelgrpc.NewClientHandler())),
 			option.WithGRPCDialOption(grpc.WithTransportCredentials(insecure.NewCredentials())),
 			option.WithEndpoint(lis.Addr().String()),
 			option.WithoutAuthentication(),
