@@ -24,9 +24,10 @@ import (
 	"testing"
 	"time"
 
-	apmqueue "github.com/elastic/apm-queue"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
+
+	apmqueue "github.com/elastic/apm-queue"
 )
 
 type consumerBench struct {
