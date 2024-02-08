@@ -55,7 +55,7 @@ type ConsumerConfig struct {
 	// events from Kafka brokers, it merely affects the number of records that
 	// are returned on `client.PollRecords`.
 	// The higher this setting, the higher the general processing throughput
-	// be. Gowever, when Delivery is set to AtMostOnce, the higher this number,
+	// be. However, when Delivery is set to AtMostOnce, the higher this number,
 	// the more events lost if the process crashes or terminates abruptly.
 	//
 	// It is best to keep the number of polled records small or the consumer
