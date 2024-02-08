@@ -32,7 +32,6 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/twmb/franz-go/pkg/kadm"
 	"github.com/twmb/franz-go/pkg/kfake"
 	"github.com/twmb/franz-go/pkg/kgo"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
@@ -297,7 +296,7 @@ func TestProducerConcurrentClose(t *testing.T) {
 
 func newClusterWithTopics(t testing.TB, partitions int32, topics ...string) (*kgo.Client, []string) {
 	t.Helper()
-	cluster, err := kfake.NewCluster()
+	cluster, err := kfake.NewCluster(kfake.SeedTopics(partitions, topics...))
 	require.NoError(t, err)
 	t.Cleanup(cluster.Close)
 
@@ -306,11 +305,6 @@ func newClusterWithTopics(t testing.TB, partitions int32, topics ...string) (*kg
 	client, err := kgo.NewClient(kgo.SeedBrokers(addrs...))
 	require.NoError(t, err)
 
-	kadmClient := kadm.NewClient(client)
-	t.Cleanup(kadmClient.Close)
-
-	_, err = kadmClient.CreateTopics(context.Background(), partitions, 1, nil, topics...)
-	require.NoError(t, err)
 	return client, addrs
 }
 
