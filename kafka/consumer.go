@@ -50,11 +50,17 @@ type ConsumerConfig struct {
 	// GroupID to join as part of the consumer group.
 	GroupID string
 	// MaxPollRecords defines an upper bound to the number of records that can
-	// be polled on a single fetch. If MaxPollRecords <= 0, defaults to 100.
+	// be polled on a single fetch. If MaxPollRecords <= 0, defaults to 500.
+	// Note that this setting doesn't change how `franz-go` fetches and buffers
+	// events from Kafka brokers, it merely affects the number of records that
+	// are returned on `client.PollRecords`.
+	// The higher this setting, the higher the general processing throughput
+	// be. However, when Delivery is set to AtMostOnce, the higher this number,
+	// the more events lost if the process crashes or terminates abruptly.
 	//
 	// It is best to keep the number of polled records small or the consumer
 	// risks being forced out of the group if it exceeds rebalance.timeout.ms.
-	// Default: 100
+	// Default: 500
 	// Kafka consumer setting: max.poll.records
 	// Docs: https://kafka.apache.org/28/documentation.html#consumerconfigs_max.poll.records
 	MaxPollRecords int
@@ -210,7 +216,7 @@ func NewConsumer(cfg ConsumerConfig) (*Consumer, error) {
 		return nil, fmt.Errorf("kafka: failed creating kafka consumer: %w", err)
 	}
 	if cfg.MaxPollRecords <= 0 {
-		cfg.MaxPollRecords = 100
+		cfg.MaxPollRecords = 500
 	}
 	return &Consumer{
 		cfg:        cfg,
