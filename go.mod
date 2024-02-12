@@ -17,11 +17,11 @@ require (
 	github.com/twmb/franz-go/plugin/kotel v1.4.1
 	github.com/twmb/franz-go/plugin/kzap v1.1.2
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.47.0
-	go.opentelemetry.io/otel v1.22.0
-	go.opentelemetry.io/otel/metric v1.22.0
-	go.opentelemetry.io/otel/sdk v1.21.0
-	go.opentelemetry.io/otel/sdk/metric v1.21.0
-	go.opentelemetry.io/otel/trace v1.22.0
+	go.opentelemetry.io/otel v1.23.1
+	go.opentelemetry.io/otel/metric v1.23.1
+	go.opentelemetry.io/otel/sdk v1.23.1
+	go.opentelemetry.io/otel/sdk/metric v1.23.1
+	go.opentelemetry.io/otel/trace v1.23.1
 	go.uber.org/zap v1.26.0
 	golang.org/x/sync v0.6.0
 	google.golang.org/api v0.163.0
