@@ -108,8 +108,7 @@ func TestCommonConfig(t *testing.T) {
 	})
 
 	t.Run("saslaws_from_environment", func(t *testing.T) {
-		tempdir := t.TempDir()
-		t.Setenv("AWS_SHARED_CREDENTIALS_FILE", t.TempDir()) // ensure ~/.aws/credentials isn't read
+		t.Setenv("AWS_SHARED_CREDENTIALS_FILE", filepath.Join(t.TempDir(), "credentials")) // ensure ~/.aws/credentials isn't read
 		t.Setenv("KAFKA_SASL_MECHANISM", "AWS_MSK_IAM")
 		cfg := CommonConfig{
 			Brokers: []string{"broker"},
@@ -129,7 +128,7 @@ func TestCommonConfig(t *testing.T) {
 			}
 		})
 		t.Run("credentials_file", func(t *testing.T) {
-			credentialsFilePath := filepath.Join(tempdir, "credentials")
+			credentialsFilePath := filepath.Join(t.TempDir(), "credentials")
 			err := os.WriteFile(credentialsFilePath, []byte(`[default]
 aws_access_key_id=AKIAIOSFODNN7EXAMPLE
 aws_secret_access_key=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
