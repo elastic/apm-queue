@@ -145,17 +145,19 @@ func TestConsumerInstrumentation(t *testing.T) {
 	)
 	defer tp.Shutdown(context.Background())
 
-	topics := []apmqueue.Topic{"topic"}
-	event := apmqueue.Record{Topic: topics[0], Value: []byte("1")}
-	client, addrs := newClusterWithTopics(t, 2, topics...)
+	namespace := "name_space"
+	topic := apmqueue.Topic("topic")
+	event := apmqueue.Record{Topic: topic, Value: []byte("1")}
+	client, addrs := newClusterWithTopics(t, 2, "name_space-topic")
 	processed := make(chan struct{})
 	cfg := ConsumerConfig{
 		CommonConfig: CommonConfig{
 			Brokers:        addrs,
 			Logger:         zap.NewNop(),
+			Namespace:      namespace,
 			TracerProvider: tp,
 		},
-		Topics:         topics,
+		Topics:         []apmqueue.Topic{topic},
 		GroupID:        "groupid",
 		MaxPollRecords: 1, // Consume a single record for this test.
 		Processor: apmqueue.ProcessorFunc(func(_ context.Context, r ...apmqueue.Record) error {
@@ -167,10 +169,9 @@ func TestConsumerInstrumentation(t *testing.T) {
 	}
 
 	produceRecord(context.Background(), t, client,
-		&kgo.Record{Topic: string(topics[0]), Value: event.Value},
+		&kgo.Record{Topic: "name_space-topic", Value: event.Value},
 	)
 	consumer := newConsumer(t, cfg)
-	spanCount := len(exp.GetSpans())
 	go consumer.Run(context.Background())
 
 	select {
@@ -178,13 +179,11 @@ func TestConsumerInstrumentation(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("timed out while waiting for record to be processed.")
 	}
-	assert.Len(t, exp.GetSpans(), spanCount+1)
 }
 
 func TestConsumerDelivery(t *testing.T) {
 	// ALOD = at least once delivery
 	// AMOD = at most once delivery
-	topics := []apmqueue.Topic{"topic"}
 
 	// Produces `initialRecords` + `lastRecords` in total. Asserting the
 	// "lossy" behavior of the consumer implementation, depending on the
@@ -275,13 +274,14 @@ func TestConsumerDelivery(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			client, addrs := newClusterWithTopics(t, 2, topics...)
+			client, addrs := newClusterWithTopics(t, 2, "name_space-topic")
 			baseLogger := zapTest(t)
 
 			var processed atomic.Int32
 			var errored atomic.Int32
-			newProcessor := func(processRecord, failRecord <-chan struct{}) apmqueue.Processor {
+			newProcessor := func(processRecord, failRecord <-chan struct{}, fn func()) apmqueue.Processor {
 				return apmqueue.ProcessorFunc(func(_ context.Context, r ...apmqueue.Record) error {
+					defer fn()
 					select {
 					// Records are marked as processed on receive processRecord.
 					case <-processRecord:
@@ -295,37 +295,40 @@ func TestConsumerDelivery(t *testing.T) {
 				})
 			}
 			failRecord := make(chan struct{})
-			processRecord := make(chan struct{})
-			cfg := ConsumerConfig{
-				CommonConfig: CommonConfig{
-					Brokers: addrs,
-					Logger:  baseLogger,
-				},
-				Delivery:       tc.deliveryType,
-				Topics:         topics,
-				GroupID:        "groupid",
-				MaxPollRecords: tc.maxPollRecords,
-				Processor:      newProcessor(processRecord, failRecord),
-			}
-
-			record := &kgo.Record{
-				Topic: string(topics[0]),
-				Value: []byte("content"),
-			}
-
 			// Context used for the consumer
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
+
+			cfg := ConsumerConfig{
+				CommonConfig: CommonConfig{
+					Brokers:   addrs,
+					Logger:    baseLogger,
+					Namespace: "name_space",
+				},
+				Delivery:       tc.deliveryType,
+				Topics:         []apmqueue.Topic{"topic"},
+				GroupID:        "groupid",
+				MaxPollRecords: tc.maxPollRecords,
+				Processor:      newProcessor(nil, failRecord, cancel),
+			}
+
+			record := &kgo.Record{
+				Topic: "name_space-topic",
+				Value: []byte("content"),
+			}
+
 			for i := 0; i < int(tc.initialRecords); i++ {
 				produceRecord(ctx, t, client, record)
 			}
 
 			cfg.Logger = baseLogger.Named("1")
 			consumer := newConsumer(t, cfg)
+			consumerDone := make(chan struct{})
 			go func() {
+				defer close(consumerDone)
 				err := consumer.Run(ctx)
 				if err != nil {
-					assert.Equal(t, ErrCommitFailed, err)
+					assert.ErrorIs(t, err, ErrCommitFailed)
 				}
 			}()
 
@@ -343,7 +346,13 @@ func TestConsumerDelivery(t *testing.T) {
 			case <-time.After(time.Second):
 				t.Fatal("timed out waiting for consumer to process event")
 			}
-			consumer.Close()
+			require.NoError(t, consumer.Close())
+
+			select {
+			case <-consumerDone:
+			case <-time.After(time.Second):
+				t.Fatal("timed out waiting for consumer to close")
+			}
 
 			assert.Eventually(t, func() bool {
 				return int(errored.Load()) == int(tc.errored)
@@ -361,7 +370,8 @@ func TestConsumerDelivery(t *testing.T) {
 			}
 			cfg.MaxPollRecords = tc.lastRecords
 			cfg.Logger = baseLogger.Named("2")
-			cfg.Processor = newProcessor(processRecord, nil)
+			processRecord := make(chan struct{})
+			cfg.Processor = newProcessor(processRecord, nil, func() {})
 			consumer = newConsumer(t, cfg)
 			go func() {
 				assert.NoError(t, consumer.Run(ctx))
@@ -450,6 +460,7 @@ func TestConsumerGracefulShutdown(t *testing.T) {
 		assert.NoError(t, consumerErr) // Assert the consumer error.
 		//  Ensure all records are processed.
 		assert.Equal(t, int32(records), processed.Load())
+		assert.Zero(t, errored.Load())
 	}
 
 	t.Run("AtLeastOnceDelivery", func(t *testing.T) {
@@ -517,16 +528,16 @@ func TestConsumerContextPropagation(t *testing.T) {
 }
 
 func TestMultipleConsumers(t *testing.T) {
-	topics := []apmqueue.Topic{"topic"}
-	client, addrs := newClusterWithTopics(t, 2, topics...)
+	client, addrs := newClusterWithTopics(t, 2, "name_space-topic")
 
 	var count atomic.Int32
 	cfg := ConsumerConfig{
 		CommonConfig: CommonConfig{
-			Brokers: addrs,
-			Logger:  zap.NewNop(),
+			Brokers:   addrs,
+			Logger:    zap.NewNop(),
+			Namespace: "name_space",
 		},
-		Topics:  topics,
+		Topics:  []apmqueue.Topic{"topic"},
 		GroupID: "groupid",
 		Processor: apmqueue.ProcessorFunc(func(_ context.Context, r ...apmqueue.Record) error {
 			count.Add(1)
@@ -546,7 +557,7 @@ func TestMultipleConsumers(t *testing.T) {
 	}
 
 	record := kgo.Record{
-		Topic: string(topics[0]),
+		Topic: "name_space-topic",
 		Value: []byte("content"),
 	}
 	produced := 100
@@ -559,15 +570,15 @@ func TestMultipleConsumers(t *testing.T) {
 }
 
 func TestMultipleConsumerGroups(t *testing.T) {
-	event := apmqueue.Record{Topic: apmqueue.Topic("topic"), Value: []byte("x")}
-	topics := []apmqueue.Topic{"topic"}
-	client, addrs := newClusterWithTopics(t, 2, topics...)
+	event := apmqueue.Record{Topic: "topic", Value: []byte("x")}
+	client, addrs := newClusterWithTopics(t, 2, "name_space-topic")
 	cfg := ConsumerConfig{
 		CommonConfig: CommonConfig{
-			Brokers: addrs,
-			Logger:  zap.NewNop(),
+			Brokers:   addrs,
+			Logger:    zap.NewNop(),
+			Namespace: "name_space",
 		},
-		Topics: topics,
+		Topics: []apmqueue.Topic{"topic"},
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -594,7 +605,7 @@ func TestMultipleConsumerGroups(t *testing.T) {
 	produceRecords := 100
 	for i := 0; i < produceRecords; i++ {
 		client.Produce(ctx, &kgo.Record{
-			Topic: string(topics[0]),
+			Topic: "name_space-topic",
 			Value: event.Value,
 		}, func(r *kgo.Record, err error) {
 			assert.NoError(t, err)

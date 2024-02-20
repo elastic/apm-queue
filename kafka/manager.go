@@ -21,10 +21,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
+	"strings"
 
 	"github.com/twmb/franz-go/pkg/kadm"
 	"github.com/twmb/franz-go/pkg/kerr"
 	"github.com/twmb/franz-go/pkg/kgo"
+	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/metric"
@@ -57,6 +60,7 @@ type Manager struct {
 	client      *kgo.Client
 	adminClient *kadm.Client
 	tracer      trace.Tracer
+	deleted     metric.Int64Counter
 }
 
 // NewManager returns a new Manager with the given config.
@@ -68,13 +72,23 @@ func NewManager(cfg ManagerConfig) (*Manager, error) {
 	if err != nil {
 		return nil, fmt.Errorf("kafka: failed creating kafka client: %w", err)
 	}
-	m := &Manager{
+	if cfg.MeterProvider == nil {
+		cfg.MeterProvider = otel.GetMeterProvider()
+	}
+	meter := cfg.MeterProvider.Meter("github.com/elastic/apm-queue/kafka")
+	deleted, err := meter.Int64Counter("topics.deleted.count",
+		metric.WithDescription("The number of deleted topics"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed creating 'topics.deleted.count' metric: %w", err)
+	}
+	return &Manager{
 		cfg:         cfg,
 		client:      client,
 		adminClient: kadm.NewClient(client),
 		tracer:      cfg.tracerProvider().Tracer("kafka"),
-	}
-	return m, nil
+		deleted:     deleted,
+	}, nil
 }
 
 // Close closes the manager's resources, including its connections to the
@@ -94,9 +108,10 @@ func (m *Manager) DeleteTopics(ctx context.Context, topics ...apmqueue.Topic) er
 	))
 	defer span.End()
 
+	namespacePrefix := m.cfg.namespacePrefix()
 	topicNames := make([]string, len(topics))
 	for i, topic := range topics {
-		topicNames[i] = string(topic)
+		topicNames[i] = fmt.Sprintf("%s%s", namespacePrefix, topic)
 	}
 	responses, err := m.adminClient.DeleteTopics(ctx, topicNames...)
 	if err != nil {
@@ -106,7 +121,8 @@ func (m *Manager) DeleteTopics(ctx context.Context, topics ...apmqueue.Topic) er
 	}
 	var deleteErrors []error
 	for _, response := range responses.Sorted() {
-		logger := m.cfg.Logger.With(zap.String("topic", response.Topic))
+		topic := strings.TrimPrefix(response.Topic, namespacePrefix)
+		logger := m.cfg.Logger.With(zap.String("topic", topic))
 		if err := response.Err; err != nil {
 			if errors.Is(err, kerr.UnknownTopicOrPartition) {
 				logger.Debug("kafka topic does not exist")
@@ -114,14 +130,21 @@ func (m *Manager) DeleteTopics(ctx context.Context, topics ...apmqueue.Topic) er
 				span.RecordError(err)
 				span.SetStatus(codes.Error, "failed to delete one or more topic")
 				deleteErrors = append(deleteErrors,
-					fmt.Errorf(
-						"failed to delete topic %q: %w",
-						response.Topic, err,
-					),
+					fmt.Errorf("failed to delete topic %q: %w", topic, err),
 				)
+				m.deleted.Add(context.Background(), 1, metric.WithAttributes(
+					semconv.MessagingSystemKey.String("kafka"),
+					attribute.String("outcome", "failure"),
+					attribute.String("topic", topic),
+				))
 			}
 			continue
 		}
+		m.deleted.Add(context.Background(), 1, metric.WithAttributes(
+			semconv.MessagingSystemKey.String("kafka"),
+			attribute.String("outcome", "success"),
+			attribute.String("topic", topic),
+		))
 		logger.Info("deleted kafka topic")
 	}
 	return errors.Join(deleteErrors...)
@@ -135,12 +158,35 @@ func (m *Manager) Healthy(ctx context.Context) error {
 	return nil
 }
 
+type memberTopic struct {
+	clientID string
+	topic    string
+}
+
+type regexConsumer struct {
+	regex    *regexp.Regexp
+	consumer string
+}
+
 // MonitorConsumerLag registers a callback with OpenTelemetry
 // to measure consumer group lag for the given topics.
 func (m *Manager) MonitorConsumerLag(topicConsumers []apmqueue.TopicConsumer) (metric.Registration, error) {
 	monitorTopicConsumers := make(map[apmqueue.TopicConsumer]struct{}, len(topicConsumers))
+	var regex []regexConsumer
 	for _, tc := range topicConsumers {
 		monitorTopicConsumers[tc] = struct{}{}
+		if tc.Regex != "" {
+			re, err := regexp.Compile(tc.Regex)
+			if err != nil {
+				return nil, fmt.Errorf("failed to compile regex %s: %w",
+					tc.Regex, err,
+				)
+			}
+			regex = append(regex, regexConsumer{
+				regex:    re,
+				consumer: tc.Consumer,
+			})
+		}
 	}
 
 	mp := m.cfg.meterProvider()
@@ -149,7 +195,12 @@ func (m *Manager) MonitorConsumerLag(topicConsumers []apmqueue.TopicConsumer) (m
 	if err != nil {
 		return nil, fmt.Errorf("kafka: failed to create consumer_group_lag metric: %w", err)
 	}
+	assignmentMetric, err := meter.Int64ObservableGauge("consumer_group_assignment")
+	if err != nil {
+		return nil, fmt.Errorf("kafka: failed to create consumer_group.assignment metric: %w", err)
+	}
 
+	namespacePrefix := m.cfg.namespacePrefix()
 	gatherMetrics := func(ctx context.Context, o metric.Observer) error {
 		ctx, span := m.tracer.Start(ctx, "GatherMetrics")
 		defer span.End()
@@ -162,80 +213,82 @@ func (m *Manager) MonitorConsumerLag(topicConsumers []apmqueue.TopicConsumer) (m
 		for consumer := range consumerSet {
 			consumers = append(consumers, consumer)
 		}
+		m.cfg.Logger.Debug("reporting consumer lag", zap.Strings("consumers", consumers))
 
-		// Fetch commits for consumer groups.
-		groups, err := m.adminClient.DescribeGroups(ctx, consumers...)
+		lag, err := m.adminClient.Lag(ctx, consumers...)
 		if err != nil {
 			span.RecordError(err)
 			span.SetStatus(codes.Error, err.Error())
-			return fmt.Errorf("failed to describe groups: %w", err)
+			return fmt.Errorf("failed to calculate consumer lag: %w", err)
 		}
-		consumerGroups := make([]string, 0, len(groups))
-		for _, group := range groups.Sorted() {
-			if group.ProtocolType != "consumer" {
-				m.cfg.Logger.Debug(
-					"ignoring non-consumer group",
-					zap.String("group", group.Group),
-					zap.String("protocol_type", group.ProtocolType),
+		lag.Each(func(l kadm.DescribedGroupLag) {
+			if err := l.Error(); err != nil {
+				m.cfg.Logger.Warn("error calculating consumer lag",
+					zap.String("group", l.Group),
+					zap.Error(err),
 				)
-				continue
+				return
 			}
-			consumerGroups = append(consumerGroups, group.Group)
-		}
-		commits := m.adminClient.FetchManyOffsets(ctx, consumerGroups...)
+			// Map Consumer group member assignments.
+			memberAssignments := make(map[memberTopic]int64)
+			for topic, partitions := range l.Lag {
+				if !strings.HasPrefix(topic, namespacePrefix) {
+					// Ignore topics outside the namespace.
+					continue
+				}
+				topic = topic[len(namespacePrefix):]
 
-		// Fetch end offsets.
-		var endOffsets kadm.ListedOffsets
-		listPartitions := groups.AssignedPartitions()
-		listPartitions.Merge(commits.CommittedPartitions())
-		if topics := listPartitions.Topics(); len(topics) > 0 {
-			res, err := m.adminClient.ListEndOffsets(ctx, topics...)
-			if err != nil {
-				span.RecordError(err)
-				span.SetStatus(codes.Error, err.Error())
-				return fmt.Errorf("error fetching end offsets: %w", err)
-			}
-			endOffsets = res
-		}
-
-		// Calculate lag per consumer group.
-		for _, group := range groups {
-			if group.ProtocolType != "consumer" || group.Err != nil {
-				continue
-			}
-			groupLag := kadm.CalculateGroupLag(group, commits[group.Group].Fetched, endOffsets)
-			for topic, partitions := range groupLag {
+				var matchesRegex bool
+				for _, re := range regex {
+					if l.Group == re.consumer && re.regex.MatchString(topic) {
+						matchesRegex = true
+						break
+					}
+				}
 				if _, ok := monitorTopicConsumers[apmqueue.TopicConsumer{
 					Topic:    apmqueue.Topic(topic),
-					Consumer: group.Group,
-				}]; !ok {
-					// Ignore unmonitored topics.
+					Consumer: l.Group,
+				}]; !ok && !matchesRegex {
+					// Skip when no topic matches explicit name or regex.
 					continue
 				}
 				for partition, lag := range partitions {
 					if lag.Err != nil {
-						m.cfg.Logger.Warn(
-							"error getting consumer group lag",
-							zap.String("group", group.Group),
+						m.cfg.Logger.Warn("error getting consumer group lag",
+							zap.String("group", l.Group),
 							zap.String("topic", topic),
 							zap.Int32("partition", partition),
 							zap.Error(lag.Err),
 						)
 						continue
 					}
+					key := memberTopic{topic: topic, clientID: lag.Member.ClientID}
+					count := memberAssignments[key]
+					count++
+					memberAssignments[key] = count
 					o.ObserveInt64(
 						consumerGroupLagMetric, lag.Lag,
 						metric.WithAttributes(
-							attribute.String("group", group.Group),
+							attribute.String("group", l.Group),
 							attribute.String("topic", topic),
 							attribute.Int("partition", int(partition)),
 						),
 					)
 				}
 			}
-		}
+			for key, count := range memberAssignments {
+				o.ObserveInt64(assignmentMetric, count,
+					metric.WithAttributes(
+						attribute.String("group", l.Group),
+						attribute.String("topic", key.topic),
+						attribute.String("client_id", key.clientID),
+					),
+				)
+			}
+		})
 		return nil
 	}
-
-	return meter.RegisterCallback(gatherMetrics, consumerGroupLagMetric)
+	return meter.RegisterCallback(gatherMetrics, consumerGroupLagMetric,
+		assignmentMetric,
+	)
 }

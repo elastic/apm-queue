@@ -21,6 +21,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -43,18 +44,53 @@ type ConsumerConfig struct {
 	CommonConfig
 	// Topics that the consumer will consume messages from
 	Topics []apmqueue.Topic
+	// ConsumeRegex sets the client to parse all topics passed to ConsumeTopics
+	// as regular expressions.
+	ConsumeRegex bool
 	// GroupID to join as part of the consumer group.
 	GroupID string
 	// MaxPollRecords defines an upper bound to the number of records that can
-	// be polled on a single fetch. If MaxPollRecords <= 0, defaults to 100.
+	// be polled on a single fetch. If MaxPollRecords <= 0, defaults to 500.
+	// Note that this setting doesn't change how `franz-go` fetches and buffers
+	// events from Kafka brokers, it merely affects the number of records that
+	// are returned on `client.PollRecords`.
+	// The higher this setting, the higher the general processing throughput
+	// be. However, when Delivery is set to AtMostOnce, the higher this number,
+	// the more events lost if the process crashes or terminates abruptly.
 	//
 	// It is best to keep the number of polled records small or the consumer
 	// risks being forced out of the group if it exceeds rebalance.timeout.ms.
+	// Default: 500
+	// Kafka consumer setting: max.poll.records
+	// Docs: https://kafka.apache.org/28/documentation.html#consumerconfigs_max.poll.records
 	MaxPollRecords int
 	// MaxPollWait defines the maximum amount of time a broker will wait for a
 	// fetch response to hit the minimum number of required bytes before
-	// returning, overriding the default 5s.
+	// returning
+	// Default: 5s
+	// Kafka consumer setting: fetch.max.wait.ms
+	// Docs: https://kafka.apache.org/28/documentation.html#consumerconfigs_fetch.max.wait.ms
 	MaxPollWait time.Duration
+	// // MaxConcurrentFetches sets the maximum number of fetch requests to allow in
+	// flight or buffered at once, overriding the unbounded (i.e. number of
+	// brokers) default.
+	// This setting, paired with FetchMaxBytes, can upper bound the maximum amount
+	// of memory that the client can use for consuming.
+	// Default: Unbounded, total number of brokers.
+	// Docs: https://pkg.go.dev/github.com/twmb/franz-go/pkg/kgo#MaxConcurrentFetches
+	MaxConcurrentFetches int
+	// MaxPollBytes sets the maximum amount of bytes a broker will try to send
+	// during a fetch
+	// Default: 52428800 bytes (~52MB, 50MiB)
+	// Kafka consumer setting: fetch.max.bytes
+	// Docs: https://kafka.apache.org/28/documentation.html#brokerconfigs_fetch.max.bytes
+	MaxPollBytes int32
+	// MaxPollPartitionBytes sets the maximum amount of bytes that will be consumed for
+	// a single partition in a fetch request
+	// Default: 1048576 bytes (~1MB, 1MiB)
+	// Kafka consumer setting: max.partition.fetch.bytes
+	// Docs: https://kafka.apache.org/28/documentation.html#consumerconfigs_max.partition.fetch.bytes
+	MaxPollPartitionBytes int32
 	// ShutdownGracePeriod defines the maximum amount of time to wait for the
 	// partition consumers to process events before the underlying kgo.Client
 	// is closed, overriding the default 5s.
@@ -89,6 +125,12 @@ func (cfg *ConsumerConfig) finalize() error {
 	if cfg.Processor == nil {
 		errs = append(errs, errors.New("kafka: processor must be set"))
 	}
+	if cfg.MaxPollBytes < 0 {
+		errs = append(errs, errors.New("kafka: max poll bytes cannot be negative"))
+	}
+	if cfg.MaxPollPartitionBytes < 0 {
+		errs = append(errs, errors.New("kafka: max poll partition bytes cannot be negative"))
+	}
 	return errors.Join(errs...)
 }
 
@@ -119,16 +161,18 @@ func NewConsumer(cfg ConsumerConfig) (*Consumer, error) {
 	// `forceClose` is called by `Consumer.Close()` if / when the
 	// `cfg.ShutdownGracePeriod` is exceeded.
 	processingCtx, forceClose := context.WithCancelCause(context.Background())
+	namespacePrefix := cfg.namespacePrefix()
 	consumer := &consumer{
-		consumers: make(map[topicPartition]partitionConsumer),
-		processor: cfg.Processor,
-		logger:    cfg.Logger.Named("partition"),
-		delivery:  cfg.Delivery,
-		ctx:       processingCtx,
+		topicPrefix: namespacePrefix,
+		records:     make(map[topicPartition]chan []*kgo.Record),
+		processor:   cfg.Processor,
+		logger:      cfg.Logger.Named("partition"),
+		delivery:    cfg.Delivery,
+		ctx:         processingCtx,
 	}
-	topics := make([]string, 0, len(cfg.Topics))
-	for _, t := range cfg.Topics {
-		topics = append(topics, string(t))
+	topics := make([]string, len(cfg.Topics))
+	for i, topic := range cfg.Topics {
+		topics[i] = fmt.Sprintf("%s%s", consumer.topicPrefix, topic)
 	}
 	opts := []kgo.Opt{
 		// Injects the kgo.Client context as the record.Context.
@@ -149,8 +193,20 @@ func NewConsumer(cfg ConsumerConfig) (*Consumer, error) {
 		kgo.OnPartitionsLost(consumer.lost),
 		kgo.OnPartitionsRevoked(consumer.lost),
 	}
+	if cfg.ConsumeRegex {
+		opts = append(opts, kgo.ConsumeRegex())
+	}
 	if cfg.MaxPollWait > 0 {
 		opts = append(opts, kgo.FetchMaxWait(cfg.MaxPollWait))
+	}
+	if cfg.MaxPollBytes != 0 {
+		opts = append(opts, kgo.FetchMaxBytes(cfg.MaxPollBytes))
+	}
+	if cfg.MaxPollPartitionBytes != 0 {
+		opts = append(opts, kgo.FetchMaxPartitionBytes(cfg.MaxPollPartitionBytes))
+	}
+	if cfg.MaxConcurrentFetches > 0 {
+		opts = append(opts, kgo.MaxConcurrentFetches(cfg.MaxConcurrentFetches))
 	}
 	if cfg.ShutdownGracePeriod <= 0 {
 		cfg.ShutdownGracePeriod = 5 * time.Second
@@ -160,7 +216,7 @@ func NewConsumer(cfg ConsumerConfig) (*Consumer, error) {
 		return nil, fmt.Errorf("kafka: failed creating kafka consumer: %w", err)
 	}
 	if cfg.MaxPollRecords <= 0 {
-		cfg.MaxPollRecords = 100
+		cfg.MaxPollRecords = 500
 	}
 	return &Consumer{
 		cfg:        cfg,
@@ -183,7 +239,7 @@ func (c *Consumer) Close() error {
 	case <-c.closed:
 	default:
 		close(c.closed)
-		defer c.client.Close() // Last, close the `kgo.Client`
+		defer c.client.CloseAllowingRebalance() // Last, close the `kgo.Client`
 		// Cancel the context used in client.PollRecords, triggering graceful
 		// cancellation.
 		c.stopPoll()
@@ -240,7 +296,7 @@ func (c *Consumer) Run(ctx context.Context) error {
 			if errors.Is(err, context.Canceled) {
 				return nil // Return no error if err == context.Canceled.
 			}
-			return err
+			return fmt.Errorf("cannot fetch records: %w", err)
 		}
 	}
 }
@@ -275,8 +331,11 @@ func (c *Consumer) fetch(ctx, clientCtx context.Context) error {
 		c.client.AllowRebalance()
 	}
 	fetches.EachError(func(t string, p int32, err error) {
-		c.cfg.Logger.Error("consumer fetches returned error",
-			zap.Error(err), zap.String("topic", t), zap.Int32("partition", p),
+		c.cfg.Logger.Error(
+			"consumer fetches returned error",
+			zap.Error(err),
+			zap.String("topic", strings.TrimPrefix(t, c.consumer.topicPrefix)),
+			zap.Int32("partition", p),
 		)
 	})
 	c.consumer.processFetch(ctx, fetches)
@@ -295,12 +354,13 @@ func (c *Consumer) Healthy(ctx context.Context) error {
 // consumer wraps partitionConsumers and exposes the necessary callbacks
 // to use when partitions are reassigned.
 type consumer struct {
-	mu        sync.RWMutex
-	wg        sync.WaitGroup
-	consumers map[topicPartition]partitionConsumer
-	processor apmqueue.Processor
-	logger    *zap.Logger
-	delivery  apmqueue.DeliveryType
+	mu          sync.RWMutex
+	wg          sync.WaitGroup
+	topicPrefix string
+	records     map[topicPartition]chan []*kgo.Record
+	processor   apmqueue.Processor
+	logger      *zap.Logger
+	delivery    apmqueue.DeliveryType
 	// ctx contains the graceful cancellation context that is passed to the
 	// partition consumers.
 	ctx context.Context
@@ -319,19 +379,12 @@ func (c *consumer) assigned(_ context.Context, client *kgo.Client, assigned map[
 	for topic, partitions := range assigned {
 		for _, partition := range partitions {
 			c.wg.Add(1)
-			pc := partitionConsumer{
-				records:   make(chan []*kgo.Record),
-				processor: c.processor,
-				logger:    c.logger,
-				client:    client,
-				delivery:  c.delivery,
-			}
+			records := make(chan []*kgo.Record)
+			c.records[topicPartition{topic: topic, partition: partition}] = records
 			go func(topic string, partition int32) {
 				defer c.wg.Done()
-				pc.consume(c.ctx, topic, partition)
+				c.consumeTopicPartition(client, records, topic, partition)
 			}(topic, partition)
-			tp := topicPartition{partition: partition, topic: topic}
-			c.consumers[tp] = pc
 		}
 	}
 }
@@ -344,15 +397,12 @@ func (c *consumer) assigned(_ context.Context, client *kgo.Client, assigned map[
 func (c *consumer) lost(_ context.Context, _ *kgo.Client, lost map[string][]int32) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if len(c.consumers) == 0 {
-		return // When consumer.close() has been called.
-	}
 	for topic, partitions := range lost {
 		for _, partition := range partitions {
 			tp := topicPartition{topic: topic, partition: partition}
-			if pc, ok := c.consumers[tp]; ok {
-				delete(c.consumers, tp)
-				close(pc.records)
+			if records, ok := c.records[tp]; ok {
+				delete(c.records, tp)
+				close(records)
 			}
 		}
 	}
@@ -366,9 +416,9 @@ func (c *consumer) lost(_ context.Context, _ *kgo.Client, lost map[string][]int3
 func (c *consumer) close() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	for tp, pc := range c.consumers {
-		delete(c.consumers, tp)
-		close(pc.records)
+	for tp, records := range c.records {
+		delete(c.records, tp)
+		close(records)
 	}
 	c.wg.Wait()
 }
@@ -389,8 +439,7 @@ func (c *consumer) processFetch(ctx context.Context, fetches kgo.Fetches) {
 		if len(ftp.Records) == 0 {
 			return
 		}
-		tp := topicPartition{topic: ftp.Topic, partition: ftp.Partition}
-		pc, ok := c.consumers[tp]
+		records, ok := c.records[topicPartition{topic: ftp.Topic, partition: ftp.Partition}]
 		if !ok {
 			// NOTE(marclop) While possible, this is unlikely to happen given the
 			// locking that's in place in the caller.
@@ -404,7 +453,7 @@ func (c *consumer) processFetch(ctx context.Context, fetches kgo.Fetches) {
 		var err error
 		select {
 		// Send partition records to be processed by its dedicated goroutine.
-		case pc.records <- ftp.Records:
+		case records <- ftp.Records:
 			// Success.
 		case <-ctx.Done(): // Consumer.Run(ctx) context.
 			err = ctx.Err()
@@ -423,7 +472,7 @@ func (c *consumer) logWarn(err error, ftp kgo.FetchTopicPartition) {
 	c.logger.Warn(
 		"data loss: failed to send records to process after commit",
 		zap.Error(err),
-		zap.String("topic", ftp.Topic),
+		zap.String("topic", strings.TrimPrefix(ftp.Topic, c.topicPrefix)),
 		zap.Int32("partition", ftp.Partition),
 		zap.Int64("offset", ftp.HighWatermark),
 		zap.Int("records", len(ftp.Records)),
@@ -438,23 +487,18 @@ func (c *consumer) OnFetchRecordBuffered(r *kgo.Record) {
 	}
 }
 
-type partitionConsumer struct {
-	client    *kgo.Client
-	records   chan []*kgo.Record
-	processor apmqueue.Processor
-	logger    *zap.Logger
-	delivery  apmqueue.DeliveryType
-}
-
-// consume processed the records from a topic and partition. Calling consume
-// more than once will cause a panic.
-// The received context which is only canceled when the kgo.Client is closed.
-func (pc partitionConsumer) consume(ctx context.Context, topic string, partition int32) {
-	logger := pc.logger.With(
-		zap.String("topic", topic),
+// consumeTopicPartition processes the records for a topic and partition.
+func (c *consumer) consumeTopicPartition(
+	client *kgo.Client,
+	records <-chan []*kgo.Record,
+	prefixedTopic string, partition int32,
+) {
+	topic := apmqueue.Topic(strings.TrimPrefix(prefixedTopic, c.topicPrefix))
+	logger := c.logger.With(
+		zap.String("topic", string(topic)),
 		zap.Int32("partition", partition),
 	)
-	for records := range pc.records {
+	for records := range records {
 		// Store the last processed record. Default to -1 for cases where
 		// only the first record is received.
 		last := -1
@@ -464,16 +508,20 @@ func (pc partitionConsumer) consume(ctx context.Context, topic string, partition
 				meta[h.Key] = string(h.Value)
 			}
 			processCtx := queuecontext.WithMetadata(msg.Context, meta)
-			record := apmqueue.Record{Topic: apmqueue.Topic(topic), Value: msg.Value}
+			record := apmqueue.Record{
+				Topic:       topic,
+				OrderingKey: msg.Key,
+				Value:       msg.Value,
+			}
 			// If a record can't be processed, no retries are attempted and it
 			// may be lost. https://github.com/elastic/apm-queue/issues/118.
-			if err := pc.processor.Process(processCtx, record); err != nil {
+			if err := c.processor.Process(processCtx, record); err != nil {
 				logger.Error("data loss: unable to process event",
 					zap.Error(err),
 					zap.Int64("offset", msg.Offset),
 					zap.Any("headers", meta),
 				)
-				switch pc.delivery {
+				switch c.delivery {
 				case apmqueue.AtLeastOnceDeliveryType:
 					continue
 				}
@@ -482,9 +530,9 @@ func (pc partitionConsumer) consume(ctx context.Context, topic string, partition
 		}
 		// Only commit the records when at least a record has been processed when
 		// AtLeastOnceDeliveryType is set.
-		if pc.delivery == apmqueue.AtLeastOnceDeliveryType && last >= 0 {
+		if c.delivery == apmqueue.AtLeastOnceDeliveryType && last >= 0 {
 			lastRecord := records[last]
-			if err := pc.client.CommitRecords(ctx, lastRecord); err != nil {
+			if err := client.CommitRecords(c.ctx, lastRecord); err != nil {
 				logger.Error("unable to commit records",
 					zap.Error(err),
 					zap.Int64("offset", lastRecord.Offset),

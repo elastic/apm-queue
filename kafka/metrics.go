@@ -21,6 +21,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/twmb/franz-go/pkg/kgo"
@@ -35,34 +36,29 @@ const (
 
 	unitCount = "1"
 
-	msgProducedKey = "producer.messages.produced"
-	msgErroredKey  = "producer.messages.errored"
-	msgFetchedKey  = "consumer.messages.fetched"
-	msgDelayKey    = "consumer.messages.delay"
+	msgProducedCountKey = "producer.messages.count"
+	msgFetchedKey       = "consumer.messages.fetched"
+	msgDelayKey         = "consumer.messages.delay"
+	errorReasonKey      = "error_reason"
 )
 
 type metricHooks struct {
+	namespace   string
+	topicPrefix string
+
 	messageProduced metric.Int64Counter
-	messageErrored  metric.Int64Counter
 	messageFetched  metric.Int64Counter
 	messageDelay    metric.Float64Histogram
 }
 
-func newKgoHooks(mp metric.MeterProvider) (*metricHooks, error) {
+func newKgoHooks(mp metric.MeterProvider, namespace, topicPrefix string) (*metricHooks, error) {
 	m := mp.Meter(instrumentName)
-	messageProducedCounter, err := m.Int64Counter(msgProducedKey,
+	messageProducedCounter, err := m.Int64Counter(msgProducedCountKey,
 		metric.WithDescription("The number of messages produced"),
 		metric.WithUnit(unitCount),
 	)
 	if err != nil {
-		return nil, formatMetricError(msgProducedKey, err)
-	}
-	messageErroredCounter, err := m.Int64Counter(msgErroredKey,
-		metric.WithDescription("The number of messages that failed to be produced"),
-		metric.WithUnit(unitCount),
-	)
-	if err != nil {
-		return nil, formatMetricError(msgErroredKey, err)
+		return nil, formatMetricError(msgProducedCountKey, err)
 	}
 	messageFetchedCounter, err := m.Int64Counter(msgFetchedKey,
 		metric.WithDescription("The number of messages that were fetched from a kafka topic"),
@@ -81,9 +77,10 @@ func newKgoHooks(mp metric.MeterProvider) (*metricHooks, error) {
 	}
 
 	return &metricHooks{
+		namespace:   namespace,
+		topicPrefix: topicPrefix,
 		// Producer
 		messageProduced: messageProducedCounter,
-		messageErrored:  messageErroredCounter,
 		// Consumer
 		messageFetched: messageFetchedCounter,
 		messageDelay:   messageDelayHistogram,
@@ -97,31 +94,48 @@ func formatMetricError(name string, err error) error {
 // OnProduceRecordUnbuffered records the number of produced / failed messages.
 // https://pkg.go.dev/github.com/twmb/franz-go/pkg/kgo#HookProduceRecordUnbuffered
 func (h *metricHooks) OnProduceRecordUnbuffered(r *kgo.Record, err error) {
-	attrs := attributesFromRecord(r)
+	attrs := attributesFromRecord(r,
+		semconv.MessagingDestinationName(strings.TrimPrefix(r.Topic, h.topicPrefix)),
+		semconv.MessagingKafkaDestinationPartition(int(r.Partition)),
+	)
+	if h.namespace != "" {
+		attrs = append(attrs, attribute.String("namespace", h.namespace))
+	}
+
 	if err != nil {
-		errorType := attribute.String("error", "other")
+		errorReasonAttr := attribute.String(errorReasonKey, "unknown")
 		if errors.Is(err, context.DeadlineExceeded) {
-			errorType = attribute.String("error", "timeout")
+			errorReasonAttr = attribute.String(errorReasonKey, "timeout")
 		} else if errors.Is(err, context.Canceled) {
-			errorType = attribute.String("error", "canceled")
+			errorReasonAttr = attribute.String(errorReasonKey, "canceled")
 		}
 
-		h.messageErrored.Add(context.Background(), 1,
-			metric.WithAttributes(append(attrs, errorType)...),
+		outcomeAttr := attribute.String("outcome", "failure")
+		h.messageProduced.Add(context.Background(), 1,
+			metric.WithAttributes(append(attrs, outcomeAttr, errorReasonAttr)...),
 		)
+
 		return
 	}
+
+	outcomeAttr := attribute.String("outcome", "success")
 	h.messageProduced.Add(context.Background(), 1,
-		metric.WithAttributes(attrs...),
+		metric.WithAttributes(append(attrs, outcomeAttr)...),
 	)
 }
 
 // OnFetchRecordUnbuffered records the number of fetched messages.
 // https://pkg.go.dev/github.com/twmb/franz-go/pkg/kgo#HookFetchRecordUnbuffered
 func (h *metricHooks) OnFetchRecordUnbuffered(r *kgo.Record, _ bool) {
-	attrs := attributesFromRecord(r)
+	attrs := attributesFromRecord(r,
+		semconv.MessagingSourceName(strings.TrimPrefix(r.Topic, h.topicPrefix)),
+		semconv.MessagingKafkaSourcePartition(int(r.Partition)),
+	)
+	if h.namespace != "" {
+		attrs = append(attrs, attribute.String("namespace", h.namespace))
+	}
 
-	h.messageFetched.Add(r.Context, 1,
+	h.messageFetched.Add(context.Background(), 1,
 		metric.WithAttributes(attrs...),
 	)
 
@@ -130,18 +144,15 @@ func (h *metricHooks) OnFetchRecordUnbuffered(r *kgo.Record, _ bool) {
 	span.SetAttributes(
 		attribute.Float64(msgDelayKey, delay),
 	)
-	h.messageDelay.Record(r.Context, delay, metric.WithAttributes(
+	h.messageDelay.Record(context.Background(), delay, metric.WithAttributes(
 		attrs...,
 	))
 }
 
-func attributesFromRecord(r *kgo.Record) []attribute.KeyValue {
+func attributesFromRecord(r *kgo.Record, extra ...attribute.KeyValue) []attribute.KeyValue {
 	attrs := make([]attribute.KeyValue, 0, 5) // Preallocate 5 elements.
-	attrs = append(attrs,
-		semconv.MessagingSystem("kafka"),
-		semconv.MessagingDestinationName(r.Topic),
-		semconv.MessagingKafkaDestinationPartition(int(r.Partition)),
-	)
+	attrs = append(attrs, semconv.MessagingSystem("kafka"))
+	attrs = append(attrs, extra...)
 	for _, v := range r.Headers {
 		if v.Key == "traceparent" { // Ignore traceparent.
 			continue

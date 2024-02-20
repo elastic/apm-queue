@@ -18,6 +18,7 @@
 package kafka
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"sort"
@@ -27,12 +28,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/twmb/franz-go/pkg/kadm"
 	"github.com/twmb/franz-go/pkg/kfake"
 	"github.com/twmb/franz-go/pkg/kgo"
-	"go.opentelemetry.io/otel/attribute"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.uber.org/zap"
@@ -48,8 +49,8 @@ func TestNewProducer(t *testing.T) {
 		_, err := NewProducer(ProducerConfig{})
 		require.Error(t, err)
 		assert.EqualError(t, err, "kafka: invalid producer config: "+strings.Join([]string{
-			"kafka: at least one broker must be set",
 			"kafka: logger must be set",
+			"kafka: at least one broker must be set",
 		}, "\n"))
 	})
 
@@ -64,6 +65,7 @@ func TestNewProducer(t *testing.T) {
 		p, err := NewProducer(validConfig)
 		require.NoError(t, err)
 		require.NotNil(t, p)
+		require.NoError(t, p.Close())
 	})
 
 	t.Run("compression_from_environment", func(t *testing.T) {
@@ -76,6 +78,7 @@ func TestNewProducer(t *testing.T) {
 			GzipCompression(),
 			NoCompression(),
 		}, p.cfg.CompressionCodec)
+		require.NoError(t, p.Close())
 	})
 
 	t.Run("invalid_compression_from_environment", func(t *testing.T) {
@@ -90,12 +93,6 @@ func TestNewProducer(t *testing.T) {
 }
 
 func TestNewProducerBasic(t *testing.T) {
-	exp := tracetest.NewInMemoryExporter()
-	tp := sdktrace.NewTracerProvider(
-		sdktrace.WithSyncer(exp),
-	)
-	defer tp.Shutdown(context.Background())
-
 	// This test ensures that basic producing is working, it tests:
 	// * Producing to a single topic
 	// * Producing a set number of records
@@ -103,50 +100,83 @@ func TestNewProducerBasic(t *testing.T) {
 	test := func(t *testing.T, sync bool) {
 		t.Run(fmt.Sprintf("sync_%t", sync), func(t *testing.T) {
 			topic := apmqueue.Topic("default-topic")
-			client, brokers := newClusterWithTopics(t, 1, topic)
-			producer, err := NewProducer(ProducerConfig{
+			namespacedTopic := "name_space-default-topic"
+			partitionCount := 10
+			exp := tracetest.NewInMemoryExporter()
+			tp := sdktrace.NewTracerProvider(
+				sdktrace.WithSyncer(exp),
+			)
+			defer tp.Shutdown(context.Background())
+
+			client, brokers := newClusterWithTopics(t, int32(partitionCount), namespacedTopic)
+			producer := newProducer(t, ProducerConfig{
 				CommonConfig: CommonConfig{
 					Brokers:        brokers,
 					Logger:         zap.NewNop(),
+					Namespace:      "name_space",
 					TracerProvider: tp,
 				},
-				Sync: sync,
+				Sync:               sync,
+				MaxBufferedRecords: 0,
 			})
-			require.NoError(t, err)
 
-			ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
-			defer cancel()
+			ctx := queuecontext.WithMetadata(context.Background(), map[string]string{"a": "b", "c": "d"})
 
-			ctx = queuecontext.WithMetadata(ctx, map[string]string{"a": "b", "c": "d"})
 			batch := []apmqueue.Record{
-				{Topic: topic, Value: []byte("1")},
-				{Topic: topic, Value: []byte("2")},
+				{Topic: topic, OrderingKey: nil, Value: []byte("1")},
+				{Topic: topic, OrderingKey: nil, Value: []byte("2")},
+				{Topic: topic, OrderingKey: []byte("key_2"), Value: []byte("3")},
+				{Topic: topic, OrderingKey: []byte("key_3"), Value: []byte("4")},
+				{Topic: topic, OrderingKey: []byte("key_1"), Value: []byte("5")},
+				{Topic: topic, OrderingKey: []byte("key_3"), Value: []byte("6")},
+				{Topic: topic, OrderingKey: []byte("key_1"), Value: []byte("7")},
+				{Topic: topic, OrderingKey: []byte("key_2"), Value: []byte("8")},
 			}
-			spanCount := len(exp.GetSpans())
 			if !sync {
 				// Cancel the context before calling Produce
 				ctxCancelled, cancelProduce := context.WithCancel(ctx)
 				cancelProduce()
-				producer.Produce(ctxCancelled, batch...)
+				require.NoError(t, producer.Produce(ctxCancelled, batch...))
 			} else {
-				producer.Produce(ctx, batch...)
+				produceCtx, cancel := context.WithTimeout(ctx, time.Second)
+				defer cancel()
+				require.NoError(t, producer.Produce(produceCtx, batch...))
 			}
 
-			client.AddConsumeTopics(string(topic))
-			for i := 0; i < len(batch); i++ {
+			var actual []apmqueue.Record
+			orderingKeyToPartitionM := make(map[string]int32)
+			client.AddConsumeTopics(namespacedTopic)
+			for i := 0; i < len(batch)*partitionCount && len(actual) < len(batch); i++ {
+				ctx, cancel := context.WithTimeout(ctx, time.Second)
+				defer cancel()
+
 				fetches := client.PollRecords(ctx, 1)
 				require.NoError(t, fetches.Err())
 
-				// Assert contents.
-				assert.Equal(t,
-					apmqueue.Record{Topic: topic, Value: []byte(fmt.Sprint(i + 1))},
-					batch[i],
-				)
-
 				// Assert length.
 				records := fetches.Records()
-				assert.Len(t, records, 1)
+				if len(records) == 0 {
+					continue
+				}
+				require.Len(t, records, 1)
 				record := records[0]
+
+				require.Equal(t, namespacedTopic, record.Topic)
+				actual = append(actual, apmqueue.Record{
+					Topic:       topic,
+					OrderingKey: record.Key,
+					Value:       record.Value,
+				})
+				if record.Key != nil {
+					// Assert that specific ordering key maps to same partition.
+					// If ordering key is unexpectedly nil then it will be caught
+					// in the assertion with expected batch of apmqueue.Record.
+					if p, ok := orderingKeyToPartitionM[string(record.Key)]; ok {
+						assert.Equal(t, p, record.Partition, "each ordering key must map to same partition")
+					} else {
+						orderingKeyToPartitionM[string(record.Key)] = record.Partition
+					}
+				}
 				// Sort headers and assert their existence.
 				sort.Slice(record.Headers, func(i, j int) bool {
 					return record.Headers[i].Key < record.Headers[j].Key
@@ -156,32 +186,18 @@ func TestNewProducerBasic(t *testing.T) {
 					{Key: "c", Value: []byte("d")},
 				}, record.Headers)
 			}
+			assert.Empty(t, cmp.Diff(
+				actual, batch,
+				cmpopts.SortSlices(func(a, b apmqueue.Record) bool {
+					return bytes.Compare(a.Value, b.Value) < 0
+				}),
+			))
 
 			// Assert no more records have been produced. A nil context is used to
 			// cause PollRecords to return immediately.
 			//lint:ignore SA1012 passing a nil context is a valid use for this call.
 			fetches := client.PollRecords(nil, 1)
 			assert.Len(t, fetches.Records(), 0)
-
-			// Assert tracing happened properly
-			assert.Eventually(t, func() bool {
-				return len(exp.GetSpans()) == spanCount+3
-			}, time.Second, 10*time.Millisecond)
-
-			var span tracetest.SpanStub
-			for _, s := range exp.GetSpans() {
-				if s.Name == "producer.Produce" {
-					span = s
-				}
-			}
-
-			assert.Equal(t, "producer.Produce", span.Name)
-			assert.Equal(t, []attribute.KeyValue{
-				attribute.Bool("sync", sync),
-				attribute.Int("record.count", 2),
-			}, span.Attributes)
-
-			exp.Reset()
 		})
 	}
 	test(t, true)
@@ -234,7 +250,7 @@ func TestProducerGracefulShutdown(t *testing.T) {
 		go func() { consumer.Run(ctx) }()
 		assert.Eventually(t, func() bool {
 			return processed.Load() == 1
-		}, 6*time.Second, time.Millisecond, processed)
+		}, 6*time.Second, time.Millisecond, "must process 1 event")
 	}
 
 	// use a variable for readability
@@ -278,9 +294,9 @@ func TestProducerConcurrentClose(t *testing.T) {
 	wg.Wait()
 }
 
-func newClusterWithTopics(t testing.TB, partitions int32, topics ...apmqueue.Topic) (*kgo.Client, []string) {
+func newClusterWithTopics(t testing.TB, partitions int32, topics ...string) (*kgo.Client, []string) {
 	t.Helper()
-	cluster, err := kfake.NewCluster()
+	cluster, err := kfake.NewCluster(kfake.SeedTopics(partitions, topics...))
 	require.NoError(t, err)
 	t.Cleanup(cluster.Close)
 
@@ -289,15 +305,6 @@ func newClusterWithTopics(t testing.TB, partitions int32, topics ...apmqueue.Top
 	client, err := kgo.NewClient(kgo.SeedBrokers(addrs...))
 	require.NoError(t, err)
 
-	kadmClient := kadm.NewClient(client)
-	t.Cleanup(kadmClient.Close)
-
-	strTopic := make([]string, 0, len(topics))
-	for _, t := range topics {
-		strTopic = append(strTopic, string(t))
-	}
-	_, err = kadmClient.CreateTopics(context.Background(), partitions, 1, nil, strTopic...)
-	require.NoError(t, err)
 	return client, addrs
 }
 

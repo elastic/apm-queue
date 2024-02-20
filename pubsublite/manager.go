@@ -44,10 +44,12 @@ type ManagerConfig struct {
 	CommonConfig
 }
 
-// Validate checks that cfg is valid, and returns an error otherwise.
-func (cfg ManagerConfig) Validate() error {
+// finalize ensures the configuration is valid, setting default values from
+// environment variables as described in doc comments, returning an error if
+// any configuration is invalid.
+func (cfg *ManagerConfig) finalize() error {
 	var errs []error
-	if err := cfg.CommonConfig.Validate(); err != nil {
+	if err := cfg.CommonConfig.finalize(); err != nil {
 		errs = append(errs, err)
 	}
 	return errors.Join(errs...)
@@ -62,10 +64,7 @@ type Manager struct {
 
 // NewManager returns a new Manager with the given config.
 func NewManager(cfg ManagerConfig) (*Manager, error) {
-	if err := cfg.CommonConfig.setFromEnv(); err != nil {
-		return nil, fmt.Errorf("pubsublite: failed to set config from environment: %w", err)
-	}
-	if err := cfg.Validate(); err != nil {
+	if err := cfg.finalize(); err != nil {
 		return nil, fmt.Errorf("pubsublite: invalid manager config: %w", err)
 	}
 	client, err := pubsublite.NewAdminClient(
@@ -92,6 +91,7 @@ func (m *Manager) Close() error {
 func (m *Manager) ListReservations(ctx context.Context) ([]string, error) {
 	parent := fmt.Sprintf("projects/%s/locations/%s", m.cfg.Project, m.cfg.Region)
 	iter := m.client.Reservations(ctx, parent)
+	namespacePrefix := m.cfg.namespacePrefix()
 	var names []string
 	for {
 		reservation, err := iter.Next()
@@ -101,13 +101,22 @@ func (m *Manager) ListReservations(ctx context.Context) ([]string, error) {
 			}
 			return nil, fmt.Errorf("pubsublite: failed listing reservations: %w", err)
 		}
-		names = append(names, path.Base(reservation.Name))
+		reservationName := path.Base(reservation.Name)
+		if !strings.HasPrefix(reservationName, namespacePrefix) {
+			continue
+		}
+		names = append(names, reservationName[len(namespacePrefix):])
 	}
 }
 
 // ListReservationTopics lists topics in the given reservation.
 func (m *Manager) ListReservationTopics(ctx context.Context, reservation string) ([]string, error) {
-	parent := fmt.Sprintf("projects/%s/locations/%s/reservations/%s", m.cfg.Project, m.cfg.Region, reservation)
+	namespacePrefix := m.cfg.namespacePrefix()
+	parent := fmt.Sprintf(
+		"projects/%s/locations/%s/reservations/%s%s",
+		m.cfg.Project, m.cfg.Region,
+		namespacePrefix, reservation,
+	)
 	iter := m.client.ReservationTopics(ctx, parent)
 	var names []string
 	for {
@@ -118,13 +127,22 @@ func (m *Manager) ListReservationTopics(ctx context.Context, reservation string)
 			}
 			return nil, fmt.Errorf("pubsublite: failed listing topics for reservation %q: %w", reservation, err)
 		}
-		names = append(names, path.Base(topicPath))
+		topicName := path.Base(topicPath)
+		if !strings.HasPrefix(topicName, namespacePrefix) {
+			continue
+		}
+		names = append(names, topicName[len(namespacePrefix):])
 	}
 }
 
 // ListTopicSubscriptions lists subscriptions for the given topic.
 func (m *Manager) ListTopicSubscriptions(ctx context.Context, topic string) ([]string, error) {
-	parent := fmt.Sprintf("projects/%s/locations/%s/topics/%s", m.cfg.Project, m.cfg.Region, topic)
+	namespacePrefix := m.cfg.namespacePrefix()
+	parent := fmt.Sprintf(
+		"projects/%s/locations/%s/topics/%s%s",
+		m.cfg.Project, m.cfg.Region,
+		namespacePrefix, topic,
+	)
 	iter := m.client.TopicSubscriptions(ctx, parent)
 	var names []string
 	for {
@@ -135,7 +153,11 @@ func (m *Manager) ListTopicSubscriptions(ctx context.Context, topic string) ([]s
 			}
 			return nil, fmt.Errorf("pubsublite: failed listing subscriptions for topic %q: %w", topic, err)
 		}
-		names = append(names, path.Base(subscriptionPath))
+		subscriptionName := path.Base(subscriptionPath)
+		if !strings.HasPrefix(subscriptionName, namespacePrefix) {
+			continue
+		}
+		names = append(names, subscriptionName[len(namespacePrefix):])
 	}
 }
 
@@ -146,8 +168,8 @@ func (m *Manager) CreateReservation(ctx context.Context, name string, throughput
 	logger := m.cfg.Logger.With(zap.String("reservation", name))
 	_, err := m.client.CreateReservation(ctx, pubsublite.ReservationConfig{
 		Name: fmt.Sprintf(
-			"projects/%s/locations/%s/reservations/%s",
-			m.cfg.Project, m.cfg.Region, name,
+			"projects/%s/locations/%s/reservations/%s%s",
+			m.cfg.Project, m.cfg.Region, m.cfg.namespacePrefix(), name,
 		),
 		ThroughputCapacity: throughputCapacity,
 	})
@@ -173,18 +195,19 @@ func (m *Manager) CreateSubscription(
 		zap.String("subscription", name),
 		zap.String("topic", topic),
 	)
+	namespacePrefix := m.cfg.namespacePrefix()
 	deliveryRequirement := pubsublite.DeliverAfterStored
 	if deliverImmediately {
 		deliveryRequirement = pubsublite.DeliverImmediately
 	}
 	_, err := m.client.CreateSubscription(ctx, pubsublite.SubscriptionConfig{
 		Name: fmt.Sprintf(
-			"projects/%s/locations/%s/subscriptions/%s",
-			m.cfg.Project, m.cfg.Region, name,
+			"projects/%s/locations/%s/subscriptions/%s%s",
+			m.cfg.Project, m.cfg.Region, namespacePrefix, name,
 		),
 		Topic: fmt.Sprintf(
-			"projects/%s/locations/%s/topics/%s",
-			m.cfg.Project, m.cfg.Region, topic,
+			"projects/%s/locations/%s/topics/%s%s",
+			m.cfg.Project, m.cfg.Region, namespacePrefix, topic,
 		),
 		DeliveryRequirement: deliveryRequirement,
 	}, pubsublite.AtTargetLocation(pubsublite.Beginning))
@@ -210,7 +233,8 @@ func (m *Manager) CreateSubscription(
 func (m *Manager) DeleteReservation(ctx context.Context, reservation string) error {
 	logger := m.cfg.Logger.With(zap.String("reservation", reservation))
 	if err := m.client.DeleteReservation(ctx, fmt.Sprintf(
-		"projects/%s/locations/%s/reservations/%s", m.cfg.Project, m.cfg.Region, reservation,
+		"projects/%s/locations/%s/reservations/%s%s",
+		m.cfg.Project, m.cfg.Region, m.cfg.namespacePrefix(), reservation,
 	)); err != nil {
 		if err, ok := apierror.FromError(err); ok && err.Reason() == "RESOURCE_NOT_EXIST" {
 			logger.Debug("pubsublite reservation does not exist")
@@ -228,7 +252,8 @@ func (m *Manager) DeleteReservation(ctx context.Context, reservation string) err
 func (m *Manager) DeleteTopic(ctx context.Context, topic string) error {
 	logger := m.cfg.Logger.With(zap.String("topic", topic))
 	if err := m.client.DeleteTopic(ctx, fmt.Sprintf(
-		"projects/%s/locations/%s/topics/%s", m.cfg.Project, m.cfg.Region, topic,
+		"projects/%s/locations/%s/topics/%s%s",
+		m.cfg.Project, m.cfg.Region, m.cfg.namespacePrefix(), topic,
 	)); err != nil {
 		if err, ok := apierror.FromError(err); ok && err.Reason() == "RESOURCE_NOT_EXIST" {
 			logger.Debug("pubsublite topic does not exist")
@@ -246,7 +271,8 @@ func (m *Manager) DeleteTopic(ctx context.Context, topic string) error {
 func (m *Manager) DeleteSubscription(ctx context.Context, subscription string) error {
 	logger := m.cfg.Logger.With(zap.String("subscription", subscription))
 	if err := m.client.DeleteSubscription(ctx, fmt.Sprintf(
-		"projects/%s/locations/%s/subscriptions/%s", m.cfg.Project, m.cfg.Region, subscription,
+		"projects/%s/locations/%s/subscriptions/%s%s",
+		m.cfg.Project, m.cfg.Region, m.cfg.namespacePrefix(), subscription,
 	)); err != nil {
 		if err, ok := apierror.FromError(err); ok && err.Reason() == "RESOURCE_NOT_EXIST" {
 			logger.Debug("pubsublite subscription does not exist")
@@ -268,17 +294,26 @@ func (m *Manager) MonitorConsumerLag(topicConsumers []apmqueue.TopicConsumer) (m
 		return nil, fmt.Errorf("pubsublite: failed to create consumer_group_lag metric: %w", err)
 	}
 
+	namespacePrefix := m.cfg.namespacePrefix()
 	subscriptionIDFilters := make([]string, len(topicConsumers))
 	for i, tc := range topicConsumers {
-		subscriptionIDFilters[i] = fmt.Sprintf("resource.labels.subscription_id = \"%s\"",
-			JoinTopicConsumer(tc.Topic, tc.Consumer))
+		subscriptionIDFilters[i] = fmt.Sprintf(
+			"resource.labels.subscription_id = \"%s%s\"",
+			namespacePrefix,
+			JoinTopicConsumer(tc.Topic, tc.Consumer),
+		)
 	}
-
 	filter := fmt.Sprintf("metric.type = \"pubsublite.googleapis.com/subscription/backlog_message_count\""+
-		" AND resource.labels.location = \"%s\""+
 		" AND (%s)",
-		m.cfg.Region,
 		strings.Join(subscriptionIDFilters, " OR "))
+
+	var commonAttributes []attribute.KeyValue
+	if m.cfg.Namespace != "" {
+		commonAttributes = append(
+			commonAttributes,
+			attribute.String("namespace", m.cfg.Namespace),
+		)
+	}
 
 	gatherMetrics := func(ctx context.Context, o metric.Observer) error {
 		it := m.monitoringClient.ListTimeSeries(ctx, &monitoringpb.ListTimeSeriesRequest{
@@ -300,12 +335,17 @@ func (m *Manager) MonitorConsumerLag(topicConsumers []apmqueue.TopicConsumer) (m
 				return fmt.Errorf("error reading from monitoring time series iterator: %w", err)
 			}
 
-			subscriptionID := resp.Resource.Labels["subscription_id"]
+			location := resp.Resource.Labels["location"]
+			if location != m.cfg.Region {
+				continue
+			}
+
+			subscriptionID := resp.Resource.Labels["subscription_id"][len(namespacePrefix):]
 			partition, err := strconv.Atoi(resp.Resource.Labels["partition"])
 			if err != nil {
 				m.cfg.Logger.Warn("error parsing partition id",
 					zap.Error(err),
-					zap.String("subscription_id", subscriptionID),
+					zap.String("subscription", subscriptionID),
 					zap.String("partition_string", resp.Resource.Labels["partition"]),
 				)
 				partition = -1
@@ -315,7 +355,7 @@ func (m *Manager) MonitorConsumerLag(topicConsumers []apmqueue.TopicConsumer) (m
 			if len(points) == 0 {
 				m.cfg.Logger.Warn("empty points in monitoring time series",
 					zap.Error(err),
-					zap.String("subscription_id", subscriptionID),
+					zap.String("subscription", subscriptionID),
 					zap.Int("partition", partition),
 				)
 				continue
@@ -335,6 +375,7 @@ func (m *Manager) MonitorConsumerLag(topicConsumers []apmqueue.TopicConsumer) (m
 
 			o.ObserveInt64(
 				consumerGroupLagMetric, lag,
+				metric.WithAttributes(commonAttributes...),
 				metric.WithAttributes(
 					attribute.String("topic", string(topic)),
 					attribute.String("group", consumer),

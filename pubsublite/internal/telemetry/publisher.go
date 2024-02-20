@@ -117,12 +117,12 @@ func (p *Producer) Publish(ctx context.Context, msg *pubsub.Message) pubsubabs.P
 		if err != nil {
 			span.RecordError(err)
 			span.SetStatus(codes.Error, err.Error())
-			p.metrics.errored.Add(ctx, 1, metric.WithAttributes(
+			p.metrics.errored.Add(context.Background(), 1, metric.WithAttributes(
 				attrs...,
 			))
 		} else {
 			span.SetStatus(codes.Ok, "success")
-			p.metrics.produced.Add(ctx, 1, metric.WithAttributes(
+			p.metrics.produced.Add(context.Background(), 1, metric.WithAttributes(
 				attrs...,
 			))
 		}

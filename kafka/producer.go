@@ -59,6 +59,15 @@ func ZstdCompression() CompressionCodec { return kgo.ZstdCompression() }
 type ProducerConfig struct {
 	CommonConfig
 
+	// MaxBufferedRecords sets the max amount of records the client will buffer
+	MaxBufferedRecords int
+
+	// ProducerBatchMaxBytes upper bounds the size of a record batch
+	ProducerBatchMaxBytes int32
+
+	// ManualFlushing disables auto-flushing when producing.
+	ManualFlushing bool
+
 	// Sync can be used to indicate whether production should be synchronous.
 	Sync bool
 
@@ -83,6 +92,12 @@ func (cfg *ProducerConfig) finalize() error {
 	var errs []error
 	if err := cfg.CommonConfig.finalize(); err != nil {
 		errs = append(errs, err)
+	}
+	if cfg.MaxBufferedRecords < 0 {
+		errs = append(errs, fmt.Errorf("kafka: max buffered records cannot be negative: %d", cfg.MaxBufferedRecords))
+	}
+	if cfg.ProducerBatchMaxBytes < 0 {
+		errs = append(errs, fmt.Errorf("kafka: producer batch max bytes cannot be negative: %d", cfg.ProducerBatchMaxBytes))
 	}
 	if len(cfg.CompressionCodec) == 0 {
 		if v := os.Getenv("KAFKA_PRODUCER_COMPRESSION_CODEC"); v != "" {
@@ -130,6 +145,15 @@ func NewProducer(cfg ProducerConfig) (*Producer, error) {
 	if len(cfg.CompressionCodec) > 0 {
 		opts = append(opts, kgo.ProducerBatchCompression(cfg.CompressionCodec...))
 	}
+	if cfg.MaxBufferedRecords != 0 {
+		opts = append(opts, kgo.MaxBufferedRecords(cfg.MaxBufferedRecords))
+	}
+	if cfg.ProducerBatchMaxBytes != 0 {
+		opts = append(opts, kgo.ProducerBatchMaxBytes(cfg.ProducerBatchMaxBytes))
+	}
+	if cfg.ManualFlushing {
+		opts = append(opts, kgo.ManualFlushing())
+	}
 	client, err := cfg.newClient(opts...)
 	if err != nil {
 		return nil, fmt.Errorf("kafka: failed creating producer: %w", err)
@@ -150,7 +174,7 @@ func (p *Producer) Close() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if err := p.client.Flush(context.Background()); err != nil {
-		return err
+		return fmt.Errorf("cannot flush on close: %w", err)
 	}
 	p.client.Close()
 	return nil
@@ -174,6 +198,7 @@ func (p *Producer) Produce(ctx context.Context, rs ...apmqueue.Record) error {
 	if len(rs) == 0 {
 		return nil
 	}
+
 	// Take a read lock to prevent Close from closing the client
 	// while we're attempting to produce records.
 	p.mu.RLock()
@@ -194,10 +219,12 @@ func (p *Producer) Produce(ctx context.Context, rs ...apmqueue.Record) error {
 	if !p.cfg.Sync {
 		ctx = queuecontext.DetachedContext(ctx)
 	}
+	namespacePrefix := p.cfg.namespacePrefix()
 	for _, record := range rs {
 		kgoRecord := &kgo.Record{
 			Headers: headers,
-			Topic:   string(record.Topic),
+			Topic:   fmt.Sprintf("%s%s", namespacePrefix, record.Topic),
+			Key:     record.OrderingKey,
 			Value:   record.Value,
 		}
 		p.client.Produce(ctx, kgoRecord, func(r *kgo.Record, err error) {
@@ -206,7 +233,7 @@ func (p *Producer) Produce(ctx context.Context, rs ...apmqueue.Record) error {
 			if err != nil {
 				p.cfg.Logger.Error("failed producing message",
 					zap.Error(err),
-					zap.String("topic", r.Topic),
+					zap.String("topic", strings.TrimPrefix(r.Topic, namespacePrefix)),
 					zap.Int64("offset", r.Offset),
 					zap.Int32("partition", r.Partition),
 					zap.Any("headers", headers),

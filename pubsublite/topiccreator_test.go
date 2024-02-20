@@ -23,7 +23,7 @@ import (
 	"testing"
 	"time"
 
-	pubsublitepb "cloud.google.com/go/pubsublite/apiv1/pubsublitepb"
+	"cloud.google.com/go/pubsublite/apiv1/pubsublitepb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
@@ -46,12 +46,12 @@ func TestManagerNewTopicCreator(t *testing.T) {
 	_, err = manager.NewTopicCreator(TopicCreatorConfig{})
 	require.Error(t, err)
 	assert.EqualError(t, err, "pubsublite: invalid topic creator config: "+strings.Join([]string{
-		"pubsublite: reservation must be set",
-		"pubsublite: partition count must be greater than zero",
-		"pubsublite: publish capacity must between 4 and 16, inclusive",
-		"pubsublite: subscribe capacity must between 4 and 32, inclusive",
-		"pubsublite: per-partition bytes must be at least 30GiB",
-		"pubsublite: retention duration must be greater than zero",
+		"reservation must be set",
+		"partition count must be greater than zero",
+		"publish capacity must between 4 and 16, inclusive",
+		"subscribe capacity must between 4 and 32, inclusive",
+		"per-partition bytes must be at least 30GiB",
+		"retention duration must be greater than zero",
 	}, "\n"))
 
 	creator, err := manager.NewTopicCreator(TopicCreatorConfig{
@@ -67,6 +67,9 @@ func TestManagerNewTopicCreator(t *testing.T) {
 }
 
 func TestTopicCreatorCreateTopics(t *testing.T) {
+	expectedTopicID := "name_space-topic_name"
+	expectedReservationPath := "projects/project/locations/region-1/reservations/name_space-reservation_name"
+
 	server, commonConfig := newTestAdminAndMetricService(t)
 	core, observedLogs := observer.New(zapcore.DebugLevel)
 	commonConfig.Logger = zap.New(core)
@@ -93,7 +96,7 @@ func TestTopicCreatorCreateTopics(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, "projects/project/locations/region-1", server.createTopicRequest.Parent)
-	assert.Equal(t, "topic_name", server.createTopicRequest.TopicId)
+	assert.Equal(t, expectedTopicID, server.createTopicRequest.TopicId)
 	assert.Equal(t, &pubsublitepb.Topic_PartitionConfig{
 		Count: 123,
 		Dimension: &pubsublitepb.Topic_PartitionConfig_Capacity_{
@@ -108,7 +111,7 @@ func TestTopicCreatorCreateTopics(t *testing.T) {
 		Period:            durationpb.New(time.Hour),
 	}, server.createTopicRequest.Topic.RetentionConfig)
 	assert.Equal(t, &pubsublitepb.Topic_ReservationConfig{
-		ThroughputReservation: "projects/project/locations/region-1/reservations/reservation_name",
+		ThroughputReservation: expectedReservationPath,
 	}, server.createTopicRequest.Topic.ReservationConfig)
 
 	errorInfo, err := anypb.New(&errdetails.ErrorInfo{Reason: "RESOURCE_ALREADY_EXISTS"})
@@ -125,15 +128,19 @@ func TestTopicCreatorCreateTopics(t *testing.T) {
 	err = creator.CreateTopics(context.Background(), "topic_name")
 	require.Error(t, err)
 	assert.EqualError(t, err,
-		`failed to create pubsublite topic "topic_name": rpc error: code = PermissionDenied desc = nope`,
+		`failed to create pubsublite topic "topic_name": cannot create pubsublite topic: rpc error: code = PermissionDenied desc = nope`,
 	)
 
 	assert.Equal(t, []observer.LoggedEntry{{
 		Entry: zapcore.Entry{
-			Level:   zapcore.InfoLevel,
-			Message: "created pubsublite topic",
+			Level:      zapcore.InfoLevel,
+			LoggerName: "pubsublite",
+			Message:    "created pubsublite topic",
 		},
 		Context: []zapcore.Field{
+			zap.String("region", "region-1"),
+			zap.String("project", "project"),
+			zap.String("namespace", "name_space"),
 			zap.String("topic", "topic_name"),
 			zap.String("reservation", "reservation_name"),
 			zap.Int("partition_count", 123),
@@ -144,10 +151,14 @@ func TestTopicCreatorCreateTopics(t *testing.T) {
 		},
 	}, {
 		Entry: zapcore.Entry{
-			Level:   zapcore.DebugLevel,
-			Message: "pubsublite topic already exists",
+			Level:      zapcore.DebugLevel,
+			LoggerName: "pubsublite",
+			Message:    "pubsublite topic already exists",
 		},
 		Context: []zapcore.Field{
+			zap.String("region", "region-1"),
+			zap.String("project", "project"),
+			zap.String("namespace", "name_space"),
 			zap.String("topic", "topic_name"),
 		},
 	}}, observedLogs.AllUntimed())

@@ -46,7 +46,6 @@ var (
 	pubsubliteReservationPrefix string
 	pubsubliteReservation       string
 	pubsubliteManager           *pubsublite.Manager
-	pubsubliteTopicCreator      *pubsublite.TopicCreator
 )
 
 // InitPubSubLite initialises Pub/Sub Lite configuration, and returns a pair
@@ -93,21 +92,6 @@ func ProvisionPubSubLite(ctx context.Context) error {
 	}
 	pubsubliteManager = manager
 
-	// Delete any existing reservations with the matching prefix, and their associated
-	// topics and subscriptions.
-	creator, err := pubsubliteManager.NewTopicCreator(pubsublite.TopicCreatorConfig{
-		Reservation:                pubsubliteReservation,
-		PartitionCount:             1,
-		PublishCapacityMiBPerSec:   4,
-		SubscribeCapacityMiBPerSec: 4,
-		PerPartitionBytes:          30 * 1024 * 1024 * 1024,
-		RetentionDuration:          time.Hour,
-	})
-	if err != nil {
-		return err
-	}
-	pubsubliteTopicCreator = creator
-
 	// Create the reservation if it doesn't already exist. We generate a random
 	// reservation name for the process's lifetime, since resource names cannot
 	// be reused within an hour of being destroyed.
@@ -144,8 +128,17 @@ func PubSubLiteCommonConfig(cfg pubsublite.CommonConfig) pubsublite.CommonConfig
 
 // CreatePubsubTopics interacts with the Google Cloud API to create
 // Pub/Sub Lite topics.
-func CreatePubsubTopics(ctx context.Context, t testing.TB, topics ...apmqueue.Topic) {
-	err := pubsubliteTopicCreator.CreateTopics(ctx, topics...)
+func CreatePubsubTopics(ctx context.Context, t testing.TB, partitions int, topics ...apmqueue.Topic) {
+	topicCreator, err := pubsubliteManager.NewTopicCreator(pubsublite.TopicCreatorConfig{
+		Reservation:                pubsubliteReservation,
+		PartitionCount:             partitions,
+		PublishCapacityMiBPerSec:   4,
+		SubscribeCapacityMiBPerSec: 4,
+		PerPartitionBytes:          30 * 1024 * 1024 * 1024,
+		RetentionDuration:          time.Hour,
+	})
+	require.NoError(t, err)
+	err = topicCreator.CreateTopics(ctx, topics...)
 	require.NoError(t, err)
 	for _, topic := range topics {
 		topic := string(topic)

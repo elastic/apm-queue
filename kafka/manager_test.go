@@ -42,14 +42,15 @@ import (
 	"go.uber.org/zap/zaptest/observer"
 
 	apmqueue "github.com/elastic/apm-queue"
+	"github.com/elastic/apm-queue/metrictest"
 )
 
 func TestNewManager(t *testing.T) {
 	_, err := NewManager(ManagerConfig{})
 	assert.Error(t, err)
 	assert.EqualError(t, err, "kafka: invalid manager config: "+strings.Join([]string{
-		"kafka: at least one broker must be set",
 		"kafka: logger must be set",
+		"kafka: at least one broker must be set",
 	}, "\n"))
 }
 
@@ -60,10 +61,12 @@ func TestManagerDeleteTopics(t *testing.T) {
 	)
 	defer tp.Shutdown(context.Background())
 
+	mt := metrictest.New()
 	cluster, commonConfig := newFakeCluster(t)
 	core, observedLogs := observer.New(zapcore.DebugLevel)
 	commonConfig.Logger = zap.New(core)
 	commonConfig.TracerProvider = tp
+	commonConfig.MeterProvider = mt.MeterProvider
 	m, err := NewManager(ManagerConfig{CommonConfig: commonConfig})
 	require.NoError(t, err)
 	t.Cleanup(func() { m.Close() })
@@ -74,11 +77,11 @@ func TestManagerDeleteTopics(t *testing.T) {
 		return &kmsg.DeleteTopicsResponse{
 			Version: deleteTopicsRequest.Version,
 			Topics: []kmsg.DeleteTopicsResponseTopic{{
-				Topic:        kmsg.StringPtr("topic1"),
+				Topic:        kmsg.StringPtr("name_space-topic1"),
 				ErrorCode:    kerr.UnknownTopicOrPartition.Code,
 				ErrorMessage: &kerr.UnknownTopicOrPartition.Message,
 			}, {
-				Topic:        kmsg.StringPtr("topic2"),
+				Topic:        kmsg.StringPtr("name_space-topic2"),
 				ErrorCode:    kerr.InvalidTopicException.Code,
 				ErrorMessage: &kerr.InvalidTopicException.Message,
 			}, {
@@ -96,28 +99,32 @@ func TestManagerDeleteTopics(t *testing.T) {
 
 	require.Len(t, deleteTopicsRequest.Topics, 3)
 	assert.Equal(t, []kmsg.DeleteTopicsRequestTopic{{
-		Topic: kmsg.StringPtr("topic1"),
+		Topic: kmsg.StringPtr("name_space-topic1"),
 	}, {
-		Topic: kmsg.StringPtr("topic2"),
+		Topic: kmsg.StringPtr("name_space-topic2"),
 	}, {
-		Topic: kmsg.StringPtr("topic3"),
+		Topic: kmsg.StringPtr("name_space-topic3"),
 	}}, deleteTopicsRequest.Topics)
 
 	matchingLogs := observedLogs.FilterFieldKey("topic")
 	assert.Equal(t, []observer.LoggedEntry{{
 		Entry: zapcore.Entry{
-			Level:   zapcore.DebugLevel,
-			Message: "kafka topic does not exist",
+			Level:      zapcore.DebugLevel,
+			LoggerName: "kafka",
+			Message:    "kafka topic does not exist",
 		},
 		Context: []zapcore.Field{
+			zap.String("namespace", "name_space"),
 			zap.String("topic", "topic1"),
 		},
 	}, {
 		Entry: zapcore.Entry{
-			Level:   zapcore.InfoLevel,
-			Message: "deleted kafka topic",
+			Level:      zapcore.InfoLevel,
+			LoggerName: "kafka",
+			Message:    "deleted kafka topic",
 		},
 		Context: []zapcore.Field{
+			zap.String("namespace", "name_space"),
 			zap.String("topic", "topic3"),
 		},
 	}}, matchingLogs.AllUntimed())
@@ -134,6 +141,26 @@ func TestManagerDeleteTopics(t *testing.T) {
 			"INVALID_TOPIC_EXCEPTION: The request attempted to perform an operation on an invalid topic.",
 		),
 	}, spans[0].Events[0].Attributes)
+	rm, err := mt.Collect(context.Background())
+	require.NoError(t, err)
+	// Filter all other kafka metrics.
+	var metrics []metricdata.Metrics
+	for _, sm := range rm.ScopeMetrics {
+		if sm.Scope.Name == "github.com/elastic/apm-queue/kafka" {
+			metrics = sm.Metrics
+			break
+		}
+	}
+	// Ensure only 1 topic was deleted, which also matches the number of spans.
+	assert.Equal(t, metrictest.Int64Metrics{
+		{Name: "topics.deleted.count"}: {
+			{K: "topic", V: "topic2"}:           1,
+			{K: "messaging.system", V: "kafka"}: 2,
+			{K: "outcome", V: "failure"}:        1,
+			{K: "outcome", V: "success"}:        1,
+			{K: "topic", V: "topic3"}:           1,
+		},
+	}, metrictest.GatherInt64Metric(metrics))
 }
 
 func TestManagerMetrics(t *testing.T) {
@@ -174,6 +201,10 @@ func TestManagerMetrics(t *testing.T) {
 			Topic:    "",
 			Consumer: "connect",
 		},
+		{
+			Regex:    "my.*",
+			Consumer: "consumer3",
+		},
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { registration.Unregister() })
@@ -195,13 +226,13 @@ func TestManagerMetrics(t *testing.T) {
 						MemberAssignment: (&kmsg.ConsumerMemberAssignment{
 							Version: 2,
 							Topics: []kmsg.ConsumerMemberAssignmentTopic{{
-								Topic:      "topic1",
+								Topic:      "name_space-topic1",
 								Partitions: []int32{1},
 							}},
 						}).AppendTo(nil),
 					}},
 				},
-				{Group: "connect", ProtocolType: "connect"}, // ignored
+				{Group: "connect", ProtocolType: "connect"},
 				{
 					Group:        "consumer2",
 					ProtocolType: "consumer",
@@ -213,10 +244,10 @@ func TestManagerMetrics(t *testing.T) {
 						MemberAssignment: (&kmsg.ConsumerMemberAssignment{
 							Version: 2,
 							Topics: []kmsg.ConsumerMemberAssignmentTopic{{
-								Topic:      "topic1",
+								Topic:      "name_space-topic1",
 								Partitions: []int32{2},
 							}, {
-								Topic:      "topic2",
+								Topic:      "name_space-topic2",
 								Partitions: []int32{3, 4},
 							}},
 						}).AppendTo(nil),
@@ -233,8 +264,30 @@ func TestManagerMetrics(t *testing.T) {
 						MemberAssignment: (&kmsg.ConsumerMemberAssignment{
 							Version: 2,
 							Topics: []kmsg.ConsumerMemberAssignmentTopic{{
-								Topic:      "topic3",
+								Topic:      "name_space-topic3",
 								Partitions: []int32{4},
+							}, {
+								Topic:      "name_space-mytopic",
+								Partitions: []int32{1},
+							}},
+						}).AppendTo(nil),
+					}},
+				},
+				{
+					// Consumer 4 and its topics are ignored since it's not
+					// captured by the monitoring list.
+					Group:        "consumer4",
+					ProtocolType: "consumer",
+					Members: []kmsg.DescribeGroupsResponseGroupMember{{
+						MemberID:   "member_id_3",
+						InstanceID: kmsg.StringPtr("instance_id_3"),
+						ClientID:   "client_id",
+						ClientHost: "127.0.0.1",
+						MemberAssignment: (&kmsg.ConsumerMemberAssignment{
+							Version: 2,
+							Topics: []kmsg.ConsumerMemberAssignmentTopic{{
+								Topic:      "name_space-mytopic",
+								Partitions: []int32{1},
 							}},
 						}).AppendTo(nil),
 					}},
@@ -242,6 +295,7 @@ func TestManagerMetrics(t *testing.T) {
 			},
 		}, nil, true
 	})
+
 	var offsetFetchRequest *kmsg.OffsetFetchRequest
 	cluster.ControlKey(kmsg.OffsetFetch.Int16(), func(req kmsg.Request) (kmsg.Response, error, bool) {
 		offsetFetchRequest = req.(*kmsg.OffsetFetchRequest)
@@ -250,7 +304,7 @@ func TestManagerMetrics(t *testing.T) {
 			Groups: []kmsg.OffsetFetchResponseGroup{{
 				Group: "consumer1",
 				Topics: []kmsg.OffsetFetchResponseGroupTopic{{
-					Topic: "topic1",
+					Topic: "name_space-topic1",
 					Partitions: []kmsg.OffsetFetchResponseGroupTopicPartition{{
 						Partition: 1,
 						Offset:    1,
@@ -259,31 +313,76 @@ func TestManagerMetrics(t *testing.T) {
 			}, {
 				Group: "consumer2",
 				Topics: []kmsg.OffsetFetchResponseGroupTopic{{
-					Topic: "topic1",
+					Topic: "name_space-topic1",
 					Partitions: []kmsg.OffsetFetchResponseGroupTopicPartition{{
 						Partition: 2,
 						Offset:    1,
 					}},
 				}, {
-					Topic: "topic2",
+					Topic: "name_space-topic2",
 					Partitions: []kmsg.OffsetFetchResponseGroupTopicPartition{{
 						Partition: 3,
 						Offset:    1,
 					}},
 				}},
 			}, {
-				Group:     "consumer3",
-				ErrorCode: kerr.GroupAuthorizationFailed.Code,
+				Group: "consumer3",
+				Topics: []kmsg.OffsetFetchResponseGroupTopic{{
+					Topic: "name_space-mytopic",
+					Partitions: []kmsg.OffsetFetchResponseGroupTopicPartition{{
+						Partition: 1,
+						Offset:    1,
+					}},
+				}},
+			}, {
+				// Consumer 4 and its topics are ignored since it's not
+				// captured by the monitoring list.
+				Group: "consumer4",
+				Topics: []kmsg.OffsetFetchResponseGroupTopic{{
+					Topic: "name_space-mytopic",
+					Partitions: []kmsg.OffsetFetchResponseGroupTopicPartition{{
+						Partition: 1,
+						Offset:    1,
+					}},
+				}},
 			}},
 		}, nil, true
 	})
+
+	var metadataRequest *kmsg.MetadataRequest
+	cluster.ControlKey(kmsg.Metadata.Int16(), func(req kmsg.Request) (kmsg.Response, error, bool) {
+		if len(req.(*kmsg.MetadataRequest).Topics) == 0 {
+			return nil, nil, false
+		}
+
+		metadataRequest = req.(*kmsg.MetadataRequest)
+		cluster.KeepControl()
+		return &kmsg.MetadataResponse{
+			Version: metadataRequest.Version,
+			Brokers: []kmsg.MetadataResponseBroker{},
+			Topics: []kmsg.MetadataResponseTopic{{
+				Topic:      kmsg.StringPtr("name_space-topic1"),
+				Partitions: []kmsg.MetadataResponseTopicPartition{{Partition: 1}, {Partition: 2}},
+			}, {
+				Topic:      kmsg.StringPtr("name_space-topic2"),
+				Partitions: []kmsg.MetadataResponseTopicPartition{{Partition: 3}},
+			}, {
+				Topic:      kmsg.StringPtr("name_space-topic3"),
+				Partitions: []kmsg.MetadataResponseTopicPartition{{Partition: 4}},
+			}, {
+				Topic:      kmsg.StringPtr("name_space-mytopic"),
+				Partitions: []kmsg.MetadataResponseTopicPartition{{Partition: 1}},
+			}},
+		}, nil, true
+	})
+
 	var listOffsetsRequest *kmsg.ListOffsetsRequest
 	cluster.ControlKey(kmsg.ListOffsets.Int16(), func(req kmsg.Request) (kmsg.Response, error, bool) {
 		listOffsetsRequest = req.(*kmsg.ListOffsetsRequest)
 		return &kmsg.ListOffsetsResponse{
 			Version: listOffsetsRequest.Version,
 			Topics: []kmsg.ListOffsetsResponseTopic{{
-				Topic: "topic1",
+				Topic: "name_space-topic1",
 				Partitions: []kmsg.ListOffsetsResponseTopicPartition{{
 					Partition: 1,
 					Offset:    1,
@@ -292,16 +391,22 @@ func TestManagerMetrics(t *testing.T) {
 					Offset:    2,
 				}},
 			}, {
-				Topic: "topic2",
+				Topic: "name_space-topic2",
 				Partitions: []kmsg.ListOffsetsResponseTopicPartition{{
 					Partition: 3,
 					Offset:    3,
 				}},
 			}, {
-				Topic: "topic3",
+				Topic: "name_space-topic3",
 				Partitions: []kmsg.ListOffsetsResponseTopicPartition{{
 					Partition: 4,
 					Offset:    4,
+				}},
+			}, {
+				Topic: "name_space-mytopic",
+				Partitions: []kmsg.ListOffsetsResponseTopicPartition{{
+					Partition: 1,
+					Offset:    2,
 				}},
 			}},
 		}, nil, true
@@ -317,7 +422,16 @@ func TestManagerMetrics(t *testing.T) {
 	assert.Equal(t, "github.com/elastic/apm-queue/kafka", rm.ScopeMetrics[0].Scope.Name)
 
 	metrics := rm.ScopeMetrics[0].Metrics
-	require.Len(t, metrics, 1)
+	require.Len(t, metrics, 2)
+	var lagMetric, assignmentMetric metricdata.Metrics
+	for _, metric := range metrics {
+		switch metric.Name {
+		case "consumer_group_lag":
+			lagMetric = metric
+		case "consumer_group_assignment":
+			assignmentMetric = metric
+		}
+	}
 	assert.Equal(t, "consumer_group_lag", metrics[0].Name)
 	metricdatatest.AssertAggregationsEqual(t, metricdata.Gauge[int64]{
 		DataPoints: []metricdata.DataPoint[int64]{{
@@ -326,61 +440,148 @@ func TestManagerMetrics(t *testing.T) {
 				attribute.String("topic", "topic1"),
 				attribute.Int("partition", 1),
 			),
-			Value: 1,
+			Value: 0, // end offset = 1, committed = 1
 		}, {
 			Attributes: attribute.NewSet(
 				attribute.String("group", "consumer2"),
 				attribute.String("topic", "topic1"),
 				attribute.Int("partition", 2),
 			),
-			Value: 2,
+			Value: 1, // end offset = 2, committed = 1
 		}, {
 			Attributes: attribute.NewSet(
 				attribute.String("group", "consumer2"),
 				attribute.String("topic", "topic2"),
 				attribute.Int("partition", 3),
 			),
-			Value: 3,
+			Value: 2, // end offset = 3, committed = 1
 		}, {
 			Attributes: attribute.NewSet(
 				attribute.String("group", "consumer3"),
 				attribute.String("topic", "topic3"),
 				attribute.Int("partition", 4),
 			),
-			Value: 4,
+			Value: 4, // end offset  = 4, nothing committed
+		}, {
+			Attributes: attribute.NewSet(
+				attribute.String("group", "consumer3"),
+				attribute.String("topic", "mytopic"),
+				attribute.Int("partition", 1),
+			),
+			Value: 1, // end offset  = 1, nothing committed
 		}},
-	}, metrics[0].Data, metricdatatest.IgnoreTimestamp())
+	}, lagMetric.Data, metricdatatest.IgnoreTimestamp())
+
+	metricdatatest.AssertAggregationsEqual(t, metricdata.Gauge[int64]{
+		DataPoints: []metricdata.DataPoint[int64]{{
+			Attributes: attribute.NewSet(
+				attribute.String("client_id", "client_id"),
+				attribute.String("group", "consumer1"),
+				attribute.String("topic", "topic1"),
+			),
+			Value: 1,
+		}, {
+			Attributes: attribute.NewSet(
+				attribute.String("client_id", "client_id"),
+				attribute.String("group", "consumer2"),
+				attribute.String("topic", "topic2"),
+			),
+			Value: 1,
+		}, {
+			Attributes: attribute.NewSet(
+				attribute.String("client_id", "client_id"),
+				attribute.String("group", "consumer2"),
+				attribute.String("topic", "topic1"),
+			),
+			Value: 1,
+		}, {
+			Attributes: attribute.NewSet(
+				attribute.String("client_id", "client_id"),
+				attribute.String("group", "consumer3"),
+				attribute.String("topic", "topic3"),
+			),
+			Value: 1,
+		}, {
+			Attributes: attribute.NewSet(
+				attribute.String("client_id", "client_id"),
+				attribute.String("group", "consumer3"),
+				attribute.String("topic", "mytopic"),
+			),
+			Value: 1,
+		}},
+	}, assignmentMetric.Data, metricdatatest.IgnoreTimestamp())
 
 	assert.Equal(t, int16(5), describeGroupsRequest.Version)
 	assert.ElementsMatch(t, []string{"connect", "consumer1", "consumer2", "consumer3"}, describeGroupsRequest.Groups)
-	assert.Equal(t, &kmsg.OffsetFetchRequest{
-		Version: 8,
-		Groups: []kmsg.OffsetFetchRequestGroup{
-			{Group: "consumer1"},
-			{Group: "consumer2"},
-			{Group: "consumer3"},
-		},
-	}, offsetFetchRequest)
-	assert.ElementsMatch(t, []kmsg.ListOffsetsRequestTopic{
-		{Topic: "topic1"}, {Topic: "topic2"}, {Topic: "topic3"},
-	}, listOffsetsRequest.Topics)
+	assert.ElementsMatch(t, []kmsg.OffsetFetchRequestGroup{
+		{Group: "connect"},
+		{Group: "consumer1"},
+		{Group: "consumer2"},
+		{Group: "consumer3"},
+	}, offsetFetchRequest.Groups)
+	assert.ElementsMatch(t, []kmsg.MetadataRequestTopic{
+		{Topic: kmsg.StringPtr("name_space-topic1")},
+		{Topic: kmsg.StringPtr("name_space-topic2")},
+		{Topic: kmsg.StringPtr("name_space-topic3")},
+		{Topic: kmsg.StringPtr("name_space-mytopic")},
+	}, metadataRequest.Topics)
+
+	sort.Slice(listOffsetsRequest.Topics, func(i, j int) bool {
+		return listOffsetsRequest.Topics[i].Topic < listOffsetsRequest.Topics[j].Topic
+	})
+	for _, topic := range listOffsetsRequest.Topics {
+		sort.Slice(topic.Partitions, func(i, j int) bool {
+			return topic.Partitions[i].Partition < topic.Partitions[j].Partition
+		})
+	}
+	assert.Equal(t, []kmsg.ListOffsetsRequestTopic{{
+		Topic: "name_space-mytopic",
+		Partitions: []kmsg.ListOffsetsRequestTopicPartition{{
+			Partition:          1,
+			CurrentLeaderEpoch: -1,
+			Timestamp:          -1,
+			MaxNumOffsets:      1,
+		}},
+	}, {
+		Topic: "name_space-topic1",
+		Partitions: []kmsg.ListOffsetsRequestTopicPartition{{
+			Partition:          1,
+			CurrentLeaderEpoch: -1,
+			Timestamp:          -1,
+			MaxNumOffsets:      1,
+		}, {
+			Partition:          2,
+			CurrentLeaderEpoch: -1,
+			Timestamp:          -1,
+			MaxNumOffsets:      1,
+		}},
+	}, {
+		Topic: "name_space-topic2",
+		Partitions: []kmsg.ListOffsetsRequestTopicPartition{{
+			Partition:          3,
+			CurrentLeaderEpoch: -1,
+			Timestamp:          -1,
+			MaxNumOffsets:      1,
+		}},
+	}, {
+		Topic: "name_space-topic3",
+		Partitions: []kmsg.ListOffsetsRequestTopicPartition{{
+			Partition:          4,
+			CurrentLeaderEpoch: -1,
+			Timestamp:          -1,
+			MaxNumOffsets:      1,
+		}},
+	}}, listOffsetsRequest.Topics)
 
 	matchingLogs := observedLogs.FilterFieldKey("group")
 	assert.Equal(t, []observer.LoggedEntry{{
 		Entry: zapcore.Entry{
-			Level:   zapcore.DebugLevel,
-			Message: "ignoring non-consumer group",
+			Level:      zapcore.WarnLevel,
+			LoggerName: "kafka",
+			Message:    "error getting consumer group lag",
 		},
 		Context: []zapcore.Field{
-			zap.String("group", "connect"),
-			zap.String("protocol_type", "connect"),
-		},
-	}, {
-		Entry: zapcore.Entry{
-			Level:   zapcore.WarnLevel,
-			Message: "error getting consumer group lag",
-		},
-		Context: []zapcore.Field{
+			zap.String("namespace", "name_space"),
 			zap.String("group", "consumer2"),
 			zap.String("topic", "topic2"),
 			zap.Int32("partition", 4),
@@ -401,7 +602,8 @@ func newFakeCluster(t testing.TB) (*kfake.Cluster, CommonConfig) {
 	require.NoError(t, err)
 	t.Cleanup(cluster.Close)
 	return cluster, CommonConfig{
-		Brokers: cluster.ListenAddrs(),
-		Logger:  zap.NewNop(),
+		Brokers:   cluster.ListenAddrs(),
+		Logger:    zap.NewNop(),
+		Namespace: "name_space",
 	}
 }

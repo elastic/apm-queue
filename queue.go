@@ -77,6 +77,9 @@ type Producer interface {
 type Record struct {
 	// Topics holds the topic where the record will be produced.
 	Topic Topic
+	// OrderingKey is an optional field that is hashed to map to a partition.
+	// Records with same ordering key are routed to the same partition.
+	OrderingKey []byte
 	// Value holds the record's content. It must not be mutated after Produce.
 	Value []byte
 }
@@ -100,7 +103,12 @@ func (f ProcessorFunc) Process(ctx context.Context, rs ...Record) error {
 // Topic represents a destination topic where to produce a message/record.
 type Topic string
 
+// TopicConsumer is used to monitor a set of consumer topics.
 type TopicConsumer struct {
-	Topic    Topic
+	// Optional topic to monitor.
+	Topic Topic
+	// Optional regex expression to match topics for monitoring.
+	Regex string
+	// Required consumer name.
 	Consumer string
 }

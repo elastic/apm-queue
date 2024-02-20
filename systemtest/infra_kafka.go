@@ -59,7 +59,7 @@ func InitKafka() (ProvisionInfraFunc, DestroyInfraFunc, error) {
 		logger().Infof("KAFKA_BROKERS is set (%q), skipping Kafka cluster provisioning", brokers)
 		kafkaBrokers = strings.Split(brokers, ",")
 		nop := func(context.Context) error { return nil }
-		return nop, nil, nil
+		return nop, nop, nil
 	}
 	logger().Infof("managing Redpanda in Docker")
 	return ProvisionKafka, DestroyKafka, nil
@@ -141,19 +141,26 @@ func DestroyKafka(ctx context.Context) error {
 	return nil
 }
 
+// NewKafkaManager returns a new kafka.Manager for the configured broker.
+func NewKafkaManager(t testing.TB) *kafka.Manager {
+	mgr, err := kafka.NewManager(kafka.ManagerConfig{
+		CommonConfig: KafkaCommonConfig(t, kafka.CommonConfig{
+			Logger: defaultCfg.loggerF(t),
+		}),
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, mgr.Close()) })
+	return mgr
+}
+
 // CreateKafkaTopics interacts with the Kafka broker to create topics,
 // deleting them when the test completes.
 //
-// Topics are created with 1 partition and 1 hour of retention.
-func CreateKafkaTopics(ctx context.Context, t testing.TB, topics ...apmqueue.Topic) {
-	manager, err := NewKafkaManager(t)
-	require.NoError(t, err)
-	t.Cleanup(func() {
-		assert.NoError(t, manager.Close())
-	})
-
+// Topics are created with given partitions and 1 hour of retention.
+func CreateKafkaTopics(ctx context.Context, t testing.TB, partitions int, topics ...apmqueue.Topic) {
+	manager := NewKafkaManager(t)
 	topicCreator, err := manager.NewTopicCreator(kafka.TopicCreatorConfig{
-		PartitionCount: 1,
+		PartitionCount: partitions,
 		TopicConfigs: map[string]string{
 			"retention.ms": strconv.FormatInt(time.Hour.Milliseconds(), 10),
 		},
@@ -163,8 +170,9 @@ func CreateKafkaTopics(ctx context.Context, t testing.TB, topics ...apmqueue.Top
 	err = topicCreator.CreateTopics(ctx, topics...)
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		err = manager.DeleteTopics(context.Background(), topics...)
-		require.NoError(t, err)
+		require.NoError(t, manager.DeleteTopics(
+			context.Background(), topics...,
+		))
 	})
 }
 
@@ -185,15 +193,6 @@ func execCommandStdin(ctx context.Context, stdin io.Reader, command string, args
 		)
 	}
 	return nil
-}
-
-// NewKafkaManager returns a new kafka.Manager for the configured broker.
-func NewKafkaManager(t testing.TB) (*kafka.Manager, error) {
-	return kafka.NewManager(kafka.ManagerConfig{
-		CommonConfig: KafkaCommonConfig(t, kafka.CommonConfig{
-			Logger: defaultCfg.loggerF(t),
-		}),
-	})
 }
 
 // KafkaCommonConfig returns a kafka.CommonConfig suitable for connecting to
