@@ -186,9 +186,9 @@ type consumerAssertions struct {
 }
 
 func assertProcessor(t testing.TB, assertions consumerAssertions) apmqueue.Processor {
-	return apmqueue.ProcessorFunc(func(_ context.Context, r ...apmqueue.Record) error {
-		assert.Greater(t, len(r), 0)
-		assertions.records.Add(int64(len(r)))
+	return apmqueue.ProcessorFunc(func(_ context.Context, r apmqueue.Record) error {
+		assert.NotEmpty(t, r)
+		assertions.records.Add(1)
 		return nil
 	})
 }
@@ -206,16 +206,13 @@ func sequenceConsumerAssertionProcessor(
 	assertions *sequenceConsumerAssertions,
 	sequenceExtractor func(apmqueue.Record) int,
 ) apmqueue.Processor {
-	return apmqueue.ProcessorFunc(func(_ context.Context, r ...apmqueue.Record) error {
-		for _, record := range r {
-			seq := sequenceExtractor(record)
-			assert.True(
-				t, assertions.lastSeen.CompareAndSwap(int32(seq), int32(seq+1)),
-				"all records should be sent to same partition and consumed in sequence",
-			)
-		}
-		assert.Greater(t, len(r), 0)
-		assertions.records.Add(int64(len(r)))
+	return apmqueue.ProcessorFunc(func(_ context.Context, r apmqueue.Record) error {
+		seq := sequenceExtractor(r)
+		assert.True(
+			t, assertions.lastSeen.CompareAndSwap(int32(seq), int32(seq+1)),
+			"all records should be sent to same partition and consumed in sequence",
+		)
+		assertions.records.Add(1)
 		return nil
 	})
 }
@@ -229,7 +226,7 @@ func TestShutdown(t *testing.T) {
 		} {
 			t.Run(name, func(t *testing.T) {
 				received := make(chan struct{})
-				processor := apmqueue.ProcessorFunc(func(context.Context, ...apmqueue.Record) error {
+				processor := apmqueue.ProcessorFunc(func(context.Context, apmqueue.Record) error {
 					close(received)
 					return nil
 				})
