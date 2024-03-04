@@ -206,8 +206,8 @@ func TestConsumerMetrics(t *testing.T) {
 
 	done := make(chan struct{})
 	var processed atomic.Int64
-	proc := apmqueue.ProcessorFunc(func(_ context.Context, r ...apmqueue.Record) error {
-		processed.Add(int64(len(r)))
+	proc := apmqueue.ProcessorFunc(func(_ context.Context, r apmqueue.Record) error {
+		processed.Add(1)
 		if processed.Load() == int64(records) {
 			close(done)
 		}

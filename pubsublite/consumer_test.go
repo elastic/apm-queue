@@ -114,11 +114,8 @@ func TestConsumerConsume(t *testing.T) {
 			},
 		}}
 	}
-	server.process = func(ctx context.Context, records ...apmqueue.Record) error {
-		if n := len(records); n != 1 {
-			panic(fmt.Errorf("expected 1 record, got %d", n))
-		}
-		ch <- records[0]
+	server.process = func(ctx context.Context, record apmqueue.Record) error {
+		ch <- record
 		return nil
 	}
 
@@ -180,7 +177,7 @@ func newConsumerService(t testing.TB) (*subscriberServiceServer, ConsumerConfig)
 	t.Cleanup(s.Stop)
 	server := &subscriberServiceServer{
 		startSession: func(*subscriberSession, *pubsublitepb.SeekRequest) {},
-		process: func(ctx context.Context, records ...apmqueue.Record) error {
+		process: func(context.Context, apmqueue.Record) error {
 			return nil
 		},
 	}
@@ -208,9 +205,9 @@ func newConsumerService(t testing.TB) (*subscriberServiceServer, ConsumerConfig)
 		ConsumerName: "consumer_name",
 		Topics:       []apmqueue.Topic{"topic1", "topic2"},
 		Delivery:     apmqueue.AtMostOnceDeliveryType,
-		Processor: apmqueue.ProcessorFunc(func(ctx context.Context, records ...apmqueue.Record) error {
+		Processor: apmqueue.ProcessorFunc(func(ctx context.Context, record apmqueue.Record) error {
 			if server.process != nil {
-				return server.process(ctx, records...)
+				return server.process(ctx, record)
 			}
 			return nil
 		}),

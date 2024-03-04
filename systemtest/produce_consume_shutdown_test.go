@@ -33,8 +33,8 @@ func TestGracefulShutdownProducer(t *testing.T) {
 		runAsyncAndSync(t, func(t *testing.T, isSync bool) {
 			var processed atomic.Int64
 			topic := SuffixTopics(apmqueue.Topic(t.Name()))[0]
-			processor := apmqueue.ProcessorFunc(func(_ context.Context, r ...apmqueue.Record) error {
-				processed.Add(int64(len(r)))
+			processor := apmqueue.ProcessorFunc(func(_ context.Context, r apmqueue.Record) error {
+				processed.Add(1)
 				return nil
 			})
 			producer, consumer := pf(t,
@@ -65,13 +65,13 @@ func TestGracefulShutdownConsumer(t *testing.T) {
 		forEachDeliveryType(t, func(t *testing.T, dt apmqueue.DeliveryType) {
 			var processed atomic.Int64
 			signal := make(chan struct{})
-			processor := apmqueue.ProcessorFunc(func(ctx context.Context, r ...apmqueue.Record) error {
+			processor := apmqueue.ProcessorFunc(func(ctx context.Context, r apmqueue.Record) error {
 				select {
 				case <-ctx.Done():
 					return ctx.Err()
 				case signal <- struct{}{}:
 				}
-				processed.Add(int64(len(r)))
+				processed.Add(1)
 				return nil
 			})
 			topic := SuffixTopics(apmqueue.Topic(t.Name()))[0]

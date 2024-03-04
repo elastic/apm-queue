@@ -224,9 +224,9 @@ func TestProducerGracefulShutdown(t *testing.T) {
 			GroupID:  "group",
 			Topics:   []apmqueue.Topic{"topic"},
 			Delivery: dt,
-			Processor: apmqueue.ProcessorFunc(func(_ context.Context, r ...apmqueue.Record) error {
+			Processor: apmqueue.ProcessorFunc(func(_ context.Context, r apmqueue.Record) error {
 				<-wait
-				processed.Add(int64(len(r)))
+				processed.Add(1)
 				return nil
 			}),
 		})

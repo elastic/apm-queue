@@ -89,15 +89,15 @@ type Processor interface {
 	// Process processes one or more records within the passed context.
 	// Process takes ownership of the passed records, callers must not mutate
 	// a record after Process has been called.
-	Process(context.Context, ...Record) error
+	Process(context.Context, Record) error
 }
 
 // ProcessorFunc is a function type that implements the Processor interface.
-type ProcessorFunc func(context.Context, ...Record) error
+type ProcessorFunc func(context.Context, Record) error
 
 // Process returns f(ctx, records...).
-func (f ProcessorFunc) Process(ctx context.Context, rs ...Record) error {
-	return f(ctx, rs...)
+func (f ProcessorFunc) Process(ctx context.Context, rs Record) error {
+	return f(ctx, rs)
 }
 
 // Topic represents a destination topic where to produce a message/record.
