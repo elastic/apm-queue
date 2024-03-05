@@ -354,6 +354,9 @@ func TestConsumerDelivery(t *testing.T) {
 			}
 
 			assert.Eventually(t, func() bool {
+				if tc.deliveryType == apmqueue.AtLeastOnceDeliveryType {
+					return int(errored.Load()) >= int(tc.errored)
+				}
 				return int(errored.Load()) == int(tc.errored)
 			}, time.Second, time.Millisecond)
 			t.Logf("got: %d events errored, %d processed, want: %d errored, %d processed",
@@ -386,7 +389,7 @@ func TestConsumerDelivery(t *testing.T) {
 			assert.Eventually(t, func() bool {
 				// Some events may or may not be processed. Assert GE.
 				return processed.Load() >= tc.processed &&
-					errored.Load() == tc.errored
+					errored.Load() >= tc.errored
 			}, 2*time.Second, time.Millisecond)
 			t.Logf("got: %d events errored, %d processed, want: %d errored, %d processed",
 				errored.Load(), processed.Load(), tc.errored, tc.processed,

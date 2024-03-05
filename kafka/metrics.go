@@ -28,7 +28,6 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 	semconv "go.opentelemetry.io/otel/semconv/v1.17.0"
-	"go.opentelemetry.io/otel/trace"
 )
 
 const (
@@ -109,24 +108,24 @@ func (h *metricHooks) OnProduceRecordUnbuffered(r *kgo.Record, err error) {
 		} else if errors.Is(err, context.Canceled) {
 			errorReasonAttr = attribute.String(errorReasonKey, "canceled")
 		}
-
-		outcomeAttr := attribute.String("outcome", "failure")
-		h.messageProduced.Add(context.Background(), 1,
-			metric.WithAttributes(append(attrs, outcomeAttr, errorReasonAttr)...),
-		)
-
-		return
+		attrs = append(attrs, errorReasonAttr, attribute.String(
+			"outcome", "failure",
+		))
+	} else {
+		attrs = append(attrs, attribute.String("outcome", "success"))
 	}
 
-	outcomeAttr := attribute.String("outcome", "success")
-	h.messageProduced.Add(context.Background(), 1,
-		metric.WithAttributes(append(attrs, outcomeAttr)...),
-	)
+	h.messageProduced.Add(context.Background(), 1, metric.WithAttributes(
+		attrs...,
+	))
 }
 
 // OnFetchRecordUnbuffered records the number of fetched messages.
 // https://pkg.go.dev/github.com/twmb/franz-go/pkg/kgo#HookFetchRecordUnbuffered
-func (h *metricHooks) OnFetchRecordUnbuffered(r *kgo.Record, _ bool) {
+func (h *metricHooks) OnFetchRecordUnbuffered(r *kgo.Record, polled bool) {
+	if !polled {
+		return // Record metrics when polled by `client.PollRecords()`.
+	}
 	attrs := attributesFromRecord(r,
 		semconv.MessagingSourceName(strings.TrimPrefix(r.Topic, h.topicPrefix)),
 		semconv.MessagingKafkaSourcePartition(int(r.Partition)),
@@ -135,18 +134,11 @@ func (h *metricHooks) OnFetchRecordUnbuffered(r *kgo.Record, _ bool) {
 		attrs = append(attrs, attribute.String("namespace", h.namespace))
 	}
 
-	h.messageFetched.Add(context.Background(), 1,
-		metric.WithAttributes(attrs...),
+	attrSet := metric.WithAttributes(attrs...)
+	h.messageFetched.Add(context.Background(), 1, attrSet)
+	h.messageDelay.Record(context.Background(),
+		time.Since(r.Timestamp).Seconds(), attrSet,
 	)
-
-	span := trace.SpanFromContext(r.Context)
-	delay := time.Since(r.Timestamp).Seconds()
-	span.SetAttributes(
-		attribute.Float64(msgDelayKey, delay),
-	)
-	h.messageDelay.Record(context.Background(), delay, metric.WithAttributes(
-		attrs...,
-	))
 }
 
 func attributesFromRecord(r *kgo.Record, extra ...attribute.KeyValue) []attribute.KeyValue {

@@ -270,11 +270,9 @@ func (cfg *CommonConfig) newClient(additionalOpts ...kgo.Opt) (*kgo.Client, erro
 	}
 	opts = append(opts, additionalOpts...)
 	if !cfg.DisableTelemetry {
-		kotelService := kotel.NewKotel(
-			// NOTE(marclop) do not trace on a per-record basis.
-			// kotel.WithTracer(kotel.NewTracer(kotel.TracerProvider(cfg.tracerProvider()))),
-			kotel.WithMeter(kotel.NewMeter(kotel.MeterProvider(cfg.meterProvider()))),
-		)
+		kotelService := kotel.NewKotel(kotel.WithMeter(
+			kotel.NewMeter(kotel.MeterProvider(cfg.meterProvider())),
+		))
 		metricHooks, err := newKgoHooks(cfg.meterProvider(), cfg.Namespace, cfg.namespacePrefix())
 		if err != nil {
 			return nil, fmt.Errorf("kafka: failed creating kgo metrics hooks: %w", err)

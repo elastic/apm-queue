@@ -28,6 +28,7 @@ import (
 	"github.com/twmb/franz-go/pkg/kgo"
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
+	"golang.org/x/sync/errgroup"
 
 	apmqueue "github.com/elastic/apm-queue"
 	"github.com/elastic/apm-queue/queuecontext"
@@ -99,6 +100,14 @@ type ConsumerConfig struct {
 	// AtMostOnceDeliveryType and AtLeastOnceDeliveryType are supported.
 	// If not set, it defaults to apmqueue.AtMostOnceDeliveryType.
 	Delivery apmqueue.DeliveryType
+	// MaxProcessorConcurrency increases the number of parallel processing calls from a
+	// topic/partition to the defined Processor.
+	// Please note that increasing this beyond 1 may result in out-of-order
+	// record processing. Additionally, if Delivery is set to AtLeastOnceDelivery
+	// commits may happen out of order, which will rewind the consumer, causing
+	// some records to be re-processed.
+	// Default: 1
+	MaxProcessorConcurrency int
 	// Processor that will be used to process each event individually.
 	// It is recommended to keep the synchronous processing fast and below the
 	// rebalance.timeout.ms setting in Kafka.
@@ -162,9 +171,13 @@ func NewConsumer(cfg ConsumerConfig) (*Consumer, error) {
 	// `cfg.ShutdownGracePeriod` is exceeded.
 	processingCtx, forceClose := context.WithCancelCause(context.Background())
 	namespacePrefix := cfg.namespacePrefix()
+	if cfg.MaxProcessorConcurrency <= 0 {
+		cfg.MaxProcessorConcurrency = 1
+	}
 	consumer := &consumer{
 		topicPrefix: namespacePrefix,
-		records:     make(map[topicPartition]chan []*kgo.Record),
+		maxProcess:  cfg.MaxProcessorConcurrency,
+		assignments: make(map[topicPartition]*pc),
 		processor:   cfg.Processor,
 		logger:      cfg.Logger.Named("partition"),
 		delivery:    cfg.Delivery,
@@ -234,7 +247,6 @@ func NewConsumer(cfg ConsumerConfig) (*Consumer, error) {
 func (c *Consumer) Close() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	defer c.consumer.wg.Wait() // Wait for consumer goroutines to exit.
 	select {
 	case <-c.closed:
 	default:
@@ -355,15 +367,17 @@ func (c *Consumer) Healthy(ctx context.Context) error {
 // to use when partitions are reassigned.
 type consumer struct {
 	mu          sync.RWMutex
-	wg          sync.WaitGroup
 	topicPrefix string
-	records     map[topicPartition]chan []*kgo.Record
+	assignments map[topicPartition]*pc
 	processor   apmqueue.Processor
 	logger      *zap.Logger
 	delivery    apmqueue.DeliveryType
 	// ctx contains the graceful cancellation context that is passed to the
 	// partition consumers.
 	ctx context.Context
+	// maxProcess represents the maximum number of concurrent processor.Process
+	// calls that are issued per topic/partition combination.
+	maxProcess int
 }
 
 type topicPartition struct {
@@ -378,13 +392,14 @@ func (c *consumer) assigned(_ context.Context, client *kgo.Client, assigned map[
 	defer c.mu.Unlock()
 	for topic, partitions := range assigned {
 		for _, partition := range partitions {
-			c.wg.Add(1)
-			records := make(chan []*kgo.Record)
-			c.records[topicPartition{topic: topic, partition: partition}] = records
-			go func(topic string, partition int32) {
-				defer c.wg.Done()
-				c.consumeTopicPartition(client, records, topic, partition)
-			}(topic, partition)
+			t := strings.TrimPrefix(topic, c.topicPrefix)
+			pc := newPartitionConsumer(c.ctx, client, c.processor,
+				c.delivery, c.maxProcess, t, c.logger.With(
+					zap.String("topic", t),
+					zap.Int32("partition", partition),
+				),
+			)
+			c.assignments[topicPartition{topic: topic, partition: partition}] = pc
 		}
 	}
 }
@@ -397,15 +412,21 @@ func (c *consumer) assigned(_ context.Context, client *kgo.Client, assigned map[
 func (c *consumer) lost(_ context.Context, _ *kgo.Client, lost map[string][]int32) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	var wg sync.WaitGroup
 	for topic, partitions := range lost {
 		for _, partition := range partitions {
 			tp := topicPartition{topic: topic, partition: partition}
-			if records, ok := c.records[tp]; ok {
-				delete(c.records, tp)
-				close(records)
+			if consumer, ok := c.assignments[tp]; ok {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					consumer.wait()
+				}()
 			}
+			delete(c.assignments, tp)
 		}
 	}
+	wg.Wait()
 }
 
 // close is used on initiate clean shutdown. This call blocks until all the
@@ -416,11 +437,16 @@ func (c *consumer) lost(_ context.Context, _ *kgo.Client, lost map[string][]int3
 func (c *consumer) close() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	for tp, records := range c.records {
-		delete(c.records, tp)
-		close(records)
+	var wg sync.WaitGroup
+	for tp, consumer := range c.assignments {
+		delete(c.assignments, tp)
+		wg.Add(1)
+		go func(c *pc) {
+			defer wg.Done()
+			c.wait()
+		}(consumer)
 	}
-	c.wg.Wait()
+	wg.Wait()
 }
 
 // processFetch sends the received records for a partition to the corresponding
@@ -439,7 +465,7 @@ func (c *consumer) processFetch(ctx context.Context, fetches kgo.Fetches) {
 		if len(ftp.Records) == 0 {
 			return
 		}
-		records, ok := c.records[topicPartition{topic: ftp.Topic, partition: ftp.Partition}]
+		consumer, ok := c.assignments[topicPartition{topic: ftp.Topic, partition: ftp.Partition}]
 		if !ok {
 			// NOTE(marclop) While possible, this is unlikely to happen given the
 			// locking that's in place in the caller.
@@ -450,10 +476,15 @@ func (c *consumer) processFetch(ctx context.Context, fetches kgo.Fetches) {
 			}
 			return
 		}
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			consumer.consumeRecords(ftp)
+		}()
 		var err error
 		select {
 		// Send partition records to be processed by its dedicated goroutine.
-		case records <- ftp.Records:
+		case <-done:
 			// Success.
 		case <-ctx.Done(): // Consumer.Run(ctx) context.
 			err = ctx.Err()
@@ -487,36 +518,58 @@ func (c *consumer) OnFetchRecordBuffered(r *kgo.Record) {
 	}
 }
 
-// consumeTopicPartition processes the records for a topic and partition.
-func (c *consumer) consumeTopicPartition(
+type pc struct {
+	topic     apmqueue.Topic
+	g         errgroup.Group
+	logger    *zap.Logger
+	delivery  apmqueue.DeliveryType
+	processor apmqueue.Processor
+	client    *kgo.Client
+	ctx       context.Context
+}
+
+func newPartitionConsumer(ctx context.Context,
 	client *kgo.Client,
-	records <-chan []*kgo.Record,
-	prefixedTopic string, partition int32,
-) {
-	topic := apmqueue.Topic(strings.TrimPrefix(prefixedTopic, c.topicPrefix))
-	logger := c.logger.With(
-		zap.String("topic", string(topic)),
-		zap.Int32("partition", partition),
-	)
-	for records := range records {
-		// Store the last processed record. Default to -1 for cases where
+	processor apmqueue.Processor,
+	delivery apmqueue.DeliveryType,
+	maxProcess int,
+	topic string,
+	logger *zap.Logger,
+) *pc {
+	c := pc{
+		topic:     apmqueue.Topic(topic),
+		ctx:       ctx,
+		client:    client,
+		processor: processor,
+		delivery:  delivery,
+		logger:    logger,
+	}
+	c.g.SetLimit(maxProcess)
+	return &c
+}
+
+// consumeTopicPartition processes the records for a topic and partition. The
+// records will be processed asynchronously.
+func (c *pc) consumeRecords(ftp kgo.FetchTopicPartition) {
+	c.g.Go(func() error {
+		// Stores the last processed record. Default to -1 for cases where
 		// only the first record is received.
 		last := -1
-		for i, msg := range records {
+		for i, msg := range ftp.Records {
 			meta := make(map[string]string)
 			for _, h := range msg.Headers {
 				meta[h.Key] = string(h.Value)
 			}
 			processCtx := queuecontext.WithMetadata(msg.Context, meta)
 			record := apmqueue.Record{
-				Topic:       topic,
+				Topic:       c.topic,
 				OrderingKey: msg.Key,
 				Value:       msg.Value,
 			}
 			// If a record can't be processed, no retries are attempted and it
 			// may be lost. https://github.com/elastic/apm-queue/issues/118.
 			if err := c.processor.Process(processCtx, record); err != nil {
-				logger.Error("data loss: unable to process event",
+				c.logger.Error("data loss: unable to process event",
 					zap.Error(err),
 					zap.Int64("offset", msg.Offset),
 					zap.Any("headers", meta),
@@ -528,20 +581,27 @@ func (c *consumer) consumeTopicPartition(
 			}
 			last = i
 		}
-		// Only commit the records when at least a record has been processed when
-		// AtLeastOnceDeliveryType is set.
+		// Commit the last record offset when one or more records are processed
+		// and the delivery guarantee is set to AtLeastOnceDeliveryType.
+		// NOTE(marclop) When MaxProcessorConcurrency is greater than 1, commits
+		// may happen out of order, which would rewind the consumer. This should
+		// be fixed when AtLeastOnceDelivery is ready to be used.
 		if c.delivery == apmqueue.AtLeastOnceDeliveryType && last >= 0 {
-			lastRecord := records[last]
-			if err := client.CommitRecords(c.ctx, lastRecord); err != nil {
-				logger.Error("unable to commit records",
+			lastRecord := ftp.Records[last]
+			if err := c.client.CommitRecords(c.ctx, lastRecord); err != nil {
+				c.logger.Error("unable to commit records",
 					zap.Error(err),
 					zap.Int64("offset", lastRecord.Offset),
 				)
-			} else if len(records) > 0 {
-				logger.Info("committed",
+			} else if len(ftp.Records) > 0 {
+				c.logger.Info("committed",
 					zap.Int64("offset", lastRecord.Offset),
 				)
 			}
 		}
-	}
+		return nil
+	})
 }
+
+// wait blocks until all the records have been processed.
+func (c *pc) wait() error { return c.g.Wait() }
