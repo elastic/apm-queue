@@ -1,4 +1,4 @@
-module github.com/elastic/apm-queue
+module github.com/elastic/apm-queue/v2
 
 go 1.20
 

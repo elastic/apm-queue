@@ -26,8 +26,8 @@ import (
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 
-	apmqueue "github.com/elastic/apm-queue"
-	"github.com/elastic/apm-queue/kafka"
+	apmqueue "github.com/elastic/apm-queue/v2"
+	"github.com/elastic/apm-queue/v2/kafka"
 )
 
 type bench struct {

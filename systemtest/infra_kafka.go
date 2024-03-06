@@ -35,8 +35,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	apmqueue "github.com/elastic/apm-queue"
-	"github.com/elastic/apm-queue/kafka"
+	apmqueue "github.com/elastic/apm-queue/v2"
+	"github.com/elastic/apm-queue/v2/kafka"
 )
 
 const (

@@ -28,7 +28,7 @@ import (
 	"github.com/googleapis/gax-go/v2/apierror"
 	"go.uber.org/zap"
 
-	apmqueue "github.com/elastic/apm-queue"
+	apmqueue "github.com/elastic/apm-queue/v2"
 )
 
 // TopicCreatorConfig holds configuration for managing GCP Pub/Sub Lite topics.

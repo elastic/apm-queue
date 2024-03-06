@@ -35,7 +35,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 
-	apmqueue "github.com/elastic/apm-queue"
+	apmqueue "github.com/elastic/apm-queue/v2"
 )
 
 // ManagerConfig holds configuration for managing Kafka topics.

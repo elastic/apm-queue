@@ -24,8 +24,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/elastic/apm-queue/kafka"
-	"github.com/elastic/apm-queue/pubsublite"
+	"github.com/elastic/apm-queue/v2/kafka"
+	"github.com/elastic/apm-queue/v2/pubsublite"
 )
 
 func newKafkaProducer(t testing.TB, cfg kafka.ProducerConfig) *kafka.Producer {

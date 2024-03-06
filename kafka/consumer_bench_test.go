@@ -27,7 +27,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
 
-	apmqueue "github.com/elastic/apm-queue"
+	apmqueue "github.com/elastic/apm-queue/v2"
 )
 
 type consumerBench struct {

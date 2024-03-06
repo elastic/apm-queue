@@ -31,8 +31,8 @@ import (
 
 	"github.com/twmb/franz-go/pkg/kgo"
 
-	apmqueue "github.com/elastic/apm-queue"
-	"github.com/elastic/apm-queue/queuecontext"
+	apmqueue "github.com/elastic/apm-queue/v2"
+	"github.com/elastic/apm-queue/v2/queuecontext"
 )
 
 // CompressionCodec configures how records are compressed before being sent.

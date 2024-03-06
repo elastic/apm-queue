@@ -34,8 +34,8 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
 
-	apmqueue "github.com/elastic/apm-queue"
-	"github.com/elastic/apm-queue/pubsublite"
+	apmqueue "github.com/elastic/apm-queue/v2"
+	"github.com/elastic/apm-queue/v2/pubsublite"
 )
 
 var (

@@ -31,7 +31,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
-	apmqueue "github.com/elastic/apm-queue"
+	apmqueue "github.com/elastic/apm-queue/v2"
 )
 
 func TestNewProducer(t *testing.T) {

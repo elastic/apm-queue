@@ -40,8 +40,8 @@ import (
 	"go.uber.org/zap/zapcore"
 	"go.uber.org/zap/zaptest"
 
-	apmqueue "github.com/elastic/apm-queue"
-	"github.com/elastic/apm-queue/queuecontext"
+	apmqueue "github.com/elastic/apm-queue/v2"
+	"github.com/elastic/apm-queue/v2/queuecontext"
 )
 
 func TestNewProducer(t *testing.T) {

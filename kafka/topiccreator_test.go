@@ -39,7 +39,7 @@ import (
 	"go.uber.org/zap/zapcore"
 	"go.uber.org/zap/zaptest/observer"
 
-	"github.com/elastic/apm-queue/metrictest"
+	"github.com/elastic/apm-queue/v2/metrictest"
 )
 
 func TestNewTopicCreator(t *testing.T) {
