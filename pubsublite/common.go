@@ -30,7 +30,7 @@ import (
 	"go.uber.org/zap"
 	"google.golang.org/api/option"
 
-	apmqueue "github.com/elastic/apm-queue"
+	apmqueue "github.com/elastic/apm-queue/v2"
 )
 
 // CommonConfig defines common configuration for Pub/Sub Lite consumers,

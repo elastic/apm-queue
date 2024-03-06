@@ -25,7 +25,7 @@ import (
 	"sync"
 	"time"
 
-	apmqueue "github.com/elastic/apm-queue"
+	apmqueue "github.com/elastic/apm-queue/v2"
 )
 
 // ProvisionInfraFunc is a function returned by Init* functions for
