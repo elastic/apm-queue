@@ -41,8 +41,8 @@ import (
 	"go.uber.org/zap/zapcore"
 	"go.uber.org/zap/zaptest/observer"
 
-	apmqueue "github.com/elastic/apm-queue"
-	"github.com/elastic/apm-queue/metrictest"
+	apmqueue "github.com/elastic/apm-queue/v2"
+	"github.com/elastic/apm-queue/v2/metrictest"
 )
 
 func TestNewManager(t *testing.T) {

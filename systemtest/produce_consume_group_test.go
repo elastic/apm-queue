@@ -27,7 +27,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	apmqueue "github.com/elastic/apm-queue"
+	apmqueue "github.com/elastic/apm-queue/v2"
 )
 
 // TestProduceConsumeDelivery verifies that a failure to process an event won't affect the
@@ -43,7 +43,7 @@ func TestProduceConsumeDelivery(t *testing.T) {
 			var records atomic.Int64
 			var once sync.Once
 			proc := assertProcessor(t, consumerAssertions{records: &records})
-			processor := apmqueue.ProcessorFunc(func(ctx context.Context, r ...apmqueue.Record) error {
+			processor := apmqueue.ProcessorFunc(func(ctx context.Context, r apmqueue.Record) error {
 				var err error
 				once.Do(func() {
 					err = errors.New("first event error")
@@ -51,7 +51,7 @@ func TestProduceConsumeDelivery(t *testing.T) {
 				if err != nil {
 					return err
 				}
-				return proc.Process(ctx, r...)
+				return proc.Process(ctx, r)
 			})
 
 			producer, consumer := pf(t,
@@ -82,8 +82,8 @@ func TestProduceConsumeDeliveryGuarantees(t *testing.T) {
 			topic := SuffixTopics(apmqueue.Topic(t.Name()))[0]
 
 			var errRecords atomic.Int64
-			errProcessor := apmqueue.ProcessorFunc(func(_ context.Context, r ...apmqueue.Record) error {
-				errRecords.Add(int64(len(r)))
+			errProcessor := apmqueue.ProcessorFunc(func(_ context.Context, r apmqueue.Record) error {
+				errRecords.Add(1)
 				return errors.New("first consumer processor error")
 			})
 
@@ -118,8 +118,8 @@ func TestProduceConsumeDeliveryGuarantees(t *testing.T) {
 			assert.NoError(t, errConsumer.Close())
 
 			var successRecords atomic.Int64
-			successProcessor := apmqueue.ProcessorFunc(func(_ context.Context, r ...apmqueue.Record) error {
-				successRecords.Add(int64(len(r)))
+			successProcessor := apmqueue.ProcessorFunc(func(context.Context, apmqueue.Record) error {
+				successRecords.Add(1)
 				return nil
 			})
 

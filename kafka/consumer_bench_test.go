@@ -27,7 +27,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
 
-	apmqueue "github.com/elastic/apm-queue"
+	apmqueue "github.com/elastic/apm-queue/v2"
 )
 
 type consumerBench struct {
@@ -142,8 +142,8 @@ func benchmarkConsumer(b *testing.B, bCfg consumerBench) {
 		MaxPollRecords: bCfg.maxPollRecords,
 		Topics:         []apmqueue.Topic{apmqueue.Topic("topic.*")},
 		Processor: apmqueue.ProcessorFunc(
-			func(_ context.Context, r ...apmqueue.Record) error {
-				consumedRecords.Add(int64(len(r)))
+			func(_ context.Context, r apmqueue.Record) error {
+				consumedRecords.Add(1)
 				return nil
 			},
 		),

@@ -32,7 +32,7 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.18.0"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/elastic/apm-queue/pubsublite/internal/pubsubabs"
+	"github.com/elastic/apm-queue/v2/pubsublite/internal/pubsubabs"
 )
 
 const (

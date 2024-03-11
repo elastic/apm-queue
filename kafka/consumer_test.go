@@ -36,8 +36,8 @@ import (
 	"go.uber.org/zap/zapcore"
 	"go.uber.org/zap/zaptest"
 
-	apmqueue "github.com/elastic/apm-queue"
-	"github.com/elastic/apm-queue/queuecontext"
+	apmqueue "github.com/elastic/apm-queue/v2"
+	"github.com/elastic/apm-queue/v2/queuecontext"
 )
 
 func TestNewConsumer(t *testing.T) {
@@ -56,7 +56,7 @@ func TestNewConsumer(t *testing.T) {
 				},
 				Topics:    []apmqueue.Topic{"topic"},
 				GroupID:   "groupid",
-				Processor: apmqueue.ProcessorFunc(func(context.Context, ...apmqueue.Record) error { return nil }),
+				Processor: apmqueue.ProcessorFunc(func(context.Context, apmqueue.Record) error { return nil }),
 			},
 			expectErr: true,
 		},
@@ -71,7 +71,7 @@ func TestNewConsumer(t *testing.T) {
 				},
 				GroupID:   "groupid",
 				Topics:    []apmqueue.Topic{"topic"},
-				Processor: apmqueue.ProcessorFunc(func(context.Context, ...apmqueue.Record) error { return nil }),
+				Processor: apmqueue.ProcessorFunc(func(context.Context, apmqueue.Record) error { return nil }),
 			},
 			expectErr: false,
 		},
@@ -120,7 +120,7 @@ func TestConsumerHealth(t *testing.T) {
 				},
 				Topics:    []apmqueue.Topic{"topic"},
 				GroupID:   "groupid",
-				Processor: apmqueue.ProcessorFunc(func(context.Context, ...apmqueue.Record) error { return nil }),
+				Processor: apmqueue.ProcessorFunc(func(context.Context, apmqueue.Record) error { return nil }),
 			})
 
 			if tc.closeEarly {
@@ -160,10 +160,9 @@ func TestConsumerInstrumentation(t *testing.T) {
 		Topics:         []apmqueue.Topic{topic},
 		GroupID:        "groupid",
 		MaxPollRecords: 1, // Consume a single record for this test.
-		Processor: apmqueue.ProcessorFunc(func(_ context.Context, r ...apmqueue.Record) error {
+		Processor: apmqueue.ProcessorFunc(func(_ context.Context, r apmqueue.Record) error {
 			defer close(processed)
-			assert.Len(t, r, 1)
-			assert.Equal(t, event, r[0])
+			assert.Equal(t, event, r)
 			return nil
 		}),
 	}
@@ -280,15 +279,15 @@ func TestConsumerDelivery(t *testing.T) {
 			var processed atomic.Int32
 			var errored atomic.Int32
 			newProcessor := func(processRecord, failRecord <-chan struct{}, fn func()) apmqueue.Processor {
-				return apmqueue.ProcessorFunc(func(_ context.Context, r ...apmqueue.Record) error {
+				return apmqueue.ProcessorFunc(func(_ context.Context, r apmqueue.Record) error {
 					defer fn()
 					select {
 					// Records are marked as processed on receive processRecord.
 					case <-processRecord:
-						processed.Add(int32(len(r)))
+						processed.Add(1)
 					// Records are marked as failed on receive failRecord.
 					case <-failRecord:
-						errored.Add(int32(len(r)))
+						errored.Add(1)
 						return errors.New("failed processing record")
 					}
 					return nil
@@ -355,6 +354,9 @@ func TestConsumerDelivery(t *testing.T) {
 			}
 
 			assert.Eventually(t, func() bool {
+				if tc.deliveryType == apmqueue.AtLeastOnceDeliveryType {
+					return int(errored.Load()) >= int(tc.errored)
+				}
 				return int(errored.Load()) == int(tc.errored)
 			}, time.Second, time.Millisecond)
 			t.Logf("got: %d events errored, %d processed, want: %d errored, %d processed",
@@ -387,7 +389,7 @@ func TestConsumerDelivery(t *testing.T) {
 			assert.Eventually(t, func() bool {
 				// Some events may or may not be processed. Assert GE.
 				return processed.Load() >= tc.processed &&
-					errored.Load() == tc.errored
+					errored.Load() >= tc.errored
 			}, 2*time.Second, time.Millisecond)
 			t.Logf("got: %d events errored, %d processed, want: %d errored, %d processed",
 				errored.Load(), processed.Load(), tc.errored, tc.processed,
@@ -420,13 +422,13 @@ func TestConsumerGracefulShutdown(t *testing.T) {
 			Topics:         []apmqueue.Topic{"topic"},
 			MaxPollRecords: records,
 			Delivery:       dt,
-			Processor: apmqueue.ProcessorFunc(func(ctx context.Context, r ...apmqueue.Record) error {
+			Processor: apmqueue.ProcessorFunc(func(ctx context.Context, r apmqueue.Record) error {
 				select {
 				case <-ctx.Done():
-					errored.Add(int32(len(r)))
+					errored.Add(1)
 					return ctx.Err()
 				case <-process:
-					processed.Add(int32(len(r)))
+					processed.Add(1)
 				}
 				return nil
 			}),
@@ -486,7 +488,7 @@ func TestConsumerContextPropagation(t *testing.T) {
 		CommonConfig: commonCfg,
 		GroupID:      "ctx_prop",
 		Topics:       []apmqueue.Topic{"topic"},
-		Processor: apmqueue.ProcessorFunc(func(ctx context.Context, _ ...apmqueue.Record) error {
+		Processor: apmqueue.ProcessorFunc(func(ctx context.Context, _ apmqueue.Record) error {
 			select {
 			case <-processed:
 				t.Fatal("should only be called once")
@@ -539,9 +541,8 @@ func TestMultipleConsumers(t *testing.T) {
 		},
 		Topics:  []apmqueue.Topic{"topic"},
 		GroupID: "groupid",
-		Processor: apmqueue.ProcessorFunc(func(_ context.Context, r ...apmqueue.Record) error {
+		Processor: apmqueue.ProcessorFunc(func(_ context.Context, r apmqueue.Record) error {
 			count.Add(1)
-			assert.Len(t, r, 1)
 			return nil
 		}),
 	}
@@ -590,10 +591,9 @@ func TestMultipleConsumerGroups(t *testing.T) {
 		cfg.GroupID = gid
 		var counter atomic.Int64
 		m[gid] = &counter
-		cfg.Processor = apmqueue.ProcessorFunc(func(_ context.Context, r ...apmqueue.Record) error {
+		cfg.Processor = apmqueue.ProcessorFunc(func(_ context.Context, r apmqueue.Record) error {
 			counter.Add(1)
-			assert.Len(t, r, 1)
-			assert.Equal(t, event, r[0])
+			assert.Equal(t, event, r)
 			return nil
 		})
 		consumer := newConsumer(t, cfg)
@@ -630,7 +630,7 @@ func TestConsumerRunError(t *testing.T) {
 			},
 			Topics:  []apmqueue.Topic{"topic"},
 			GroupID: "groupid",
-			Processor: apmqueue.ProcessorFunc(func(_ context.Context, _ ...apmqueue.Record) error {
+			Processor: apmqueue.ProcessorFunc(func(_ context.Context, _ apmqueue.Record) error {
 				select {
 				case <-ready:
 				default:

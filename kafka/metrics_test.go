@@ -35,8 +35,8 @@ import (
 	"go.opentelemetry.io/otel/trace/noop"
 	"go.uber.org/zap"
 
-	apmqueue "github.com/elastic/apm-queue"
-	"github.com/elastic/apm-queue/queuecontext"
+	apmqueue "github.com/elastic/apm-queue/v2"
+	"github.com/elastic/apm-queue/v2/queuecontext"
 )
 
 func TestProducerMetrics(t *testing.T) {
@@ -206,8 +206,8 @@ func TestConsumerMetrics(t *testing.T) {
 
 	done := make(chan struct{})
 	var processed atomic.Int64
-	proc := apmqueue.ProcessorFunc(func(_ context.Context, r ...apmqueue.Record) error {
-		processed.Add(int64(len(r)))
+	proc := apmqueue.ProcessorFunc(func(_ context.Context, r apmqueue.Record) error {
+		processed.Add(1)
 		if processed.Load() == int64(records) {
 			close(done)
 		}

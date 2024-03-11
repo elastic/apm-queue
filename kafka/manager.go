@@ -35,7 +35,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 
-	apmqueue "github.com/elastic/apm-queue"
+	apmqueue "github.com/elastic/apm-queue/v2"
 )
 
 // ManagerConfig holds configuration for managing Kafka topics.
@@ -277,13 +277,11 @@ func (m *Manager) MonitorConsumerLag(topicConsumers []apmqueue.TopicConsumer) (m
 				}
 			}
 			for key, count := range memberAssignments {
-				o.ObserveInt64(assignmentMetric, count,
-					metric.WithAttributes(
-						attribute.String("group", l.Group),
-						attribute.String("topic", key.topic),
-						attribute.String("client_id", key.clientID),
-					),
-				)
+				o.ObserveInt64(assignmentMetric, count, metric.WithAttributes(
+					attribute.String("group", l.Group),
+					attribute.String("topic", key.topic),
+					attribute.String("client_id", key.clientID),
+				))
 			}
 		})
 		return nil

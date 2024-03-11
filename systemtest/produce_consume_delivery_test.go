@@ -27,7 +27,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	apmqueue "github.com/elastic/apm-queue"
+	apmqueue "github.com/elastic/apm-queue/v2"
 )
 
 func TestConsumerDelivery(t *testing.T) {
@@ -129,18 +129,18 @@ func TestConsumerDelivery(t *testing.T) {
 				var processed atomic.Int32
 				var errored atomic.Int32
 
-				processor := apmqueue.ProcessorFunc(func(ctx context.Context, r ...apmqueue.Record) error {
+				processor := apmqueue.ProcessorFunc(func(ctx context.Context, r apmqueue.Record) error {
 					select {
 					// Records are marked as processed on receive processRecord.
 					case <-processRecord:
-						processed.Add(int32(len(r)))
+						processed.Add(1)
 					// Records are marked as failed when ctx is canceled, or
 					// on receive failRecord.
 					case <-failRecord:
-						errored.Add(int32(len(r)))
+						errored.Add(1)
 						return errors.New("failed processing record")
 					case <-ctx.Done():
-						errored.Add(int32(len(r)))
+						errored.Add(1)
 						return ctx.Err()
 					}
 					return nil
