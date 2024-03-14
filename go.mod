@@ -3,7 +3,7 @@ module github.com/elastic/apm-queue/v2
 go 1.20
 
 require (
-	cloud.google.com/go/monitoring v1.18.0
+	cloud.google.com/go/monitoring v1.18.1
 	cloud.google.com/go/pubsub v1.37.0
 	cloud.google.com/go/pubsublite v1.8.1
 	github.com/aws/aws-sdk-go-v2/config v1.27.7
@@ -25,8 +25,8 @@ require (
 	go.uber.org/zap v1.27.0
 	golang.org/x/sync v0.6.0
 	google.golang.org/api v0.169.0
-	google.golang.org/genproto/googleapis/api v0.0.0-20240304161311-37d4d3c04a78
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20240304161311-37d4d3c04a78
+	google.golang.org/genproto/googleapis/api v0.0.0-20240311132316-a219d84964c2
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20240311132316-a219d84964c2
 	google.golang.org/grpc v1.62.1
 	google.golang.org/protobuf v1.33.0
 	gopkg.in/yaml.v3 v3.0.1
@@ -55,7 +55,7 @@ require (
 	github.com/go-logr/logr v1.4.1 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
-	github.com/golang/protobuf v1.5.3 // indirect
+	github.com/golang/protobuf v1.5.4 // indirect
 	github.com/google/s2a-go v0.1.7 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.3.2 // indirect
