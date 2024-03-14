@@ -262,7 +262,12 @@ func (m *Manager) MonitorConsumerLag(topicConsumers []apmqueue.TopicConsumer) (m
 						)
 						continue
 					}
-					key := memberTopic{topic: topic, clientID: lag.Member.ClientID}
+					clientID := "nil"
+					// If group is in state Empty the lag.Member is nil
+					if lag.Member != nil {
+						clientID = lag.Member.ClientID
+					}
+					key := memberTopic{topic: topic, clientID: clientID}
 					count := memberAssignments[key]
 					count++
 					memberAssignments[key] = count
