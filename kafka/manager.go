@@ -263,6 +263,7 @@ func (m *Manager) MonitorConsumerLag(topicConsumers []apmqueue.TopicConsumer) (m
 						continue
 					}
 					clientID := "nil"
+					// If group is in state Empty the lag.Member is nil
 					if lag.Member != nil {
 						clientID = lag.Member.ClientID
 					}
