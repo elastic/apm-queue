@@ -108,6 +108,8 @@ func Consumer(
 			}
 		}
 
+		// NOTE(marclop) cannot use metric.WithAttributeSet() since it causes
+		// a data race. By using metric.WithAttributes, the slice is copied.
 		metrics.fetched.Add(context.Background(), 1, metric.WithAttributes(
 			attrs...,
 		))
@@ -127,12 +129,12 @@ func Consumer(
 		defer span.End()
 
 		delay := time.Since(msg.PublishTime).Seconds()
-		span.SetAttributes(
-			attribute.Float64(msgDelayKey, delay),
+		span.SetAttributes(attribute.Float64(msgDelayKey, delay))
+		// NOTE(marclop) cannot use metric.WithAttributeSet() since it causes
+		// a data race. By using metric.WithAttributes, the slice is copied.
+		metrics.queuedDelay.Record(context.Background(), delay,
+			metric.WithAttributes(attrs...),
 		)
-		metrics.queuedDelay.Record(context.Background(), delay, metric.WithAttributes(
-			attrs...,
-		))
 
 		receive(ctx, msg)
 	}

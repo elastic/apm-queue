@@ -132,18 +132,22 @@ func (m *Manager) DeleteTopics(ctx context.Context, topics ...apmqueue.Topic) er
 				deleteErrors = append(deleteErrors,
 					fmt.Errorf("failed to delete topic %q: %w", topic, err),
 				)
-				m.deleted.Add(context.Background(), 1, metric.WithAttributes(
-					semconv.MessagingSystemKey.String("kafka"),
-					attribute.String("outcome", "failure"),
-					attribute.String("topic", topic),
+				m.deleted.Add(context.Background(), 1, metric.WithAttributeSet(
+					attribute.NewSet(
+						semconv.MessagingSystemKey.String("kafka"),
+						attribute.String("outcome", "failure"),
+						attribute.String("topic", topic),
+					),
 				))
 			}
 			continue
 		}
-		m.deleted.Add(context.Background(), 1, metric.WithAttributes(
-			semconv.MessagingSystemKey.String("kafka"),
-			attribute.String("outcome", "success"),
-			attribute.String("topic", topic),
+		m.deleted.Add(context.Background(), 1, metric.WithAttributeSet(
+			attribute.NewSet(
+				semconv.MessagingSystemKey.String("kafka"),
+				attribute.String("outcome", "success"),
+				attribute.String("topic", topic),
+			),
 		))
 		logger.Info("deleted kafka topic")
 	}
@@ -273,19 +277,21 @@ func (m *Manager) MonitorConsumerLag(topicConsumers []apmqueue.TopicConsumer) (m
 					memberAssignments[key] = count
 					o.ObserveInt64(
 						consumerGroupLagMetric, lag.Lag,
-						metric.WithAttributes(
+						metric.WithAttributeSet(attribute.NewSet(
 							attribute.String("group", l.Group),
 							attribute.String("topic", topic),
 							attribute.Int("partition", int(partition)),
-						),
+						)),
 					)
 				}
 			}
 			for key, count := range memberAssignments {
-				o.ObserveInt64(assignmentMetric, count, metric.WithAttributes(
-					attribute.String("group", l.Group),
-					attribute.String("topic", key.topic),
-					attribute.String("client_id", key.clientID),
+				o.ObserveInt64(assignmentMetric, count, metric.WithAttributeSet(
+					attribute.NewSet(
+						attribute.String("group", l.Group),
+						attribute.String("topic", key.topic),
+						attribute.String("client_id", key.clientID),
+					),
 				))
 			}
 		})

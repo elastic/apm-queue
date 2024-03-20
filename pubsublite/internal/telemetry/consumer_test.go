@@ -19,6 +19,7 @@ package telemetry
 
 import (
 	"context"
+	"sort"
 	"testing"
 	"time"
 
@@ -424,6 +425,14 @@ func TestConsumerMultipleEvents(t *testing.T) {
 
 func assertSpans(t testing.TB, traceID [16]byte, expected, actual tracetest.SpanStubs) {
 	t.Helper()
+
+	for _, l := range []tracetest.SpanStubs{expected, actual} {
+		for _, s := range l {
+			sort.SliceStable(s.Attributes, func(i, j int) bool {
+				return s.Attributes[i].Key > s.Attributes[j].Key
+			})
+		}
+	}
 
 	for i := range actual {
 		// Nullify data we don't use/can't set manually
