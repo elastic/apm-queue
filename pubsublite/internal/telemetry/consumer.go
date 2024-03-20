@@ -108,8 +108,8 @@ func Consumer(
 			}
 		}
 
-		metrics.fetched.Add(context.Background(), 1, metric.WithAttributes(
-			attrs...,
+		metrics.fetched.Add(context.Background(), 1, metric.WithAttributeSet(
+			attribute.NewSet(attrs...),
 		))
 
 		if msg.Attributes != nil {
@@ -130,9 +130,9 @@ func Consumer(
 		span.SetAttributes(
 			attribute.Float64(msgDelayKey, delay),
 		)
-		metrics.queuedDelay.Record(context.Background(), delay, metric.WithAttributes(
-			attrs...,
-		))
+		metrics.queuedDelay.Record(context.Background(), delay,
+			metric.WithAttributeSet(attribute.NewSet(attrs...)),
+		)
 
 		receive(ctx, msg)
 	}

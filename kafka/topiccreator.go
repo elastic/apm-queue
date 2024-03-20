@@ -184,18 +184,22 @@ func (c *TopicCreator) CreateTopics(ctx context.Context, topics ...apmqueue.Topi
 				updateErrors = append(updateErrors, fmt.Errorf(
 					"failed to create topic %q: %w", topicName, err,
 				))
-				c.created.Add(context.Background(), 1, metric.WithAttributes(
-					semconv.MessagingSystemKey.String("kafka"),
-					attribute.String("outcome", "failure"),
-					attribute.String("topic", topicName),
+				c.created.Add(context.Background(), 1, metric.WithAttributeSet(
+					attribute.NewSet(
+						semconv.MessagingSystemKey.String("kafka"),
+						attribute.String("outcome", "failure"),
+						attribute.String("topic", topicName),
+					),
 				))
 			}
 			continue
 		}
-		c.created.Add(context.Background(), 1, metric.WithAttributes(
-			semconv.MessagingSystemKey.String("kafka"),
-			attribute.String("outcome", "success"),
-			attribute.String("topic", topicName),
+		c.created.Add(context.Background(), 1, metric.WithAttributeSet(
+			attribute.NewSet(
+				semconv.MessagingSystemKey.String("kafka"),
+				attribute.String("outcome", "success"),
+				attribute.String("topic", topicName),
+			),
 		))
 		logger.Info("created kafka topic", zap.String("topic", topicName))
 	}

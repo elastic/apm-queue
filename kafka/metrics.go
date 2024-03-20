@@ -115,8 +115,8 @@ func (h *metricHooks) OnProduceRecordUnbuffered(r *kgo.Record, err error) {
 		attrs = append(attrs, attribute.String("outcome", "success"))
 	}
 
-	h.messageProduced.Add(context.Background(), 1, metric.WithAttributes(
-		attrs...,
+	h.messageProduced.Add(context.Background(), 1, metric.WithAttributeSet(
+		attribute.NewSet(attrs...),
 	))
 }
 
@@ -134,7 +134,7 @@ func (h *metricHooks) OnFetchRecordUnbuffered(r *kgo.Record, polled bool) {
 		attrs = append(attrs, attribute.String("namespace", h.namespace))
 	}
 
-	attrSet := metric.WithAttributes(attrs...)
+	attrSet := metric.WithAttributeSet(attribute.NewSet(attrs...))
 	h.messageFetched.Add(context.Background(), 1, attrSet)
 	h.messageDelay.Record(context.Background(),
 		time.Since(r.Timestamp).Seconds(), attrSet,

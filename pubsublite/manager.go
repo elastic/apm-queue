@@ -375,12 +375,12 @@ func (m *Manager) MonitorConsumerLag(topicConsumers []apmqueue.TopicConsumer) (m
 
 			o.ObserveInt64(
 				consumerGroupLagMetric, lag,
-				metric.WithAttributes(commonAttributes...),
-				metric.WithAttributes(
+				metric.WithAttributeSet(attribute.NewSet(append(
+					commonAttributes,
 					attribute.String("topic", string(topic)),
 					attribute.String("group", consumer),
 					attribute.Int("partition", partition),
-				),
+				)...)),
 			)
 		}
 		return nil
