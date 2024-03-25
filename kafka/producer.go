@@ -25,8 +25,6 @@ import (
 	"strings"
 	"sync"
 
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 
 	"github.com/twmb/franz-go/pkg/kgo"
@@ -131,7 +129,6 @@ var _ apmqueue.Producer = &Producer{}
 type Producer struct {
 	cfg    ProducerConfig
 	client *kgo.Client
-	tracer trace.Tracer
 
 	mu sync.RWMutex
 }
@@ -161,7 +158,6 @@ func NewProducer(cfg ProducerConfig) (*Producer, error) {
 	return &Producer{
 		cfg:    cfg,
 		client: client,
-		tracer: cfg.tracerProvider().Tracer("kafka"),
 	}, nil
 }
 
@@ -189,12 +185,6 @@ func (p *Producer) Close() error {
 // Produce takes ownership of Record and any modifications after Produce is
 // called may cause an unhandled exception.
 func (p *Producer) Produce(ctx context.Context, rs ...apmqueue.Record) error {
-	ctx, span := p.tracer.Start(ctx, "producer.Produce", trace.WithAttributes(
-		attribute.Bool("sync", p.cfg.Sync),
-		attribute.Int("record.count", len(rs)),
-	))
-	defer span.End()
-
 	if len(rs) == 0 {
 		return nil
 	}
