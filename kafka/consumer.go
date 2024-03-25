@@ -212,7 +212,7 @@ func NewConsumer(cfg ConsumerConfig) (*Consumer, error) {
 	if cfg.ShutdownGracePeriod <= 0 {
 		cfg.ShutdownGracePeriod = 5 * time.Second
 	}
-	client, err := cfg.newClient(opts...)
+	client, err := cfg.newClient(cfg.TopicAttributeFunc, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("kafka: failed creating kafka consumer: %w", err)
 	}

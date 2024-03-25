@@ -41,6 +41,19 @@ const (
 	errorReasonKey      = "error_reason"
 )
 
+var (
+	_ kgo.HookProduceBatchWritten     = new(metricHooks)
+	_ kgo.HookFetchBatchRead          = new(metricHooks)
+	_ kgo.HookFetchRecordUnbuffered   = new(metricHooks)
+	_ kgo.HookProduceRecordUnbuffered = new(metricHooks)
+)
+
+// TopicAttributeFunc run on `kgo.HookProduceBatchWritten` and
+// `kgo.HookFetchBatchRead` for each topic/partition. It can be
+// used include additionaly dimensions for `consumer.messages.fetched`
+// and `producer.messages.count` metrics.
+type TopicAttributeFunc func(topic string) attribute.KeyValue
+
 type metricHooks struct {
 	namespace   string
 	topicPrefix string
@@ -48,9 +61,13 @@ type metricHooks struct {
 	messageProduced metric.Int64Counter
 	messageFetched  metric.Int64Counter
 	messageDelay    metric.Float64Histogram
+
+	topicAttributeFunc TopicAttributeFunc
 }
 
-func newKgoHooks(mp metric.MeterProvider, namespace, topicPrefix string) (*metricHooks, error) {
+func newKgoHooks(mp metric.MeterProvider, namespace, topicPrefix string,
+	topicAttributeFunc TopicAttributeFunc,
+) (*metricHooks, error) {
 	m := mp.Meter(instrumentName)
 	messageProducedCounter, err := m.Int64Counter(msgProducedCountKey,
 		metric.WithDescription("The number of messages produced"),
@@ -74,6 +91,11 @@ func newKgoHooks(mp metric.MeterProvider, namespace, topicPrefix string) (*metri
 	if err != nil {
 		return nil, formatMetricError(msgDelayKey, err)
 	}
+	if topicAttributeFunc == nil {
+		topicAttributeFunc = func(topic string) attribute.KeyValue {
+			return attribute.KeyValue{}
+		}
+	}
 
 	return &metricHooks{
 		namespace:   namespace,
@@ -83,6 +105,8 @@ func newKgoHooks(mp metric.MeterProvider, namespace, topicPrefix string) (*metri
 		// Consumer
 		messageFetched: messageFetchedCounter,
 		messageDelay:   messageDelayHistogram,
+
+		topicAttributeFunc: topicAttributeFunc,
 	}, nil
 }
 
@@ -90,29 +114,71 @@ func formatMetricError(name string, err error) error {
 	return fmt.Errorf("cannot create %s metric: %w", name, err)
 }
 
-// OnProduceRecordUnbuffered records the number of produced / failed messages.
+// HookProduceBatchWritten is called when a batch has been produced.
+func (h *metricHooks) OnProduceBatchWritten(_ kgo.BrokerMetadata,
+	topic string, partition int32, m kgo.ProduceBatchMetrics,
+) {
+	attrs := make([]attribute.KeyValue, 0, 6) // Preallocate 5 elements.
+	attrs = append(attrs, semconv.MessagingSystem("kafka"),
+		semconv.MessagingDestinationName(strings.TrimPrefix(topic, h.topicPrefix)),
+		semconv.MessagingKafkaDestinationPartition(int(partition)),
+		attribute.String("outcome", "success"),
+	)
+	if kv := h.topicAttributeFunc(topic); kv != (attribute.KeyValue{}) {
+		attrs = append(attrs, kv)
+	}
+	if h.namespace != "" {
+		attrs = append(attrs, attribute.String("namespace", h.namespace))
+	}
+	h.messageProduced.Add(context.Background(), int64(m.NumRecords),
+		metric.WithAttributeSet(attribute.NewSet(attrs...)),
+	)
+}
+
+// OnFetchBatchRead is called once per batch read from Kafka. Records
+// `consumer.messages.fetched`.
+func (h *metricHooks) OnFetchBatchRead(_ kgo.BrokerMetadata,
+	topic string, partition int32, m kgo.FetchBatchMetrics,
+) {
+	attrs := make([]attribute.KeyValue, 0, 5) // Preallocate 5 elements.
+	attrs = append(attrs, semconv.MessagingSystem("kafka"),
+		semconv.MessagingSourceName(strings.TrimPrefix(topic, h.topicPrefix)),
+		semconv.MessagingKafkaSourcePartition(int(partition)),
+	)
+	if kv := h.topicAttributeFunc(topic); kv != (attribute.KeyValue{}) {
+		attrs = append(attrs, kv)
+	}
+	if h.namespace != "" {
+		attrs = append(attrs, attribute.String("namespace", h.namespace))
+	}
+	h.messageFetched.Add(context.Background(), int64(m.NumRecords),
+		metric.WithAttributeSet(attribute.NewSet(attrs...)),
+	)
+}
+
+// OnProduceRecordUnbuffered records the number of produced messages that were
+// not produced due to errors. The successfully produced records is recorded by
+// `OnProduceBatchWritten`.
 // https://pkg.go.dev/github.com/twmb/franz-go/pkg/kgo#HookProduceRecordUnbuffered
 func (h *metricHooks) OnProduceRecordUnbuffered(r *kgo.Record, err error) {
+	if err == nil {
+		return // Covered by OnProduceBatchWritten.
+	}
 	attrs := attributesFromRecord(r,
 		semconv.MessagingDestinationName(strings.TrimPrefix(r.Topic, h.topicPrefix)),
 		semconv.MessagingKafkaDestinationPartition(int(r.Partition)),
+		attribute.String("outcome", "failure"),
 	)
 	if h.namespace != "" {
 		attrs = append(attrs, attribute.String("namespace", h.namespace))
 	}
 
-	if err != nil {
-		errorReasonAttr := attribute.String(errorReasonKey, "unknown")
-		if errors.Is(err, context.DeadlineExceeded) {
-			errorReasonAttr = attribute.String(errorReasonKey, "timeout")
-		} else if errors.Is(err, context.Canceled) {
-			errorReasonAttr = attribute.String(errorReasonKey, "canceled")
-		}
-		attrs = append(attrs, errorReasonAttr, attribute.String(
-			"outcome", "failure",
-		))
+	if errors.Is(err, context.DeadlineExceeded) {
+		attrs = append(attrs, attribute.String(errorReasonKey, "timeout"))
+	} else if errors.Is(err, context.Canceled) {
+		attrs = append(attrs, attribute.String(errorReasonKey, "canceled"))
 	} else {
-		attrs = append(attrs, attribute.String("outcome", "success"))
+		attrs = append(attrs, attribute.String(errorReasonKey, "unknown"))
 	}
 
 	h.messageProduced.Add(context.Background(), 1, metric.WithAttributeSet(
@@ -120,7 +186,7 @@ func (h *metricHooks) OnProduceRecordUnbuffered(r *kgo.Record, err error) {
 	))
 }
 
-// OnFetchRecordUnbuffered records the number of fetched messages.
+// OnFetchRecordUnbuffered records the message delay of fetched messages.
 // https://pkg.go.dev/github.com/twmb/franz-go/pkg/kgo#HookFetchRecordUnbuffered
 func (h *metricHooks) OnFetchRecordUnbuffered(r *kgo.Record, polled bool) {
 	if !polled {
@@ -133,11 +199,9 @@ func (h *metricHooks) OnFetchRecordUnbuffered(r *kgo.Record, polled bool) {
 	if h.namespace != "" {
 		attrs = append(attrs, attribute.String("namespace", h.namespace))
 	}
-
-	attrSet := metric.WithAttributeSet(attribute.NewSet(attrs...))
-	h.messageFetched.Add(context.Background(), 1, attrSet)
 	h.messageDelay.Record(context.Background(),
-		time.Since(r.Timestamp).Seconds(), attrSet,
+		time.Since(r.Timestamp).Seconds(),
+		metric.WithAttributeSet(attribute.NewSet(attrs...)),
 	)
 }
 

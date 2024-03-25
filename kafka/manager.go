@@ -68,7 +68,7 @@ func NewManager(cfg ManagerConfig) (*Manager, error) {
 	if err := cfg.finalize(); err != nil {
 		return nil, fmt.Errorf("kafka: invalid manager config: %w", err)
 	}
-	client, err := cfg.newClient()
+	client, err := cfg.newClient(nil)
 	if err != nil {
 		return nil, fmt.Errorf("kafka: failed creating kafka client: %w", err)
 	}
