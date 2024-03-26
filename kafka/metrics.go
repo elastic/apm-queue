@@ -118,7 +118,7 @@ func formatMetricError(name string, err error) error {
 func (h *metricHooks) OnProduceBatchWritten(_ kgo.BrokerMetadata,
 	topic string, partition int32, m kgo.ProduceBatchMetrics,
 ) {
-	attrs := make([]attribute.KeyValue, 0, 6) // Preallocate 5 elements.
+	attrs := make([]attribute.KeyValue, 0, 6)
 	attrs = append(attrs, semconv.MessagingSystem("kafka"),
 		semconv.MessagingDestinationName(strings.TrimPrefix(topic, h.topicPrefix)),
 		semconv.MessagingKafkaDestinationPartition(int(partition)),
@@ -140,7 +140,7 @@ func (h *metricHooks) OnProduceBatchWritten(_ kgo.BrokerMetadata,
 func (h *metricHooks) OnFetchBatchRead(_ kgo.BrokerMetadata,
 	topic string, partition int32, m kgo.FetchBatchMetrics,
 ) {
-	attrs := make([]attribute.KeyValue, 0, 5) // Preallocate 5 elements.
+	attrs := make([]attribute.KeyValue, 0, 5)
 	attrs = append(attrs, semconv.MessagingSystem("kafka"),
 		semconv.MessagingSourceName(strings.TrimPrefix(topic, h.topicPrefix)),
 		semconv.MessagingKafkaSourcePartition(int(partition)),
