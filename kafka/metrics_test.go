@@ -52,6 +52,8 @@ func TestProducerMetrics(t *testing.T) {
 			apmqueue.Record{Topic: topic, Value: []byte("2")},
 			apmqueue.Record{Topic: topic, Value: []byte("3")},
 		)
+		// Close the producer so records are flushed.
+		require.NoError(t, producer.Close())
 
 		var rm metricdata.ResourceMetrics
 		assert.NoError(t, rdr.Collect(context.Background(), &rm))
@@ -333,9 +335,7 @@ func setupTestProducer(t testing.TB, tafunc TopicAttributeFunc) (*Producer, sdkm
 
 	rdr := sdkmetric.NewManualReader()
 	_, brokers := newClusterWithTopics(t, 1, "name_space-default-topic")
-	mp := sdkmetric.NewMeterProvider(
-		sdkmetric.WithReader(rdr),
-	)
+	mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(rdr))
 	t.Cleanup(func() {
 		require.NoError(t, mp.Shutdown(context.Background()))
 	})
