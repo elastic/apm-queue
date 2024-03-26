@@ -145,6 +145,12 @@ type CommonConfig struct {
 	// Defaults to the global one.
 	MeterProvider metric.MeterProvider
 
+	// TopicAttributeFunc can be used to create custom dimensions from a Kafka
+	// topic for these metrics:
+	// - producer.messages.count
+	// - consumer.messages.fetched
+	TopicAttributeFunc TopicAttributeFunc
+
 	hooks []kgo.Hook
 }
 
@@ -247,7 +253,7 @@ func (cfg *CommonConfig) meterProvider() metric.MeterProvider {
 	return otel.GetMeterProvider()
 }
 
-func (cfg *CommonConfig) newClient(additionalOpts ...kgo.Opt) (*kgo.Client, error) {
+func (cfg *CommonConfig) newClient(topicAttributeFunc TopicAttributeFunc, additionalOpts ...kgo.Opt) (*kgo.Client, error) {
 	opts := []kgo.Opt{
 		kgo.WithLogger(kzap.New(cfg.Logger.Named("kafka"))),
 		kgo.SeedBrokers(cfg.Brokers...),
@@ -273,7 +279,9 @@ func (cfg *CommonConfig) newClient(additionalOpts ...kgo.Opt) (*kgo.Client, erro
 		kotelService := kotel.NewKotel(kotel.WithMeter(
 			kotel.NewMeter(kotel.MeterProvider(cfg.meterProvider())),
 		))
-		metricHooks, err := newKgoHooks(cfg.meterProvider(), cfg.Namespace, cfg.namespacePrefix())
+		metricHooks, err := newKgoHooks(cfg.meterProvider(),
+			cfg.Namespace, cfg.namespacePrefix(), topicAttributeFunc,
+		)
 		if err != nil {
 			return nil, fmt.Errorf("kafka: failed creating kgo metrics hooks: %w", err)
 		}

@@ -52,6 +52,8 @@ func TestProducerMetrics(t *testing.T) {
 			apmqueue.Record{Topic: topic, Value: []byte("2")},
 			apmqueue.Record{Topic: topic, Value: []byte("3")},
 		)
+		// Close the producer so records are flushed.
+		require.NoError(t, producer.Close())
 
 		var rm metricdata.ResourceMetrics
 		assert.NoError(t, rdr.Collect(context.Background(), &rm))
@@ -63,7 +65,7 @@ func TestProducerMetrics(t *testing.T) {
 		)
 	}
 	t.Run("DeadlineExceeded", func(t *testing.T) {
-		producer, rdr := setupTestProducer(t)
+		producer, rdr := setupTestProducer(t, nil)
 		want := metricdata.Metrics{
 			Name:        "producer.messages.count",
 			Description: "The number of messages produced",
@@ -90,7 +92,7 @@ func TestProducerMetrics(t *testing.T) {
 		test(ctx, t, producer, rdr, want)
 	})
 	t.Run("ContextCanceled", func(t *testing.T) {
-		producer, rdr := setupTestProducer(t)
+		producer, rdr := setupTestProducer(t, nil)
 		want := metricdata.Metrics{
 			Name:        "producer.messages.count",
 			Description: "The number of messages produced",
@@ -117,7 +119,7 @@ func TestProducerMetrics(t *testing.T) {
 		test(ctx, t, producer, rdr, want)
 	})
 	t.Run("Unknown error reason", func(t *testing.T) {
-		producer, rdr := setupTestProducer(t)
+		producer, rdr := setupTestProducer(t, nil)
 		want := metricdata.Metrics{
 			Name:        "producer.messages.count",
 			Description: "The number of messages produced",
@@ -144,7 +146,9 @@ func TestProducerMetrics(t *testing.T) {
 		test(context.Background(), t, producer, rdr, want)
 	})
 	t.Run("Produced", func(t *testing.T) {
-		producer, rdr := setupTestProducer(t)
+		producer, rdr := setupTestProducer(t, func(topic string) attribute.KeyValue {
+			return attribute.String("test", "test")
+		})
 		want := metricdata.Metrics{
 			Name:        "producer.messages.count",
 			Description: "The number of messages produced",
@@ -161,6 +165,7 @@ func TestProducerMetrics(t *testing.T) {
 							semconv.MessagingSystem("kafka"),
 							semconv.MessagingDestinationName("default-topic"),
 							semconv.MessagingKafkaDestinationPartition(0),
+							attribute.String("test", "test"),
 						),
 					},
 				},
@@ -169,7 +174,9 @@ func TestProducerMetrics(t *testing.T) {
 		test(context.Background(), t, producer, rdr, want)
 	})
 	t.Run("ProducedWithHeaders", func(t *testing.T) {
-		producer, rdr := setupTestProducer(t)
+		producer, rdr := setupTestProducer(t, func(topic string) attribute.KeyValue {
+			return attribute.String("some key", "some value")
+		})
 		want := metricdata.Metrics{
 			Name:        "producer.messages.count",
 			Description: "The number of messages produced",
@@ -186,7 +193,6 @@ func TestProducerMetrics(t *testing.T) {
 							semconv.MessagingSystem("kafka"),
 							semconv.MessagingDestinationName("default-topic"),
 							semconv.MessagingKafkaDestinationPartition(0),
-							attribute.String("key", "value"),
 							attribute.String("some key", "some value"),
 						),
 					},
@@ -213,7 +219,9 @@ func TestConsumerMetrics(t *testing.T) {
 		}
 		return nil
 	})
-	tc := setupTestConsumer(t, proc)
+	tc := setupTestConsumer(t, proc, func(topic string) attribute.KeyValue {
+		return attribute.String("header", "included")
+	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
@@ -322,24 +330,23 @@ func filterMetrics(t testing.TB, sm []metricdata.ScopeMetrics) []metricdata.Metr
 	return []metricdata.Metrics{}
 }
 
-func setupTestProducer(t testing.TB) (*Producer, sdkmetric.Reader) {
+func setupTestProducer(t testing.TB, tafunc TopicAttributeFunc) (*Producer, sdkmetric.Reader) {
 	t.Helper()
 
 	rdr := sdkmetric.NewManualReader()
 	_, brokers := newClusterWithTopics(t, 1, "name_space-default-topic")
-	mp := sdkmetric.NewMeterProvider(
-		sdkmetric.WithReader(rdr),
-	)
+	mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(rdr))
 	t.Cleanup(func() {
 		require.NoError(t, mp.Shutdown(context.Background()))
 	})
 	producer := newProducer(t, ProducerConfig{
 		CommonConfig: CommonConfig{
-			Brokers:        brokers,
-			Logger:         zap.NewNop(),
-			Namespace:      "name_space",
-			TracerProvider: noop.NewTracerProvider(),
-			MeterProvider:  mp,
+			Brokers:            brokers,
+			Logger:             zap.NewNop(),
+			Namespace:          "name_space",
+			TracerProvider:     noop.NewTracerProvider(),
+			MeterProvider:      mp,
+			TopicAttributeFunc: tafunc,
 		},
 		Sync: true,
 	})
@@ -352,7 +359,7 @@ type testMetricConsumer struct {
 	reader   sdkmetric.Reader
 }
 
-func setupTestConsumer(t testing.TB, p apmqueue.Processor) (mc testMetricConsumer) {
+func setupTestConsumer(t testing.TB, p apmqueue.Processor, tafunc TopicAttributeFunc) (mc testMetricConsumer) {
 	t.Helper()
 
 	mc.reader = sdkmetric.NewManualReader()
@@ -367,6 +374,7 @@ func setupTestConsumer(t testing.TB, p apmqueue.Processor) (mc testMetricConsume
 			MeterProvider: sdkmetric.NewMeterProvider(
 				sdkmetric.WithReader(mc.reader),
 			),
+			TopicAttributeFunc: tafunc,
 		},
 	}
 	mc.client, cfg.Brokers = newClusterWithTopics(t, 1, "name_space-"+t.Name())

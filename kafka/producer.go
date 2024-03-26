@@ -151,7 +151,7 @@ func NewProducer(cfg ProducerConfig) (*Producer, error) {
 	if cfg.ManualFlushing {
 		opts = append(opts, kgo.ManualFlushing())
 	}
-	client, err := cfg.newClient(opts...)
+	client, err := cfg.newClient(cfg.TopicAttributeFunc, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("kafka: failed creating producer: %w", err)
 	}

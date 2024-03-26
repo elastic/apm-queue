@@ -254,7 +254,7 @@ func TestCommonConfigFileHook(t *testing.T) {
 	require.NoError(t, cfg.finalize())
 	assert.Equal(t, []string{"testing.invalid"}, cfg.Brokers)
 
-	client, err := cfg.newClient()
+	client, err := cfg.newClient(nil)
 	require.NoError(t, err)
 	defer client.Close()
 
