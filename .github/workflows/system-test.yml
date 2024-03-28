@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: read
+  id-token: write
 
 jobs:
   run-system-tests:
@@ -21,6 +22,4 @@ jobs:
           && github.actor != 'dependabot[bot]'
         uses: ./.github/actions/system-test
         with:
-          vault-url: ${{ secrets.VAULT_ADDR }}
-          vault-role-id: ${{ secrets.VAULT_ROLE_ID }}
-          vault-secret-id: ${{ secrets.VAULT_SECRET_ID }}
+          workload-identity-provider: '${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}'
