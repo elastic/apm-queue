@@ -81,6 +81,9 @@ type ProducerConfig struct {
 	// If $KAFKA_PRODUCER_COMPRESSION_CODEC is not specified, then
 	// the default behaviour of franz-go is to use [snappy, none].
 	CompressionCodec []CompressionCodec
+
+	// ProduceCallback is a hook called after the record has been produced
+	ProduceCallback func(*kgo.Record, error)
 }
 
 // finalize ensures the configuration is valid, setting default values from
@@ -229,6 +232,7 @@ func (p *Producer) Produce(ctx context.Context, rs ...apmqueue.Record) error {
 					zap.Any("headers", headers),
 				)
 			}
+			p.cfg.ProduceCallback(r, err)
 		})
 	}
 	if p.cfg.Sync {
