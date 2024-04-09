@@ -1,6 +1,6 @@
 module github.com/elastic/apm-queue/v2
 
-go 1.20
+go 1.21
 
 require (
 	cloud.google.com/go/monitoring v1.18.1
