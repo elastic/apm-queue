@@ -93,6 +93,8 @@ func TestNewProducer(t *testing.T) {
 }
 
 func TestNewProducerBasic(t *testing.T) {
+	var mut sync.Mutex
+
 	// This test ensures that basic producing is working, it tests:
 	// * Producing to a single topic
 	// * Producing a set number of records
@@ -108,6 +110,8 @@ func TestNewProducerBasic(t *testing.T) {
 			)
 			defer tp.Shutdown(context.Background())
 
+			topicBytesWritten := make(map[string]int)
+
 			client, brokers := newClusterWithTopics(t, int32(partitionCount), namespacedTopic)
 			producer := newProducer(t, ProducerConfig{
 				CommonConfig: CommonConfig{
@@ -118,6 +122,11 @@ func TestNewProducerBasic(t *testing.T) {
 				},
 				Sync:               sync,
 				MaxBufferedRecords: 0,
+				BatchListener: func(topic string, bytesWritten int) {
+					mut.Lock()
+					topicBytesWritten[topic] += bytesWritten
+					mut.Unlock()
+				},
 			})
 
 			ctx := queuecontext.WithMetadata(context.Background(), map[string]string{"a": "b", "c": "d"})
@@ -198,6 +207,11 @@ func TestNewProducerBasic(t *testing.T) {
 			//lint:ignore SA1012 passing a nil context is a valid use for this call.
 			fetches := client.PollRecords(nil, 1)
 			assert.Len(t, fetches.Records(), 0)
+
+			// Ensure that we recorded bytes written to the topic.
+			require.Len(t, topicBytesWritten, 1)
+			require.Contains(t, topicBytesWritten, "name_space-default-topic")
+			require.GreaterOrEqual(t, topicBytesWritten["name_space-default-topic"], 100)
 		})
 	}
 	test(t, true)

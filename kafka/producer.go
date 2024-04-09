@@ -81,7 +81,19 @@ type ProducerConfig struct {
 	// If $KAFKA_PRODUCER_COMPRESSION_CODEC is not specified, then
 	// the default behaviour of franz-go is to use [snappy, none].
 	CompressionCodec []CompressionCodec
+
+	// BatchWriteListener specifies a callback function that will notify the caller of writes.
+	BatchListener BatchWriteListener
 }
+
+type BatchWriteListener func(topic string, bytesWritten int)
+
+func (l BatchWriteListener) OnProduceBatchWritten(_ kgo.BrokerMetadata,
+	topic string, _ int32, m kgo.ProduceBatchMetrics) {
+	l(topic, m.CompressedBytes)
+}
+
+var _ kgo.HookProduceBatchWritten = (BatchWriteListener)(nil)
 
 // finalize ensures the configuration is valid, setting default values from
 // environment variables as described in doc comments, returning an error if
@@ -150,6 +162,9 @@ func NewProducer(cfg ProducerConfig) (*Producer, error) {
 	}
 	if cfg.ManualFlushing {
 		opts = append(opts, kgo.ManualFlushing())
+	}
+	if cfg.BatchListener != nil {
+		opts = append(opts, kgo.WithHooks(cfg.BatchListener))
 	}
 	client, err := cfg.newClient(cfg.TopicAttributeFunc, opts...)
 	if err != nil {
