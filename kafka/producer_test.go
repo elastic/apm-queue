@@ -212,6 +212,8 @@ func TestNewProducerBasic(t *testing.T) {
 			mut.Lock()
 			require.Len(t, topicBytesWritten, 1)
 			require.Contains(t, topicBytesWritten, "name_space-default-topic")
+			// We can't test equality because the producer batching & compression behavior is not
+			// deterministic.
 			require.GreaterOrEqual(t, topicBytesWritten["name_space-default-topic"], 100)
 			mut.Unlock()
 		})

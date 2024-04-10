@@ -82,12 +82,17 @@ type ProducerConfig struct {
 	// the default behaviour of franz-go is to use [snappy, none].
 	CompressionCodec []CompressionCodec
 
-	// BatchWriteListener specifies a callback function that will notify the caller of writes.
+	// BatchListener is called per topic/partition after a batch is
+	// successfully produced to a Kafka broker.
 	BatchListener BatchWriteListener
 }
 
+// BatchWriteListener specifies a callback function that is invoked after a batch is
+// successfully produced to a Kafka broker. It is invoked with the corresponding topic and the
+// amount of bytes written to that topic (taking compression into account, when applicable).
 type BatchWriteListener func(topic string, bytesWritten int)
 
+// OnProduceBatchWritten implements the kgo.HookProduceBatchWritten interface.
 func (l BatchWriteListener) OnProduceBatchWritten(_ kgo.BrokerMetadata,
 	topic string, _ int32, m kgo.ProduceBatchMetrics) {
 	l(topic, m.CompressedBytes)
