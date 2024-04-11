@@ -97,8 +97,8 @@ func TestNewProducerBasic(t *testing.T) {
 	// * Producing to a single topic
 	// * Producing a set number of records
 	// * Content contains headers from arbitrary metadata.
-	test := func(t *testing.T, sync bool) {
-		t.Run(fmt.Sprintf("sync_%t", sync), func(t *testing.T) {
+	test := func(t *testing.T, isSync bool) {
+		t.Run(fmt.Sprintf("sync_%t", isSync), func(t *testing.T) {
 			topic := apmqueue.Topic("default-topic")
 			namespacedTopic := "name_space-default-topic"
 			partitionCount := 10
@@ -108,6 +108,9 @@ func TestNewProducerBasic(t *testing.T) {
 			)
 			defer tp.Shutdown(context.Background())
 
+			topicBytesWritten := make(map[string]int)
+			var mut sync.Mutex
+
 			client, brokers := newClusterWithTopics(t, int32(partitionCount), namespacedTopic)
 			producer := newProducer(t, ProducerConfig{
 				CommonConfig: CommonConfig{
@@ -116,8 +119,13 @@ func TestNewProducerBasic(t *testing.T) {
 					Namespace:      "name_space",
 					TracerProvider: tp,
 				},
-				Sync:               sync,
+				Sync:               isSync,
 				MaxBufferedRecords: 0,
+				BatchListener: func(topic string, bytesWritten int) {
+					mut.Lock()
+					topicBytesWritten[topic] += bytesWritten
+					mut.Unlock()
+				},
 			})
 
 			ctx := queuecontext.WithMetadata(context.Background(), map[string]string{"a": "b", "c": "d"})
@@ -132,7 +140,7 @@ func TestNewProducerBasic(t *testing.T) {
 				{Topic: topic, OrderingKey: []byte("key_1"), Value: []byte("7")},
 				{Topic: topic, OrderingKey: []byte("key_2"), Value: []byte("8")},
 			}
-			if !sync {
+			if !isSync {
 				// Cancel the context before calling Produce
 				ctxCancelled, cancelProduce := context.WithCancel(ctx)
 				cancelProduce()
@@ -146,7 +154,8 @@ func TestNewProducerBasic(t *testing.T) {
 			var actual []apmqueue.Record
 			orderingKeyToPartitionM := make(map[string]int32)
 			client.AddConsumeTopics(namespacedTopic)
-			for i := 0; i < len(batch)*partitionCount && len(actual) < len(batch); i++ {
+
+			for len(actual) < len(batch) {
 				ctx, cancel := context.WithTimeout(ctx, time.Second)
 				defer cancel()
 
@@ -198,6 +207,15 @@ func TestNewProducerBasic(t *testing.T) {
 			//lint:ignore SA1012 passing a nil context is a valid use for this call.
 			fetches := client.PollRecords(nil, 1)
 			assert.Len(t, fetches.Records(), 0)
+
+			// Ensure that we recorded bytes written to the topic.
+			mut.Lock()
+			require.Len(t, topicBytesWritten, 1)
+			require.Contains(t, topicBytesWritten, "name_space-default-topic")
+			// We can't test equality because the producer batching & compression behavior is not
+			// deterministic.
+			require.GreaterOrEqual(t, topicBytesWritten["name_space-default-topic"], 100)
+			mut.Unlock()
 		})
 	}
 	test(t, true)
