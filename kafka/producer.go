@@ -84,7 +84,24 @@ type ProducerConfig struct {
 
 	// ProduceCallback is a hook called after the record has been produced
 	ProduceCallback func(*kgo.Record, error)
+
+	// BatchListener is called per topic/partition after a batch is
+	// successfully produced to a Kafka broker.
+	BatchListener BatchWriteListener
 }
+
+// BatchWriteListener specifies a callback function that is invoked after a batch is
+// successfully produced to a Kafka broker. It is invoked with the corresponding topic and the
+// amount of bytes written to that topic (taking compression into account, when applicable).
+type BatchWriteListener func(topic string, bytesWritten int)
+
+// OnProduceBatchWritten implements the kgo.HookProduceBatchWritten interface.
+func (l BatchWriteListener) OnProduceBatchWritten(_ kgo.BrokerMetadata,
+	topic string, _ int32, m kgo.ProduceBatchMetrics) {
+	l(topic, m.CompressedBytes)
+}
+
+var _ kgo.HookProduceBatchWritten = (BatchWriteListener)(nil)
 
 // finalize ensures the configuration is valid, setting default values from
 // environment variables as described in doc comments, returning an error if
@@ -153,6 +170,9 @@ func NewProducer(cfg ProducerConfig) (*Producer, error) {
 	}
 	if cfg.ManualFlushing {
 		opts = append(opts, kgo.ManualFlushing())
+	}
+	if cfg.BatchListener != nil {
+		opts = append(opts, kgo.WithHooks(cfg.BatchListener))
 	}
 	client, err := cfg.newClient(cfg.TopicAttributeFunc, opts...)
 	if err != nil {
