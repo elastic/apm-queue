@@ -138,6 +138,9 @@ func (cfg *ConsumerConfig) finalize() error {
 	if cfg.MaxPollPartitionBytes < 0 {
 		errs = append(errs, errors.New("kafka: max poll partition bytes cannot be negative"))
 	}
+	if cfg.FetchMinBytes < 0 {
+		errs = append(errs, errors.New("kafka: fetch min bytes cannot be negative"))
+	}
 	return errors.Join(errs...)
 }
 
