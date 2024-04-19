@@ -107,6 +107,12 @@ type ConsumerConfig struct {
 	// The processing time of each processing cycle can be calculated as:
 	// record.process.time * MaxPollRecords.
 	Processor apmqueue.Processor
+	// FetchMinBytes sets the minimum amount of bytes a broker will try to send
+	// during a fetch, overriding the default 1 byte.
+	// Default: 1
+	// Kafka consumer setting: fetch.min.bytes
+	// Docs: https://kafka.apache.org/28/documentation.html#consumerconfigs_fetch.min.bytes
+	FetchMinBytes int32
 }
 
 // finalize ensures the configuration is valid, setting default values from
@@ -211,6 +217,9 @@ func NewConsumer(cfg ConsumerConfig) (*Consumer, error) {
 	}
 	if cfg.ShutdownGracePeriod <= 0 {
 		cfg.ShutdownGracePeriod = 5 * time.Second
+	}
+	if cfg.FetchMinBytes > 0 {
+		opts = append(opts, kgo.FetchMinBytes(cfg.FetchMinBytes))
 	}
 	client, err := cfg.newClient(cfg.TopicAttributeFunc, opts...)
 	if err != nil {
