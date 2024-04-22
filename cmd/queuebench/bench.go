@@ -37,16 +37,18 @@ type bench struct {
 	Partitions      int
 	TopicNamespace  string
 	Topics          []apmqueue.Topic
+	MetaConsumer    bool
+	MaxPollRecords  int
 
 	mp metric.MeterProvider
 	tp trace.TracerProvider
 
-	c *kafka.Consumer
+	c apmqueue.Consumer
 	m *kafka.Manager
 	p *kafka.Producer
 }
 
-func (b *bench) Setup(ctx context.Context) error {
+func (b *bench) Setup(ctx context.Context) (err error) {
 	kafkaCommonCfg := kafka.CommonConfig{
 		Brokers:   b.Brokers,
 		Namespace: b.TopicNamespace,
@@ -56,46 +58,36 @@ func (b *bench) Setup(ctx context.Context) error {
 		MeterProvider:  b.mp,
 	}
 
-	mngrCfg := kafka.ManagerConfig{
-		CommonConfig: kafkaCommonCfg,
-	}
+	mngrCfg := kafka.ManagerConfig{CommonConfig: kafkaCommonCfg}
 	mngrCfg.CommonConfig.ClientID = "queuebench-manager"
 	mngrCfg.CommonConfig.Logger = b.Logger.With(zap.String("role", "manager"))
-	mngr, err := kafka.NewManager(mngrCfg)
+	b.m, err = kafka.NewManager(mngrCfg)
 	if err != nil {
 		return fmt.Errorf("cannot create kafka manager: %w", err)
 	}
 
-	b.m = mngr
-
 	if err = b.m.Healthy(ctx); err != nil {
 		return fmt.Errorf("cluster health check failed: %w", err)
 	}
-
 	log.Println("cluster confirmed healthy")
 
 	log.Printf("creating kafka topics: %v", b.Topics)
-	topicsCfg := kafka.TopicCreatorConfig{
-		PartitionCount: b.Partitions,
-	}
+	topicsCfg := kafka.TopicCreatorConfig{PartitionCount: b.Partitions}
 	if err = createTopics(ctx, b.m, topicsCfg, b.Topics); err != nil {
 		return fmt.Errorf("cannot create topics: %w", err)
 	}
 
-	consumer, err := createConsumer(kafkaCommonCfg, b.Topics, b.ConsumerGroupID)
+	b.c, err = createConsumer(kafkaCommonCfg, b.Topics, b.ConsumerGroupID,
+		b.MetaConsumer, b.MaxPollRecords,
+	)
 	if err != nil {
 		return fmt.Errorf("cannot create consumer: %w", err)
 	}
 
-	b.c = consumer
-
-	producer, err := createProducer(kafkaCommonCfg)
+	b.p, err = createProducer(kafkaCommonCfg)
 	if err != nil {
 		return fmt.Errorf("cannot create producer: %w", err)
 	}
-
-	b.p = producer
-
 	return nil
 }
 
@@ -139,16 +131,35 @@ func (d dummyProcessor) Process(context.Context, apmqueue.Record) error {
 	return nil
 }
 
-func createConsumer(commonCfg kafka.CommonConfig, topics []apmqueue.Topic, groupID string) (*kafka.Consumer, error) {
+func createConsumer(commonCfg kafka.CommonConfig,
+	topics []apmqueue.Topic,
+	groupID string,
+	independentClients bool,
+	maxPoll int,
+) (apmqueue.Consumer, error) {
 	cfg := kafka.ConsumerConfig{
-		CommonConfig: commonCfg,
-		GroupID:      groupID,
-		Processor:    dummyProcessor{},
-		Topics:       topics,
+		CommonConfig:   commonCfg,
+		GroupID:        groupID,
+		Processor:      dummyProcessor{},
+		Topics:         topics,
+		MaxPollRecords: maxPoll,
 	}
 	cfg.CommonConfig.ClientID = "queuebench-consumer"
 	cfg.CommonConfig.Logger = commonCfg.Logger.With(zap.String("role", "consumer"))
-
+	if independentClients {
+		var mc metaConsumer
+		mc.consumers = make([]apmqueue.Consumer, 0, len(topics))
+		for _, t := range topics {
+			c := cfg
+			cfg.Topics = []apmqueue.Topic{t}
+			consumer, err := kafka.NewConsumer(c)
+			if err != nil {
+				return nil, err
+			}
+			mc.consumers = append(mc.consumers, consumer)
+		}
+		return &mc, nil
+	}
 	return kafka.NewConsumer(cfg)
 }
 
@@ -158,6 +169,5 @@ func createProducer(commonCfg kafka.CommonConfig) (*kafka.Producer, error) {
 	}
 	cfg.CommonConfig.ClientID = "queuebench-producer"
 	cfg.CommonConfig.Logger = commonCfg.Logger.With(zap.String("role", "producer"))
-
 	return kafka.NewProducer(cfg)
 }

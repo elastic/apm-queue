@@ -37,19 +37,17 @@ func metering() (*sdkmetric.MeterProvider, *sdkmetric.ManualReader) {
 	rdr := sdkmetric.NewManualReader()
 	mp := sdkmetric.NewMeterProvider(
 		sdkmetric.WithReader(rdr),
-		sdkmetric.WithView(
-			sdkmetric.NewView(
-				sdkmetric.Instrument{
-					Name:  "consumer.messages.delay",
-					Scope: instrumentation.Scope{Name: "github.com/elastic/apm-queue/kafka"},
+		sdkmetric.WithView(sdkmetric.NewView(
+			sdkmetric.Instrument{
+				Name:  "consumer.messages.delay",
+				Scope: instrumentation.Scope{Name: "github.com/elastic/apm-queue/kafka"},
+			},
+			sdkmetric.Stream{
+				Aggregation: sdkmetric.AggregationExplicitBucketHistogram{
+					Boundaries: customHistogramBoundaries,
 				},
-				sdkmetric.Stream{
-					Aggregation: sdkmetric.AggregationExplicitBucketHistogram{
-						Boundaries: customHistogramBoundaries,
-					},
-				},
-			),
-		),
+			},
+		)),
 	)
 	return mp, rdr
 }

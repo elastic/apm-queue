@@ -24,26 +24,28 @@ import (
 )
 
 type config struct {
-	broker     string
-	duration   time.Duration
-	eventSize  int
-	partitions int
-	timeout    time.Duration
-	verbose    bool
+	broker         string
+	duration       time.Duration
+	eventSize      int
+	partitions     int
+	topics         int
+	maxPollRecords int
+	metaConsumer   bool
+	timeout        time.Duration
+	verbose        bool
+	produceOnly    bool
 }
 
 func (c *config) Parse() {
 	b := flag.String("broker", "", "Broker bootstrap URL (host:port) to connect to for this benchmark run")
-	d := flag.Int("duration", 0, "Duration is seconds of the production phase of the benchmark")
+	d := flag.Int("duration", 240, "Duration is seconds of the production phase of the benchmark")
 	p := flag.Int("partitions", 1, "The number of topic partitions to create")
-	t := flag.String("timeout", "1m", "Timeout for consuming all records. Benchmark will stop regardless of completion.")
+	t := flag.String("timeout", "5m", "Timeout for consuming all records. Benchmark will stop regardless of completion.")
+	topics := flag.Int("topics", 200, "the number of topics to create")
 	v := flag.Bool("verbose", false, "Enable additional logging")
 
 	flag.Parse()
 
-	if *b == "" {
-		log.Fatal("-broker must be set")
-	}
 	if *d == 0 {
 		log.Fatal("-duration must be set and greater than 0")
 	}
@@ -55,8 +57,12 @@ func (c *config) Parse() {
 
 	c.broker = *b
 	c.duration = time.Duration(*d) * time.Second
-	c.eventSize = 1024
+	c.eventSize = 2 * 1024
 	c.partitions = *p
 	c.timeout = timeout
 	c.verbose = *v
+	c.topics = *topics
+	// c.produceOnly = false
+	c.maxPollRecords = 5000
+	c.metaConsumer = false
 }
