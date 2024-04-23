@@ -18,7 +18,10 @@ jobs:
       # This step is skipped if the pull request is from a forked repository or dependabot
       # In that case the job just creates a green status check on the pull request.
       - if: |
-          github.event.pull_request.head.repo.full_name == github.repository
+          ( github.event_name != 'pull_request'
+            ||
+            github.event.pull_request.head.repo.full_name == github.repository
+          )
         uses: ./.github/actions/system-test
         with:
           workload-identity-provider: '${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}'
