@@ -522,6 +522,10 @@ func newPartitionConsumer(ctx context.Context,
 	return &c
 }
 
+// This key is part of metadata as a mean to convey information
+// about the partition IDs that are assigned to each apmqueue.Processor.
+const metadataCtxPartitionKey = "partition_id"
+
 // consumeTopicPartition processes the records for a topic and partition. The
 // records will be processed asynchronously.
 func (c *pc) consumeRecords(ftp kgo.FetchTopicPartition) {
@@ -530,10 +534,14 @@ func (c *pc) consumeRecords(ftp kgo.FetchTopicPartition) {
 		// only the first record is received.
 		last := -1
 		for i, msg := range ftp.Records {
-			meta := make(map[string]string)
+			meta := make(map[string]string, len(msg.Headers))
 			for _, h := range msg.Headers {
 				meta[h.Key] = string(h.Value)
 			}
+			// Add the partition ID to the metadata to allow the processor to
+			// parallelize the processing of records from different partitions.
+			meta[metadataCtxPartitionKey] = fmt.Sprint(ftp.Partition)
+
 			processCtx := queuecontext.WithMetadata(msg.Context, meta)
 			record := apmqueue.Record{
 				Topic:       c.topic,
