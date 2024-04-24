@@ -481,8 +481,9 @@ func TestConsumerContextPropagation(t *testing.T) {
 	}
 	processed := make(chan struct{})
 	expectedMeta := map[string]string{
-		"key":       "value",
-		"timestamp": time.Now().Format(time.RFC3339),
+		"key":          "value",
+		"timestamp":    time.Now().Format(time.RFC3339),
+		"partition_id": "0",
 	}
 	consumer := newConsumer(t, ConsumerConfig{
 		CommonConfig: commonCfg,
