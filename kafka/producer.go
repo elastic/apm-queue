@@ -252,7 +252,9 @@ func (p *Producer) Produce(ctx context.Context, rs ...apmqueue.Record) error {
 					zap.Any("headers", headers),
 				)
 			}
-			p.cfg.ProduceCallback(r, err)
+			if p.cfg.ProduceCallback != nil {
+				p.cfg.ProduceCallback(r, err)
+			}
 		})
 	}
 	if p.cfg.Sync {
