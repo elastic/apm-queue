@@ -35,10 +35,12 @@ const (
 
 	unitCount = "1"
 
-	msgProducedCountKey = "producer.messages.count"
-	msgFetchedKey       = "consumer.messages.fetched"
-	msgDelayKey         = "consumer.messages.delay"
-	errorReasonKey      = "error_reason"
+	msgProducedCountKey             = "producer.messages.count"
+	msgProducedBytesKey             = "producer.messages.bytes"
+	msgProducedUncompressedBytesKey = "producer.messages.uncompressed_bytes"
+	msgFetchedKey                   = "consumer.messages.fetched"
+	msgDelayKey                     = "consumer.messages.delay"
+	errorReasonKey                  = "error_reason"
 )
 
 var (
@@ -58,9 +60,11 @@ type metricHooks struct {
 	namespace   string
 	topicPrefix string
 
-	messageProduced metric.Int64Counter
-	messageFetched  metric.Int64Counter
-	messageDelay    metric.Float64Histogram
+	messageProduced          metric.Int64Counter
+	messageFetched           metric.Int64Counter
+	messageDelay             metric.Float64Histogram
+	messageBytes             metric.Int64Counter
+	messageUncompressedBytes metric.Int64Counter
 
 	topicAttributeFunc TopicAttributeFunc
 }
@@ -91,6 +95,23 @@ func newKgoHooks(mp metric.MeterProvider, namespace, topicPrefix string,
 	if err != nil {
 		return nil, formatMetricError(msgDelayKey, err)
 	}
+
+	messageBytesCounter, err := m.Int64Counter(msgProducedBytesKey,
+		metric.WithDescription("The number of bytes produced"),
+		metric.WithUnit(unitCount),
+	)
+	if err != nil {
+		return nil, formatMetricError(msgProducedBytesKey, err)
+	}
+
+	messageUncompressedBytesCounter, err := m.Int64Counter(msgProducedUncompressedBytesKey,
+		metric.WithDescription("The number of uncompressed bytes produced"),
+		metric.WithUnit(unitCount),
+	)
+	if err != nil {
+		return nil, formatMetricError(msgProducedUncompressedBytesKey, err)
+	}
+
 	if topicAttributeFunc == nil {
 		topicAttributeFunc = func(topic string) attribute.KeyValue {
 			return attribute.KeyValue{}
@@ -101,7 +122,9 @@ func newKgoHooks(mp metric.MeterProvider, namespace, topicPrefix string,
 		namespace:   namespace,
 		topicPrefix: topicPrefix,
 		// Producer
-		messageProduced: messageProducedCounter,
+		messageProduced:          messageProducedCounter,
+		messageBytes:             messageBytesCounter,
+		messageUncompressedBytes: messageUncompressedBytesCounter,
 		// Consumer
 		messageFetched: messageFetchedCounter,
 		messageDelay:   messageDelayHistogram,
@@ -131,6 +154,12 @@ func (h *metricHooks) OnProduceBatchWritten(_ kgo.BrokerMetadata,
 		attrs = append(attrs, attribute.String("namespace", h.namespace))
 	}
 	h.messageProduced.Add(context.Background(), int64(m.NumRecords),
+		metric.WithAttributeSet(attribute.NewSet(attrs...)),
+	)
+	h.messageBytes.Add(context.Background(), int64(m.CompressedBytes),
+		metric.WithAttributeSet(attribute.NewSet(attrs...)),
+	)
+	h.messageUncompressedBytes.Add(context.Background(), int64(m.UncompressedBytes),
 		metric.WithAttributeSet(attribute.NewSet(attrs...)),
 	)
 }

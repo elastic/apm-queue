@@ -44,7 +44,7 @@ func TestProducerMetrics(t *testing.T) {
 		t *testing.T,
 		producer apmqueue.Producer,
 		rdr sdkmetric.Reader,
-		want metricdata.Metrics,
+		want []metricdata.Metrics,
 	) {
 		topic := apmqueue.Topic("default-topic")
 		producer.Produce(ctx,
@@ -59,10 +59,12 @@ func TestProducerMetrics(t *testing.T) {
 		assert.NoError(t, rdr.Collect(context.Background(), &rm))
 
 		metrics := filterMetrics(t, rm.ScopeMetrics)
-		assert.Len(t, metrics, 1)
-		metricdatatest.AssertEqual(t, want, metrics[0],
-			metricdatatest.IgnoreTimestamp(),
-		)
+		assert.Equal(t, len(want), len(metrics))
+		for i := range want {
+			metricdatatest.AssertEqual(t, want[i], metrics[i],
+				metricdatatest.IgnoreTimestamp(),
+			)
+		}
 	}
 	t.Run("DeadlineExceeded", func(t *testing.T) {
 		producer, rdr := setupTestProducer(t, nil)
@@ -89,7 +91,7 @@ func TestProducerMetrics(t *testing.T) {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 0)
 		defer cancel()
-		test(ctx, t, producer, rdr, want)
+		test(ctx, t, producer, rdr, []metricdata.Metrics{want})
 	})
 	t.Run("ContextCanceled", func(t *testing.T) {
 		producer, rdr := setupTestProducer(t, nil)
@@ -116,7 +118,7 @@ func TestProducerMetrics(t *testing.T) {
 		}
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
-		test(ctx, t, producer, rdr, want)
+		test(ctx, t, producer, rdr, []metricdata.Metrics{want})
 	})
 	t.Run("Unknown error reason", func(t *testing.T) {
 		producer, rdr := setupTestProducer(t, nil)
@@ -143,30 +145,76 @@ func TestProducerMetrics(t *testing.T) {
 			},
 		}
 		require.NoError(t, producer.Close())
-		test(context.Background(), t, producer, rdr, want)
+		test(context.Background(), t, producer, rdr, []metricdata.Metrics{want})
 	})
 	t.Run("Produced", func(t *testing.T) {
 		producer, rdr := setupTestProducer(t, func(topic string) attribute.KeyValue {
 			return attribute.String("test", "test")
 		})
-		want := metricdata.Metrics{
-			Name:        "producer.messages.count",
-			Description: "The number of messages produced",
-			Unit:        "1",
-			Data: metricdata.Sum[int64]{
-				Temporality: metricdata.CumulativeTemporality,
-				IsMonotonic: true,
-				DataPoints: []metricdata.DataPoint[int64]{
-					{
-						Value: 3,
-						Attributes: attribute.NewSet(
-							attribute.String("outcome", "success"),
-							attribute.String("namespace", "name_space"),
-							semconv.MessagingSystem("kafka"),
-							semconv.MessagingDestinationName("default-topic"),
-							semconv.MessagingKafkaDestinationPartition(0),
-							attribute.String("test", "test"),
-						),
+		want := []metricdata.Metrics{
+			{
+				Name:        "producer.messages.count",
+				Description: "The number of messages produced",
+				Unit:        "1",
+				Data: metricdata.Sum[int64]{
+					Temporality: metricdata.CumulativeTemporality,
+					IsMonotonic: true,
+					DataPoints: []metricdata.DataPoint[int64]{
+						{
+							Value: 3,
+							Attributes: attribute.NewSet(
+								attribute.String("outcome", "success"),
+								attribute.String("namespace", "name_space"),
+								semconv.MessagingSystem("kafka"),
+								semconv.MessagingDestinationName("default-topic"),
+								semconv.MessagingKafkaDestinationPartition(0),
+								attribute.String("test", "test"),
+							),
+						},
+					},
+				},
+			},
+			{
+				Name:        "producer.messages.bytes",
+				Description: "The number of bytes produced",
+				Unit:        "1",
+				Data: metricdata.Sum[int64]{
+					Temporality: metricdata.CumulativeTemporality,
+					IsMonotonic: true,
+					DataPoints: []metricdata.DataPoint[int64]{
+						{
+							Value: 24,
+							Attributes: attribute.NewSet(
+								attribute.String("outcome", "success"),
+								attribute.String("namespace", "name_space"),
+								semconv.MessagingSystem("kafka"),
+								semconv.MessagingDestinationName("default-topic"),
+								semconv.MessagingKafkaDestinationPartition(0),
+								attribute.String("test", "test"),
+							),
+						},
+					},
+				},
+			},
+			{
+				Name:        "producer.messages.uncompressed_bytes",
+				Description: "The number of uncompressed bytes produced",
+				Unit:        "1",
+				Data: metricdata.Sum[int64]{
+					Temporality: metricdata.CumulativeTemporality,
+					IsMonotonic: true,
+					DataPoints: []metricdata.DataPoint[int64]{
+						{
+							Value: 24,
+							Attributes: attribute.NewSet(
+								attribute.String("outcome", "success"),
+								attribute.String("namespace", "name_space"),
+								semconv.MessagingSystem("kafka"),
+								semconv.MessagingDestinationName("default-topic"),
+								semconv.MessagingKafkaDestinationPartition(0),
+								attribute.String("test", "test"),
+							),
+						},
 					},
 				},
 			},
@@ -177,24 +225,70 @@ func TestProducerMetrics(t *testing.T) {
 		producer, rdr := setupTestProducer(t, func(topic string) attribute.KeyValue {
 			return attribute.String("some key", "some value")
 		})
-		want := metricdata.Metrics{
-			Name:        "producer.messages.count",
-			Description: "The number of messages produced",
-			Unit:        "1",
-			Data: metricdata.Sum[int64]{
-				Temporality: metricdata.CumulativeTemporality,
-				IsMonotonic: true,
-				DataPoints: []metricdata.DataPoint[int64]{
-					{
-						Value: 3,
-						Attributes: attribute.NewSet(
-							attribute.String("outcome", "success"),
-							attribute.String("namespace", "name_space"),
-							semconv.MessagingSystem("kafka"),
-							semconv.MessagingDestinationName("default-topic"),
-							semconv.MessagingKafkaDestinationPartition(0),
-							attribute.String("some key", "some value"),
-						),
+		want := []metricdata.Metrics{
+			{
+				Name:        "producer.messages.count",
+				Description: "The number of messages produced",
+				Unit:        "1",
+				Data: metricdata.Sum[int64]{
+					Temporality: metricdata.CumulativeTemporality,
+					IsMonotonic: true,
+					DataPoints: []metricdata.DataPoint[int64]{
+						{
+							Value: 3,
+							Attributes: attribute.NewSet(
+								attribute.String("outcome", "success"),
+								attribute.String("namespace", "name_space"),
+								semconv.MessagingSystem("kafka"),
+								semconv.MessagingDestinationName("default-topic"),
+								semconv.MessagingKafkaDestinationPartition(0),
+								attribute.String("some key", "some value"),
+							),
+						},
+					},
+				},
+			},
+			{
+				Name:        "producer.messages.bytes",
+				Description: "The number of bytes produced",
+				Unit:        "1",
+				Data: metricdata.Sum[int64]{
+					Temporality: metricdata.CumulativeTemporality,
+					IsMonotonic: true,
+					DataPoints: []metricdata.DataPoint[int64]{
+						{
+							Value: 53,
+							Attributes: attribute.NewSet(
+								attribute.String("outcome", "success"),
+								attribute.String("namespace", "name_space"),
+								semconv.MessagingSystem("kafka"),
+								semconv.MessagingDestinationName("default-topic"),
+								semconv.MessagingKafkaDestinationPartition(0),
+								attribute.String("some key", "some value"),
+							),
+						},
+					},
+				},
+			},
+			{
+				Name:        "producer.messages.uncompressed_bytes",
+				Description: "The number of uncompressed bytes produced",
+				Unit:        "1",
+				Data: metricdata.Sum[int64]{
+					Temporality: metricdata.CumulativeTemporality,
+					IsMonotonic: true,
+					DataPoints: []metricdata.DataPoint[int64]{
+						{
+							Value: 114,
+							Attributes: attribute.NewSet(
+								attribute.String("outcome", "success"),
+								attribute.String("namespace", "name_space"),
+								semconv.MessagingSystem("kafka"),
+								semconv.MessagingDestinationName("default-topic"),
+								semconv.MessagingKafkaDestinationPartition(0),
+								attribute.String("some key", "some value"),
+							),
+						},
 					},
 				},
 			},
