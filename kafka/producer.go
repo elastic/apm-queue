@@ -82,6 +82,9 @@ type ProducerConfig struct {
 	// the default behaviour of franz-go is to use [snappy, none].
 	CompressionCodec []CompressionCodec
 
+	// ProduceCallback is a hook called after the record has been produced
+	ProduceCallback func(*kgo.Record, error)
+
 	// BatchListener is called per topic/partition after a batch is
 	// successfully produced to a Kafka broker.
 	BatchListener BatchWriteListener
@@ -248,6 +251,9 @@ func (p *Producer) Produce(ctx context.Context, rs ...apmqueue.Record) error {
 					zap.Int32("partition", r.Partition),
 					zap.Any("headers", headers),
 				)
+			}
+			if p.cfg.ProduceCallback != nil {
+				p.cfg.ProduceCallback(r, err)
 			}
 		})
 	}
