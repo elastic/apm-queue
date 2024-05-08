@@ -21,9 +21,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math"
 	"net"
-	"strconv"
 	"strings"
 	"time"
 
@@ -315,7 +313,6 @@ func formatMetricError(name string, err error) error {
 func (h *metricHooks) OnBrokerConnect(meta kgo.BrokerMetadata, _ time.Duration, _ net.Conn, err error) {
 	attributes := attribute.NewSet(
 		semconv.MessagingSystem("kafka"),
-		attribute.String("node_id", strnode(meta.NodeID)),
 	)
 	if err != nil {
 		h.connectErrs.Add(
@@ -335,7 +332,6 @@ func (h *metricHooks) OnBrokerConnect(meta kgo.BrokerMetadata, _ time.Duration, 
 func (h *metricHooks) OnBrokerDisconnect(meta kgo.BrokerMetadata, _ net.Conn) {
 	attributes := attribute.NewSet(
 		semconv.MessagingSystem("kafka"),
-		attribute.String("node_id", strnode(meta.NodeID)),
 	)
 	h.disconnects.Add(
 		context.Background(),
@@ -347,7 +343,6 @@ func (h *metricHooks) OnBrokerDisconnect(meta kgo.BrokerMetadata, _ net.Conn) {
 func (h *metricHooks) OnBrokerWrite(meta kgo.BrokerMetadata, _ int16, bytesWritten int, _, _ time.Duration, err error) {
 	attributes := attribute.NewSet(
 		semconv.MessagingSystem("kafka"),
-		attribute.String("node_id", strnode(meta.NodeID)),
 	)
 	if err != nil {
 		h.writeErrs.Add(
@@ -367,7 +362,6 @@ func (h *metricHooks) OnBrokerWrite(meta kgo.BrokerMetadata, _ int16, bytesWritt
 func (h *metricHooks) OnBrokerRead(meta kgo.BrokerMetadata, _ int16, bytesRead int, _, _ time.Duration, err error) {
 	attributes := attribute.NewSet(
 		semconv.MessagingSystem("kafka"),
-		attribute.String("node_id", strnode(meta.NodeID)),
 	)
 	if err != nil {
 		h.readErrs.Add(
@@ -390,7 +384,6 @@ func (h *metricHooks) OnProduceBatchWritten(meta kgo.BrokerMetadata,
 ) {
 	attrs := make([]attribute.KeyValue, 0, 8)
 	attrs = append(attrs, semconv.MessagingSystem("kafka"),
-		attribute.String("node_id", strnode(meta.NodeID)),
 		attribute.String("topic", topic),
 		semconv.MessagingDestinationName(strings.TrimPrefix(topic, h.topicPrefix)),
 		semconv.MessagingKafkaDestinationPartition(int(partition)),
@@ -432,7 +425,6 @@ func (h *metricHooks) OnFetchBatchRead(meta kgo.BrokerMetadata,
 ) {
 	attrs := make([]attribute.KeyValue, 0, 7)
 	attrs = append(attrs, semconv.MessagingSystem("kafka"),
-		attribute.String("node_id", strnode(meta.NodeID)),
 		attribute.String("topic", topic),
 		semconv.MessagingSourceName(strings.TrimPrefix(topic, h.topicPrefix)),
 		semconv.MessagingKafkaSourcePartition(int(partition)),
@@ -527,11 +519,4 @@ func attributesFromRecord(r *kgo.Record, extra ...attribute.KeyValue) []attribut
 		attrs = append(attrs, attribute.String(v.Key, string(v.Value)))
 	}
 	return attrs
-}
-
-func strnode(node int32) string {
-	if node < 0 {
-		return "seed_" + strconv.Itoa(int(node)-math.MinInt32)
-	}
-	return strconv.Itoa(int(node))
 }

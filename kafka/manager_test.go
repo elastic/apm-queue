@@ -156,18 +156,12 @@ func TestManagerDeleteTopics(t *testing.T) {
 	assert.Empty(t, cmp.Diff(metrictest.Int64Metrics{
 		{Name: "messaging.kafka.connects.count", Unit: "1"}: {
 			{K: "messaging.system", V: "kafka"}: 2,
-			{K: "node_id", V: "0"}:              1,
-			{K: "node_id", V: "seed_0"}:         1,
 		},
 		{Name: "messaging.kafka.read_bytes.count", Unit: "By"}: {
 			{K: "messaging.system", V: "kafka"}: 725,
-			{K: "node_id", V: "0"}:              400,
-			{K: "node_id", V: "seed_0"}:         325,
 		},
 		{Name: "messaging.kafka.write_bytes", Unit: "By"}: {
 			{K: "messaging.system", V: "kafka"}: 235,
-			{K: "node_id", V: "0"}:              160,
-			{K: "node_id", V: "seed_0"}:         75,
 		},
 		{Name: "topics.deleted.count"}: {
 			{K: "topic", V: "topic2"}:           1,
@@ -540,13 +534,11 @@ func TestManagerMetrics(t *testing.T) {
 		DataPoints: []metricdata.DataPoint[int64]{{
 			Attributes: attribute.NewSet(
 				attribute.String("messaging.system", "kafka"),
-				attribute.String("node_id", "seed_0"),
 			),
 			Value: 1,
 		}, {
 			Attributes: attribute.NewSet(
 				attribute.String("messaging.system", "kafka"),
-				attribute.String("node_id", "0"),
 			),
 			Value: 2,
 		}},
@@ -558,7 +550,6 @@ func TestManagerMetrics(t *testing.T) {
 		DataPoints: []metricdata.DataPoint[int64]{{
 			Attributes: attribute.NewSet(
 				attribute.String("messaging.system", "kafka"),
-				attribute.String("node_id", "0"),
 			),
 			Value: 1,
 		}},

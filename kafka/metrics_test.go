@@ -88,7 +88,6 @@ func TestProducerMetrics(t *testing.T) {
 							Value: 1,
 							Attributes: attribute.NewSet(
 								semconv.MessagingSystem("kafka"),
-								attribute.String("node_id", "seed_0"),
 							),
 						},
 					},
@@ -137,7 +136,6 @@ func TestProducerMetrics(t *testing.T) {
 							Value: 1,
 							Attributes: attribute.NewSet(
 								semconv.MessagingSystem("kafka"),
-								attribute.String("node_id", "seed_0"),
 							),
 						},
 					},
@@ -298,7 +296,6 @@ func TestProducerMetrics(t *testing.T) {
 						{
 							Value: 3,
 							Attributes: attribute.NewSet(
-								attribute.String("node_id", "0"),
 								attribute.String("outcome", "success"),
 								attribute.String("namespace", "name_space"),
 								attribute.String("topic", "name_space-default-topic"),
@@ -322,7 +319,6 @@ func TestProducerMetrics(t *testing.T) {
 						{
 							Value: 53,
 							Attributes: attribute.NewSet(
-								attribute.String("node_id", "0"),
 								attribute.String("outcome", "success"),
 								attribute.String("namespace", "name_space"),
 								attribute.String("topic", "name_space-default-topic"),
@@ -346,7 +342,6 @@ func TestProducerMetrics(t *testing.T) {
 						{
 							Value: 114,
 							Attributes: attribute.NewSet(
-								attribute.String("node_id", "0"),
 								attribute.String("outcome", "success"),
 								attribute.String("namespace", "name_space"),
 								attribute.String("topic", "name_space-default-topic"),
