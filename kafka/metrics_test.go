@@ -510,7 +510,7 @@ func setupTestProducer(t testing.TB, tafunc TopicAttributeFunc) (*Producer, sdkm
 	t.Helper()
 
 	rdr := sdkmetric.NewManualReader()
-	_, brokers := newClusterWithTopics(t, 1, "name_space-default-topic")
+	brokers := newClusterAddrWithTopics(t, 1, "name_space-default-topic")
 	mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(rdr))
 	t.Cleanup(func() {
 		require.NoError(t, mp.Shutdown(context.Background()))

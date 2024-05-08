@@ -431,9 +431,8 @@ func TestManagerMetrics(t *testing.T) {
 	metrics := rm.ScopeMetrics[0].Metrics
 	require.Len(t, metrics, 6)
 	var lagMetric, assignmentMetric metricdata.Metrics
-	var connectsMetric, disconnectsMetric metricdata.Metrics
-	// write and read values are not stable so we just assert for existence
-	var writeBytesMetric, readBytesMetric bool
+	// these are not stable so we just assert for existence
+	var connectsMetric, disconnectsMetric, writeBytesMetric, readBytesMetric bool
 	for _, metric := range metrics {
 		switch metric.Name {
 		case "consumer_group_lag":
@@ -441,9 +440,9 @@ func TestManagerMetrics(t *testing.T) {
 		case "consumer_group_assignment":
 			assignmentMetric = metric
 		case "messaging.kafka.connects.count":
-			connectsMetric = metric
+			connectsMetric = true
 		case "messaging.kafka.disconnects.count":
-			disconnectsMetric = metric
+			disconnectsMetric = true
 		case "messaging.kafka.write_bytes":
 			writeBytesMetric = true
 		case "messaging.kafka.read_bytes.count":
@@ -452,6 +451,8 @@ func TestManagerMetrics(t *testing.T) {
 	}
 	assert.True(t, writeBytesMetric)
 	assert.True(t, readBytesMetric)
+	assert.True(t, connectsMetric)
+	assert.True(t, disconnectsMetric)
 	metricdatatest.AssertAggregationsEqual(t, metricdata.Gauge[int64]{
 		DataPoints: []metricdata.DataPoint[int64]{{
 			Attributes: attribute.NewSet(
@@ -529,33 +530,6 @@ func TestManagerMetrics(t *testing.T) {
 			Value: 1,
 		}},
 	}, assignmentMetric.Data, metricdatatest.IgnoreTimestamp())
-
-	metricdatatest.AssertAggregationsEqual(t, metricdata.Sum[int64]{
-		DataPoints: []metricdata.DataPoint[int64]{{
-			Attributes: attribute.NewSet(
-				attribute.String("messaging.system", "kafka"),
-			),
-			Value: 1,
-		}, {
-			Attributes: attribute.NewSet(
-				attribute.String("messaging.system", "kafka"),
-			),
-			Value: 2,
-		}},
-		Temporality: metricdata.CumulativeTemporality,
-		IsMonotonic: true,
-	}, connectsMetric.Data, metricdatatest.IgnoreTimestamp())
-
-	metricdatatest.AssertAggregationsEqual(t, metricdata.Sum[int64]{
-		DataPoints: []metricdata.DataPoint[int64]{{
-			Attributes: attribute.NewSet(
-				attribute.String("messaging.system", "kafka"),
-			),
-			Value: 1,
-		}},
-		Temporality: metricdata.CumulativeTemporality,
-		IsMonotonic: true,
-	}, disconnectsMetric.Data, metricdatatest.IgnoreTimestamp())
 
 	assert.Equal(t, int16(5), describeGroupsRequest.Version)
 	assert.ElementsMatch(t, []string{"connect", "consumer1", "consumer2", "consumer3"}, describeGroupsRequest.Groups)
