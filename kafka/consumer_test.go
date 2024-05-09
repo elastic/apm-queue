@@ -139,6 +139,7 @@ func TestConsumerHealth(t *testing.T) {
 }
 
 func TestConsumerInstrumentation(t *testing.T) {
+	const partitions = 4
 	exp := tracetest.NewInMemoryExporter()
 	tp := sdktrace.NewTracerProvider(
 		sdktrace.WithSyncer(exp),
@@ -148,7 +149,7 @@ func TestConsumerInstrumentation(t *testing.T) {
 	namespace := "name_space"
 	topic := apmqueue.Topic("topic")
 	event := apmqueue.Record{Topic: topic, Value: []byte("1")}
-	client, addrs := newClusterWithTopics(t, 2, "name_space-topic")
+	client, addrs := newClusterWithTopics(t, partitions, "name_space-topic")
 	processed := make(chan struct{})
 	cfg := ConsumerConfig{
 		CommonConfig: CommonConfig{
@@ -162,7 +163,11 @@ func TestConsumerInstrumentation(t *testing.T) {
 		MaxPollRecords: 1, // Consume a single record for this test.
 		Processor: apmqueue.ProcessorFunc(func(_ context.Context, r apmqueue.Record) error {
 			defer close(processed)
-			assert.Equal(t, event, r)
+			assert.Equal(t, event.Topic, r.Topic)
+			assert.Equal(t, event.Value, r.Value)
+			// We cannot know which partition the record will be polled from,
+			// but we can assert it's in the range of number of partitions.
+			assert.True(t, event.Partition < partitions-1)
 			return nil
 		}),
 	}
@@ -481,9 +486,8 @@ func TestConsumerContextPropagation(t *testing.T) {
 	}
 	processed := make(chan struct{})
 	expectedMeta := map[string]string{
-		"key":          "value",
-		"timestamp":    time.Now().Format(time.RFC3339),
-		"partition_id": "0",
+		"key":       "value",
+		"timestamp": time.Now().Format(time.RFC3339),
 	}
 	consumer := newConsumer(t, ConsumerConfig{
 		CommonConfig: commonCfg,
@@ -572,8 +576,9 @@ func TestMultipleConsumers(t *testing.T) {
 }
 
 func TestMultipleConsumerGroups(t *testing.T) {
+	const partitions = 4
 	event := apmqueue.Record{Topic: "topic", Value: []byte("x")}
-	client, addrs := newClusterWithTopics(t, 2, "name_space-topic")
+	client, addrs := newClusterWithTopics(t, partitions, "name_space-topic")
 	cfg := ConsumerConfig{
 		CommonConfig: CommonConfig{
 			Brokers:   addrs,
@@ -594,7 +599,11 @@ func TestMultipleConsumerGroups(t *testing.T) {
 		m[gid] = &counter
 		cfg.Processor = apmqueue.ProcessorFunc(func(_ context.Context, r apmqueue.Record) error {
 			counter.Add(1)
-			assert.Equal(t, event, r)
+			assert.Equal(t, event.Topic, r.Topic)
+			assert.Equal(t, event.Value, r.Value)
+			// We cannot know which partition the record will be polled from,
+			// but we can assert it's in the range of number of partitions.
+			assert.True(t, event.Partition < partitions-1)
 			return nil
 		})
 		consumer := newConsumer(t, cfg)
