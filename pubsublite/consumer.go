@@ -154,7 +154,7 @@ func NewConsumer(ctx context.Context, cfg ConsumerConfig) (*Consumer, error) {
 			topic:            topic,
 			logger:           cfg.Logger.With(zap.String("topic", string(topic))),
 			telemetryAttributes: append([]attribute.KeyValue{
-				semconv.MessagingSourceName((string(topic))),
+				semconv.MessagingSourceName(string(topic)),
 			}, commonTelemetryAttributes...),
 		})
 	}
@@ -232,6 +232,8 @@ type consumer struct {
 
 func (c *consumer) processMessage(ctx context.Context, msg *pubsub.Message) {
 	ctx = queuecontext.WithMetadata(ctx, msg.Attributes)
+	partition, offset := partitionOffset(msg.ID)
+
 	var err error
 	switch c.delivery {
 	case apmqueue.AtMostOnceDeliveryType:
@@ -261,7 +263,6 @@ func (c *consumer) processMessage(ctx context.Context, msg *pubsub.Message) {
 			}
 			msg.Ack()
 			if _, found := c.failed.LoadAndDelete(msg.ID); found {
-				partition, offset := partitionOffset(msg.ID)
 				c.logger.Info("processed previously failed event",
 					zap.Int64("offset", offset),
 					zap.Int("partition", partition),
@@ -274,9 +275,9 @@ func (c *consumer) processMessage(ctx context.Context, msg *pubsub.Message) {
 		Topic:       c.topic,
 		OrderingKey: []byte(msg.OrderingKey),
 		Value:       msg.Data,
+		Partition:   int32(partition),
 	}
 	if err = c.processor.Process(ctx, record); err != nil {
-		partition, offset := partitionOffset(msg.ID)
 		c.logger.Error("unable to process event",
 			zap.Error(err),
 			zap.Int64("offset", offset),
