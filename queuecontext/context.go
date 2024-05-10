@@ -57,3 +57,13 @@ type detachedContext struct {
 func (c *detachedContext) Value(key interface{}) interface{} {
 	return c.orig.Value(key)
 }
+
+func Enrich(ctx context.Context, key string, value string) context.Context {
+	meta, ok := MetadataFromContext(ctx)
+	if !ok {
+		meta = make(map[string]string)
+	}
+
+	meta[key] = value
+	return WithMetadata(ctx, meta)
+}
