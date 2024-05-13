@@ -31,7 +31,6 @@ import (
 	"github.com/twmb/franz-go/pkg/sasl"
 	"github.com/twmb/franz-go/pkg/sasl/aws"
 	"github.com/twmb/franz-go/pkg/sasl/plain"
-	"github.com/twmb/franz-go/plugin/kotel"
 	"github.com/twmb/franz-go/plugin/kzap"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/metric"
@@ -276,9 +275,6 @@ func (cfg *CommonConfig) newClient(topicAttributeFunc TopicAttributeFunc, additi
 	}
 	opts = append(opts, additionalOpts...)
 	if !cfg.DisableTelemetry {
-		kotelService := kotel.NewKotel(kotel.WithMeter(
-			kotel.NewMeter(kotel.MeterProvider(cfg.meterProvider())),
-		))
 		metricHooks, err := newKgoHooks(cfg.meterProvider(),
 			cfg.Namespace, cfg.namespacePrefix(), topicAttributeFunc,
 		)
@@ -287,7 +283,6 @@ func (cfg *CommonConfig) newClient(topicAttributeFunc TopicAttributeFunc, additi
 		}
 		opts = append(opts,
 			kgo.WithHooks(metricHooks),
-			kgo.WithHooks(kotelService.Hooks()...),
 		)
 	}
 	if len(cfg.hooks) != 0 {

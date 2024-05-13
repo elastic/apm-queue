@@ -224,7 +224,7 @@ func TestNewProducerBasic(t *testing.T) {
 
 func TestProducerGracefulShutdown(t *testing.T) {
 	test := func(t testing.TB, dt apmqueue.DeliveryType, syncProducer bool) {
-		_, brokers := newClusterWithTopics(t, 1, "topic")
+		brokers := newClusterAddrWithTopics(t, 1, "topic")
 		var processed atomic.Int64
 		wait := make(chan struct{})
 		producer := newProducer(t, ProducerConfig{
@@ -293,7 +293,7 @@ func TestProducerGracefulShutdown(t *testing.T) {
 }
 
 func TestProducerConcurrentClose(t *testing.T) {
-	_, brokers := newClusterWithTopics(t, 1, "topic")
+	brokers := newClusterAddrWithTopics(t, 1, "topic")
 	producer := newProducer(t, ProducerConfig{
 		CommonConfig: CommonConfig{
 			Brokers: brokers,
@@ -312,13 +312,18 @@ func TestProducerConcurrentClose(t *testing.T) {
 	wg.Wait()
 }
 
-func newClusterWithTopics(t testing.TB, partitions int32, topics ...string) (*kgo.Client, []string) {
+func newClusterAddrWithTopics(t testing.TB, partitions int32, topics ...string) []string {
 	t.Helper()
 	cluster, err := kfake.NewCluster(kfake.SeedTopics(partitions, topics...))
 	require.NoError(t, err)
 	t.Cleanup(cluster.Close)
 
-	addrs := cluster.ListenAddrs()
+	return cluster.ListenAddrs()
+}
+
+func newClusterWithTopics(t testing.TB, partitions int32, topics ...string) (*kgo.Client, []string) {
+	t.Helper()
+	addrs := newClusterAddrWithTopics(t, partitions, topics...)
 
 	client, err := kgo.NewClient(kgo.SeedBrokers(addrs...))
 	require.NoError(t, err)

@@ -474,7 +474,7 @@ func TestConsumerGracefulShutdown(t *testing.T) {
 }
 
 func TestConsumerContextPropagation(t *testing.T) {
-	_, addrs := newClusterWithTopics(t, 2, "topic")
+	addrs := newClusterAddrWithTopics(t, 2, "topic")
 	commonCfg := CommonConfig{
 		Brokers: addrs,
 		Logger:  zap.NewNop(),

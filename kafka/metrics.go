@@ -21,6 +21,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"strings"
 	"time"
 
@@ -34,16 +35,23 @@ const (
 	instrumentName = "github.com/elastic/apm-queue/kafka"
 
 	unitCount = "1"
+	unitBytes = "By"
 
 	msgProducedCountKey             = "producer.messages.count"
 	msgProducedBytesKey             = "producer.messages.bytes"
-	msgProducedUncompressedBytesKey = "producer.messages.uncompressed_bytes"
+	msgProducedUncompressedBytesKey = "producer.messages.uncompressed.bytes"
 	msgFetchedKey                   = "consumer.messages.fetched"
 	msgDelayKey                     = "consumer.messages.delay"
+	msgConsumedBytesKey             = "consumer.messages.bytes"
+	msgConsumedUncompressedBytesKey = "consumer.messages.uncompressed.bytes"
 	errorReasonKey                  = "error_reason"
 )
 
 var (
+	_ kgo.HookBrokerConnect           = new(metricHooks)
+	_ kgo.HookBrokerDisconnect        = new(metricHooks)
+	_ kgo.HookBrokerWrite             = new(metricHooks)
+	_ kgo.HookBrokerRead              = new(metricHooks)
 	_ kgo.HookProduceBatchWritten     = new(metricHooks)
 	_ kgo.HookFetchBatchRead          = new(metricHooks)
 	_ kgo.HookFetchRecordUnbuffered   = new(metricHooks)
@@ -60,11 +68,31 @@ type metricHooks struct {
 	namespace   string
 	topicPrefix string
 
-	messageProduced          metric.Int64Counter
-	messageFetched           metric.Int64Counter
-	messageDelay             metric.Float64Histogram
-	messageBytes             metric.Int64Counter
-	messageUncompressedBytes metric.Int64Counter
+	// kotel metrics
+
+	connects    metric.Int64Counter
+	connectErrs metric.Int64Counter
+	disconnects metric.Int64Counter
+
+	writeErrs  metric.Int64Counter
+	writeBytes metric.Int64Counter
+
+	readErrs  metric.Int64Counter
+	readBytes metric.Int64Counter
+
+	produceBytes   metric.Int64Counter
+	produceRecords metric.Int64Counter
+	fetchBytes     metric.Int64Counter
+	fetchRecords   metric.Int64Counter
+
+	// custom metrics
+	messageProduced                  metric.Int64Counter
+	messageProducedBytes             metric.Int64Counter
+	messageProducedUncompressedBytes metric.Int64Counter
+	messageFetched                   metric.Int64Counter
+	messageFetchedBytes              metric.Int64Counter
+	messageFetchedUncompressedBytes  metric.Int64Counter
+	messageDelay                     metric.Float64Histogram
 
 	topicAttributeFunc TopicAttributeFunc
 }
@@ -73,6 +101,116 @@ func newKgoHooks(mp metric.MeterProvider, namespace, topicPrefix string,
 	topicAttributeFunc TopicAttributeFunc,
 ) (*metricHooks, error) {
 	m := mp.Meter(instrumentName)
+
+	// kotel metrics
+
+	// connects and disconnects
+	connects, err := m.Int64Counter(
+		"messaging.kafka.connects.count",
+		metric.WithUnit(unitCount),
+		metric.WithDescription("Total number of connections opened, by broker"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create connects instrument, %w", err)
+	}
+
+	connectErrs, err := m.Int64Counter(
+		"messaging.kafka.connect_errors.count",
+		metric.WithUnit(unitCount),
+		metric.WithDescription("Total number of connection errors, by broker"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create connectErrs instrument, %w", err)
+	}
+
+	disconnects, err := m.Int64Counter(
+		"messaging.kafka.disconnects.count",
+		metric.WithUnit(unitCount),
+		metric.WithDescription("Total number of connections closed, by broker"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create disconnects instrument, %w", err)
+	}
+
+	// write
+
+	writeErrs, err := m.Int64Counter(
+		"messaging.kafka.write_errors.count",
+		metric.WithUnit(unitCount),
+		metric.WithDescription("Total number of write errors, by broker"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create writeErrs instrument, %w", err)
+	}
+
+	writeBytes, err := m.Int64Counter(
+		"messaging.kafka.write_bytes",
+		metric.WithUnit(unitBytes),
+		metric.WithDescription("Total number of bytes written, by broker"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create writeBytes instrument, %w", err)
+	}
+
+	// read
+
+	readErrs, err := m.Int64Counter(
+		"messaging.kafka.read_errors.count",
+		metric.WithUnit(unitCount),
+		metric.WithDescription("Total number of read errors, by broker"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create readErrs instrument, %w", err)
+	}
+
+	readBytes, err := m.Int64Counter(
+		"messaging.kafka.read_bytes.count",
+		metric.WithUnit(unitBytes),
+		metric.WithDescription("Total number of bytes read, by broker"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create readBytes instrument, %w", err)
+	}
+
+	// produce & consume
+
+	produceBytes, err := m.Int64Counter(
+		"messaging.kafka.produce_bytes.count",
+		metric.WithUnit(unitBytes),
+		metric.WithDescription("Total number of uncompressed bytes produced, by broker and topic"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create produceBytes instrument, %w", err)
+	}
+
+	produceRecords, err := m.Int64Counter(
+		"messaging.kafka.produce_records.count",
+		metric.WithUnit(unitCount),
+		metric.WithDescription("Total number of produced records, by broker and topic"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create produceRecords instrument, %w", err)
+	}
+
+	fetchBytes, err := m.Int64Counter(
+		"messaging.kafka.fetch_bytes.count",
+		metric.WithUnit(unitBytes),
+		metric.WithDescription("Total number of uncompressed bytes fetched, by broker and topic"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create fetchBytes instrument, %w", err)
+	}
+
+	fetchRecords, err := m.Int64Counter(
+		"messaging.kafka.fetch_records.count",
+		metric.WithUnit(unitCount),
+		metric.WithDescription("Total number of fetched records, by broker and topic"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create fetchRecords instrument, %w", err)
+	}
+
+	// custom metrics
 	messageProducedCounter, err := m.Int64Counter(msgProducedCountKey,
 		metric.WithDescription("The number of messages produced"),
 		metric.WithUnit(unitCount),
@@ -80,12 +218,43 @@ func newKgoHooks(mp metric.MeterProvider, namespace, topicPrefix string,
 	if err != nil {
 		return nil, formatMetricError(msgProducedCountKey, err)
 	}
+	messageProducedBytes, err := m.Int64Counter(msgProducedBytesKey,
+		metric.WithDescription("The number of bytes produced"),
+		metric.WithUnit(unitBytes),
+	)
+	if err != nil {
+		return nil, formatMetricError(msgProducedBytesKey, err)
+	}
+
+	messageProducedUncompressedBytes, err := m.Int64Counter(msgProducedUncompressedBytesKey,
+		metric.WithDescription("The number of uncompressed bytes produced"),
+		metric.WithUnit(unitBytes),
+	)
+	if err != nil {
+		return nil, formatMetricError(msgProducedUncompressedBytesKey, err)
+	}
+
 	messageFetchedCounter, err := m.Int64Counter(msgFetchedKey,
 		metric.WithDescription("The number of messages that were fetched from a kafka topic"),
 		metric.WithUnit(unitCount),
 	)
 	if err != nil {
 		return nil, formatMetricError(msgFetchedKey, err)
+	}
+	messageFetchedBytes, err := m.Int64Counter(msgConsumedBytesKey,
+		metric.WithDescription("The number of bytes produced"),
+		metric.WithUnit(unitBytes),
+	)
+	if err != nil {
+		return nil, formatMetricError(msgConsumedBytesKey, err)
+	}
+
+	messageFetchedUncompressedBytes, err := m.Int64Counter(msgConsumedUncompressedBytesKey,
+		metric.WithDescription("The number of uncompressed bytes produced"),
+		metric.WithUnit(unitBytes),
+	)
+	if err != nil {
+		return nil, formatMetricError(msgConsumedUncompressedBytesKey, err)
 	}
 
 	messageDelayHistogram, err := m.Float64Histogram(msgDelayKey,
@@ -94,22 +263,6 @@ func newKgoHooks(mp metric.MeterProvider, namespace, topicPrefix string,
 	)
 	if err != nil {
 		return nil, formatMetricError(msgDelayKey, err)
-	}
-
-	messageBytesCounter, err := m.Int64Counter(msgProducedBytesKey,
-		metric.WithDescription("The number of bytes produced"),
-		metric.WithUnit(unitCount),
-	)
-	if err != nil {
-		return nil, formatMetricError(msgProducedBytesKey, err)
-	}
-
-	messageUncompressedBytesCounter, err := m.Int64Counter(msgProducedUncompressedBytesKey,
-		metric.WithDescription("The number of uncompressed bytes produced"),
-		metric.WithUnit(unitCount),
-	)
-	if err != nil {
-		return nil, formatMetricError(msgProducedUncompressedBytesKey, err)
 	}
 
 	if topicAttributeFunc == nil {
@@ -121,13 +274,33 @@ func newKgoHooks(mp metric.MeterProvider, namespace, topicPrefix string,
 	return &metricHooks{
 		namespace:   namespace,
 		topicPrefix: topicPrefix,
+		// kotel metrics
+		connects:    connects,
+		connectErrs: connectErrs,
+		disconnects: disconnects,
+
+		writeErrs:  writeErrs,
+		writeBytes: writeBytes,
+
+		readErrs:  readErrs,
+		readBytes: readBytes,
+
+		produceBytes:   produceBytes,
+		produceRecords: produceRecords,
+		fetchBytes:     fetchBytes,
+		fetchRecords:   fetchRecords,
+
+		// custom metrics
+
 		// Producer
-		messageProduced:          messageProducedCounter,
-		messageBytes:             messageBytesCounter,
-		messageUncompressedBytes: messageUncompressedBytesCounter,
+		messageProduced:                  messageProducedCounter,
+		messageProducedBytes:             messageProducedBytes,
+		messageProducedUncompressedBytes: messageProducedUncompressedBytes,
 		// Consumer
-		messageFetched: messageFetchedCounter,
-		messageDelay:   messageDelayHistogram,
+		messageFetched:                  messageFetchedCounter,
+		messageFetchedBytes:             messageFetchedBytes,
+		messageFetchedUncompressedBytes: messageFetchedUncompressedBytes,
+		messageDelay:                    messageDelayHistogram,
 
 		topicAttributeFunc: topicAttributeFunc,
 	}, nil
@@ -137,12 +310,81 @@ func formatMetricError(name string, err error) error {
 	return fmt.Errorf("cannot create %s metric: %w", name, err)
 }
 
+func (h *metricHooks) OnBrokerConnect(meta kgo.BrokerMetadata, _ time.Duration, _ net.Conn, err error) {
+	attributes := attribute.NewSet(
+		semconv.MessagingSystem("kafka"),
+	)
+	if err != nil {
+		h.connectErrs.Add(
+			context.Background(),
+			1,
+			metric.WithAttributeSet(attributes),
+		)
+		return
+	}
+	h.connects.Add(
+		context.Background(),
+		1,
+		metric.WithAttributeSet(attributes),
+	)
+}
+
+func (h *metricHooks) OnBrokerDisconnect(meta kgo.BrokerMetadata, _ net.Conn) {
+	attributes := attribute.NewSet(
+		semconv.MessagingSystem("kafka"),
+	)
+	h.disconnects.Add(
+		context.Background(),
+		1,
+		metric.WithAttributeSet(attributes),
+	)
+}
+
+func (h *metricHooks) OnBrokerWrite(meta kgo.BrokerMetadata, _ int16, bytesWritten int, _, _ time.Duration, err error) {
+	attributes := attribute.NewSet(
+		semconv.MessagingSystem("kafka"),
+	)
+	if err != nil {
+		h.writeErrs.Add(
+			context.Background(),
+			1,
+			metric.WithAttributeSet(attributes),
+		)
+		return
+	}
+	h.writeBytes.Add(
+		context.Background(),
+		int64(bytesWritten),
+		metric.WithAttributeSet(attributes),
+	)
+}
+
+func (h *metricHooks) OnBrokerRead(meta kgo.BrokerMetadata, _ int16, bytesRead int, _, _ time.Duration, err error) {
+	attributes := attribute.NewSet(
+		semconv.MessagingSystem("kafka"),
+	)
+	if err != nil {
+		h.readErrs.Add(
+			context.Background(),
+			1,
+			metric.WithAttributeSet(attributes),
+		)
+		return
+	}
+	h.readBytes.Add(
+		context.Background(),
+		int64(bytesRead),
+		metric.WithAttributeSet(attributes),
+	)
+}
+
 // HookProduceBatchWritten is called when a batch has been produced.
-func (h *metricHooks) OnProduceBatchWritten(_ kgo.BrokerMetadata,
+func (h *metricHooks) OnProduceBatchWritten(meta kgo.BrokerMetadata,
 	topic string, partition int32, m kgo.ProduceBatchMetrics,
 ) {
-	attrs := make([]attribute.KeyValue, 0, 6)
+	attrs := make([]attribute.KeyValue, 0, 7)
 	attrs = append(attrs, semconv.MessagingSystem("kafka"),
+		attribute.String("topic", topic),
 		semconv.MessagingDestinationName(strings.TrimPrefix(topic, h.topicPrefix)),
 		semconv.MessagingKafkaDestinationPartition(int(partition)),
 		attribute.String("outcome", "success"),
@@ -156,21 +398,34 @@ func (h *metricHooks) OnProduceBatchWritten(_ kgo.BrokerMetadata,
 	h.messageProduced.Add(context.Background(), int64(m.NumRecords),
 		metric.WithAttributeSet(attribute.NewSet(attrs...)),
 	)
-	h.messageBytes.Add(context.Background(), int64(m.CompressedBytes),
+	h.messageProducedBytes.Add(context.Background(), int64(m.CompressedBytes),
 		metric.WithAttributeSet(attribute.NewSet(attrs...)),
 	)
-	h.messageUncompressedBytes.Add(context.Background(), int64(m.UncompressedBytes),
+	h.messageProducedUncompressedBytes.Add(context.Background(), int64(m.UncompressedBytes),
 		metric.WithAttributeSet(attribute.NewSet(attrs...)),
 	)
+	// kotel metrics
+	h.produceBytes.Add(
+		context.Background(),
+		int64(m.UncompressedBytes),
+		metric.WithAttributeSet(attribute.NewSet(attrs...)),
+	)
+	h.produceRecords.Add(
+		context.Background(),
+		int64(m.NumRecords),
+		metric.WithAttributeSet(attribute.NewSet(attrs...)),
+	)
+
 }
 
 // OnFetchBatchRead is called once per batch read from Kafka. Records
 // `consumer.messages.fetched`.
-func (h *metricHooks) OnFetchBatchRead(_ kgo.BrokerMetadata,
+func (h *metricHooks) OnFetchBatchRead(meta kgo.BrokerMetadata,
 	topic string, partition int32, m kgo.FetchBatchMetrics,
 ) {
-	attrs := make([]attribute.KeyValue, 0, 5)
+	attrs := make([]attribute.KeyValue, 0, 6)
 	attrs = append(attrs, semconv.MessagingSystem("kafka"),
+		attribute.String("topic", topic),
 		semconv.MessagingSourceName(strings.TrimPrefix(topic, h.topicPrefix)),
 		semconv.MessagingKafkaSourcePartition(int(partition)),
 	)
@@ -181,6 +436,23 @@ func (h *metricHooks) OnFetchBatchRead(_ kgo.BrokerMetadata,
 		attrs = append(attrs, attribute.String("namespace", h.namespace))
 	}
 	h.messageFetched.Add(context.Background(), int64(m.NumRecords),
+		metric.WithAttributeSet(attribute.NewSet(attrs...)),
+	)
+	h.messageFetchedBytes.Add(context.Background(), int64(m.CompressedBytes),
+		metric.WithAttributeSet(attribute.NewSet(attrs...)),
+	)
+	h.messageFetchedUncompressedBytes.Add(context.Background(), int64(m.UncompressedBytes),
+		metric.WithAttributeSet(attribute.NewSet(attrs...)),
+	)
+
+	h.fetchBytes.Add(
+		context.Background(),
+		int64(m.UncompressedBytes),
+		metric.WithAttributeSet(attribute.NewSet(attrs...)),
+	)
+	h.fetchRecords.Add(
+		context.Background(),
+		int64(m.NumRecords),
 		metric.WithAttributeSet(attribute.NewSet(attrs...)),
 	)
 }
@@ -194,6 +466,7 @@ func (h *metricHooks) OnProduceRecordUnbuffered(r *kgo.Record, err error) {
 		return // Covered by OnProduceBatchWritten.
 	}
 	attrs := attributesFromRecord(r,
+		attribute.String("topic", r.Topic),
 		semconv.MessagingDestinationName(strings.TrimPrefix(r.Topic, h.topicPrefix)),
 		semconv.MessagingKafkaDestinationPartition(int(r.Partition)),
 		attribute.String("outcome", "failure"),
@@ -222,6 +495,7 @@ func (h *metricHooks) OnFetchRecordUnbuffered(r *kgo.Record, polled bool) {
 		return // Record metrics when polled by `client.PollRecords()`.
 	}
 	attrs := attributesFromRecord(r,
+		attribute.String("topic", r.Topic),
 		semconv.MessagingSourceName(strings.TrimPrefix(r.Topic, h.topicPrefix)),
 		semconv.MessagingKafkaSourcePartition(int(r.Partition)),
 	)

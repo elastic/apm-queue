@@ -131,7 +131,7 @@ func benchmarkConsumer(b *testing.B, bCfg consumerBench) {
 		topics[i] = fmt.Sprint("topic_", i)
 	}
 	cfg := CommonConfig{Logger: zap.NewNop()}
-	_, cfg.Brokers = newClusterWithTopics(b, int32(bCfg.partitions), topics...)
+	cfg.Brokers = newClusterAddrWithTopics(b, int32(bCfg.partitions), topics...)
 	producer := newProducer(b, ProducerConfig{CommonConfig: cfg})
 
 	var consumedRecords atomic.Int64

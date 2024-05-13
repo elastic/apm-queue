@@ -24,6 +24,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/twmb/franz-go/pkg/kerr"
@@ -152,7 +153,16 @@ func TestManagerDeleteTopics(t *testing.T) {
 		}
 	}
 	// Ensure only 1 topic was deleted, which also matches the number of spans.
-	assert.Equal(t, metrictest.Int64Metrics{
+	assert.Empty(t, cmp.Diff(metrictest.Int64Metrics{
+		{Name: "messaging.kafka.connects.count", Unit: "1"}: {
+			{K: "messaging.system", V: "kafka"}: 2,
+		},
+		{Name: "messaging.kafka.read_bytes.count", Unit: "By"}: {
+			{K: "messaging.system", V: "kafka"}: 725,
+		},
+		{Name: "messaging.kafka.write_bytes", Unit: "By"}: {
+			{K: "messaging.system", V: "kafka"}: 235,
+		},
 		{Name: "topics.deleted.count"}: {
 			{K: "topic", V: "topic2"}:           1,
 			{K: "messaging.system", V: "kafka"}: 2,
@@ -160,7 +170,7 @@ func TestManagerDeleteTopics(t *testing.T) {
 			{K: "outcome", V: "success"}:        1,
 			{K: "topic", V: "topic3"}:           1,
 		},
-	}, metrictest.GatherInt64Metric(metrics))
+	}, metrictest.GatherInt64Metric(metrics)))
 }
 
 func TestManagerMetrics(t *testing.T) {
@@ -415,24 +425,34 @@ func TestManagerMetrics(t *testing.T) {
 	rm := metricdata.ResourceMetrics{}
 	err = reader.Collect(context.Background(), &rm)
 	require.NoError(t, err)
-	require.Len(t, rm.ScopeMetrics, 2)
-	sort.Slice(rm.ScopeMetrics, func(i, j int) bool {
-		return rm.ScopeMetrics[i].Scope.Name < rm.ScopeMetrics[j].Scope.Name
-	})
+	require.Len(t, rm.ScopeMetrics, 1)
 	assert.Equal(t, "github.com/elastic/apm-queue/kafka", rm.ScopeMetrics[0].Scope.Name)
 
 	metrics := rm.ScopeMetrics[0].Metrics
-	require.Len(t, metrics, 2)
+	require.Len(t, metrics, 6)
 	var lagMetric, assignmentMetric metricdata.Metrics
+	// these are not stable so we just assert for existence
+	var connectsMetric, disconnectsMetric, writeBytesMetric, readBytesMetric bool
 	for _, metric := range metrics {
 		switch metric.Name {
 		case "consumer_group_lag":
 			lagMetric = metric
 		case "consumer_group_assignment":
 			assignmentMetric = metric
+		case "messaging.kafka.connects.count":
+			connectsMetric = true
+		case "messaging.kafka.disconnects.count":
+			disconnectsMetric = true
+		case "messaging.kafka.write_bytes":
+			writeBytesMetric = true
+		case "messaging.kafka.read_bytes.count":
+			readBytesMetric = true
 		}
 	}
-	assert.Equal(t, "consumer_group_lag", metrics[0].Name)
+	assert.True(t, writeBytesMetric)
+	assert.True(t, readBytesMetric)
+	assert.True(t, connectsMetric)
+	assert.True(t, disconnectsMetric)
 	metricdatatest.AssertAggregationsEqual(t, metricdata.Gauge[int64]{
 		DataPoints: []metricdata.DataPoint[int64]{{
 			Attributes: attribute.NewSet(
