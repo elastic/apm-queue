@@ -248,7 +248,7 @@ func TestProducerMetrics(t *testing.T) {
 				},
 			},
 			{
-				Name:        "producer.messages.uncompressed_bytes",
+				Name:        "producer.messages.uncompressed.bytes",
 				Description: "The number of uncompressed bytes produced",
 				Unit:        "1",
 				Data: metricdata.Sum[int64]{
@@ -332,7 +332,7 @@ func TestProducerMetrics(t *testing.T) {
 				},
 			},
 			{
-				Name:        "producer.messages.uncompressed_bytes",
+				Name:        "producer.messages.uncompressed.bytes",
 				Description: "The number of uncompressed bytes produced",
 				Unit:        "By",
 				Data: metricdata.Sum[int64]{
@@ -462,7 +462,7 @@ func TestConsumerMetrics(t *testing.T) {
 		"messaging.kafka.fetch_bytes.count",
 		"messaging.kafka.fetch_records.count",
 		"consumer.messages.bytes",
-		"consumer.messages.uncompressed_bytes",
+		"consumer.messages.uncompressed.bytes",
 	}
 
 	metrics := filterMetrics(t, rm.ScopeMetrics)

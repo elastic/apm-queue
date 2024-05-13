@@ -39,11 +39,11 @@ const (
 
 	msgProducedCountKey             = "producer.messages.count"
 	msgProducedBytesKey             = "producer.messages.bytes"
-	msgProducedUncompressedBytesKey = "producer.messages.uncompressed_bytes"
+	msgProducedUncompressedBytesKey = "producer.messages.uncompressed.bytes"
 	msgFetchedKey                   = "consumer.messages.fetched"
 	msgDelayKey                     = "consumer.messages.delay"
 	msgConsumedBytesKey             = "consumer.messages.bytes"
-	msgConsumedUncompressedBytesKey = "consumer.messages.uncompressed_bytes"
+	msgConsumedUncompressedBytesKey = "consumer.messages.uncompressed.bytes"
 	errorReasonKey                  = "error_reason"
 )
 
