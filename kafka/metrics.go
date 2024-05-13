@@ -382,7 +382,7 @@ func (h *metricHooks) OnBrokerRead(meta kgo.BrokerMetadata, _ int16, bytesRead i
 func (h *metricHooks) OnProduceBatchWritten(meta kgo.BrokerMetadata,
 	topic string, partition int32, m kgo.ProduceBatchMetrics,
 ) {
-	attrs := make([]attribute.KeyValue, 0, 8)
+	attrs := make([]attribute.KeyValue, 0, 7)
 	attrs = append(attrs, semconv.MessagingSystem("kafka"),
 		attribute.String("topic", topic),
 		semconv.MessagingDestinationName(strings.TrimPrefix(topic, h.topicPrefix)),
@@ -423,7 +423,7 @@ func (h *metricHooks) OnProduceBatchWritten(meta kgo.BrokerMetadata,
 func (h *metricHooks) OnFetchBatchRead(meta kgo.BrokerMetadata,
 	topic string, partition int32, m kgo.FetchBatchMetrics,
 ) {
-	attrs := make([]attribute.KeyValue, 0, 7)
+	attrs := make([]attribute.KeyValue, 0, 6)
 	attrs = append(attrs, semconv.MessagingSystem("kafka"),
 		attribute.String("topic", topic),
 		semconv.MessagingSourceName(strings.TrimPrefix(topic, h.topicPrefix)),
