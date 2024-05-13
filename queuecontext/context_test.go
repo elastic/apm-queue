@@ -57,5 +57,5 @@ func TestEnrichedContext(t *testing.T) {
 
 	meta, ok := MetadataFromContext(ctx)
 	require.True(t, ok)
-	assert.Equal(t, map[string]string{"a": "b", "partition": "1"}, meta)
+	assert.Equal(t, map[string]string{"a": "b", "partition_id": "1"}, meta)
 }
