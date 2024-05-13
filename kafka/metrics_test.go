@@ -88,6 +88,7 @@ func TestProducerMetrics(t *testing.T) {
 							Value: 1,
 							Attributes: attribute.NewSet(
 								semconv.MessagingSystem("kafka"),
+								attribute.String("namespace", "name_space"),
 							),
 						},
 					},
@@ -136,6 +137,7 @@ func TestProducerMetrics(t *testing.T) {
 							Value: 1,
 							Attributes: attribute.NewSet(
 								semconv.MessagingSystem("kafka"),
+								attribute.String("namespace", "name_space"),
 							),
 						},
 					},

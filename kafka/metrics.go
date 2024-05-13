@@ -311,70 +311,78 @@ func formatMetricError(name string, err error) error {
 }
 
 func (h *metricHooks) OnBrokerConnect(meta kgo.BrokerMetadata, _ time.Duration, _ net.Conn, err error) {
-	attributes := attribute.NewSet(
-		semconv.MessagingSystem("kafka"),
-	)
+	attrs := make([]attribute.KeyValue, 0, 2)
+	attrs = append(attrs, semconv.MessagingSystem("kafka"))
+	if h.namespace != "" {
+		attrs = append(attrs, attribute.String("namespace", h.namespace))
+	}
 	if err != nil {
 		h.connectErrs.Add(
 			context.Background(),
 			1,
-			metric.WithAttributeSet(attributes),
+			metric.WithAttributeSet(attribute.NewSet(attrs...)),
 		)
 		return
 	}
 	h.connects.Add(
 		context.Background(),
 		1,
-		metric.WithAttributeSet(attributes),
+		metric.WithAttributeSet(attribute.NewSet(attrs...)),
 	)
 }
 
 func (h *metricHooks) OnBrokerDisconnect(meta kgo.BrokerMetadata, _ net.Conn) {
-	attributes := attribute.NewSet(
-		semconv.MessagingSystem("kafka"),
-	)
+	attrs := make([]attribute.KeyValue, 0, 2)
+	attrs = append(attrs, semconv.MessagingSystem("kafka"))
+	if h.namespace != "" {
+		attrs = append(attrs, attribute.String("namespace", h.namespace))
+	}
 	h.disconnects.Add(
 		context.Background(),
 		1,
-		metric.WithAttributeSet(attributes),
+		metric.WithAttributeSet(attribute.NewSet(attrs...)),
 	)
 }
 
 func (h *metricHooks) OnBrokerWrite(meta kgo.BrokerMetadata, _ int16, bytesWritten int, _, _ time.Duration, err error) {
-	attributes := attribute.NewSet(
-		semconv.MessagingSystem("kafka"),
-	)
+	attrs := make([]attribute.KeyValue, 0, 2)
+	attrs = append(attrs, semconv.MessagingSystem("kafka"))
+	if h.namespace != "" {
+		attrs = append(attrs, attribute.String("namespace", h.namespace))
+	}
 	if err != nil {
 		h.writeErrs.Add(
 			context.Background(),
 			1,
-			metric.WithAttributeSet(attributes),
+			metric.WithAttributeSet(attribute.NewSet(attrs...)),
 		)
 		return
 	}
 	h.writeBytes.Add(
 		context.Background(),
 		int64(bytesWritten),
-		metric.WithAttributeSet(attributes),
+		metric.WithAttributeSet(attribute.NewSet(attrs...)),
 	)
 }
 
 func (h *metricHooks) OnBrokerRead(meta kgo.BrokerMetadata, _ int16, bytesRead int, _, _ time.Duration, err error) {
-	attributes := attribute.NewSet(
-		semconv.MessagingSystem("kafka"),
-	)
+	attrs := make([]attribute.KeyValue, 0, 2)
+	attrs = append(attrs, semconv.MessagingSystem("kafka"))
+	if h.namespace != "" {
+		attrs = append(attrs, attribute.String("namespace", h.namespace))
+	}
 	if err != nil {
 		h.readErrs.Add(
 			context.Background(),
 			1,
-			metric.WithAttributeSet(attributes),
+			metric.WithAttributeSet(attribute.NewSet(attrs...)),
 		)
 		return
 	}
 	h.readBytes.Add(
 		context.Background(),
 		int64(bytesRead),
-		metric.WithAttributeSet(attributes),
+		metric.WithAttributeSet(attribute.NewSet(attrs...)),
 	)
 }
 
@@ -471,6 +479,9 @@ func (h *metricHooks) OnProduceRecordUnbuffered(r *kgo.Record, err error) {
 		semconv.MessagingKafkaDestinationPartition(int(r.Partition)),
 		attribute.String("outcome", "failure"),
 	)
+	if kv := h.topicAttributeFunc(r.Topic); kv != (attribute.KeyValue{}) {
+		attrs = append(attrs, kv)
+	}
 	if h.namespace != "" {
 		attrs = append(attrs, attribute.String("namespace", h.namespace))
 	}
@@ -499,6 +510,9 @@ func (h *metricHooks) OnFetchRecordUnbuffered(r *kgo.Record, polled bool) {
 		semconv.MessagingSourceName(strings.TrimPrefix(r.Topic, h.topicPrefix)),
 		semconv.MessagingKafkaSourcePartition(int(r.Partition)),
 	)
+	if kv := h.topicAttributeFunc(r.Topic); kv != (attribute.KeyValue{}) {
+		attrs = append(attrs, kv)
+	}
 	if h.namespace != "" {
 		attrs = append(attrs, attribute.String("namespace", h.namespace))
 	}
