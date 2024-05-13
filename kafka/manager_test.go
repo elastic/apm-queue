@@ -156,12 +156,15 @@ func TestManagerDeleteTopics(t *testing.T) {
 	assert.Empty(t, cmp.Diff(metrictest.Int64Metrics{
 		{Name: "messaging.kafka.connects.count", Unit: "1"}: {
 			{K: "messaging.system", V: "kafka"}: 2,
+			{K: "namespace", V: "name_space"}:   2,
 		},
 		{Name: "messaging.kafka.read_bytes.count", Unit: "By"}: {
 			{K: "messaging.system", V: "kafka"}: 725,
+			{K: "namespace", V: "name_space"}:   725,
 		},
 		{Name: "messaging.kafka.write_bytes", Unit: "By"}: {
 			{K: "messaging.system", V: "kafka"}: 235,
+			{K: "namespace", V: "name_space"}:   235,
 		},
 		{Name: "topics.deleted.count"}: {
 			{K: "topic", V: "topic2"}:           1,

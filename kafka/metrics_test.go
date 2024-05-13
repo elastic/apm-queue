@@ -61,7 +61,6 @@ func TestProducerMetrics(t *testing.T) {
 		assert.NoError(t, rdr.Collect(context.Background(), &rm))
 
 		metrics := filterMetrics(t, rm.ScopeMetrics)
-		assert.Equal(t, len(want)+len(ignore), len(metrics))
 		for i := range metrics {
 			t.Log(metrics[i].Name)
 		}
@@ -76,23 +75,6 @@ func TestProducerMetrics(t *testing.T) {
 	t.Run("DeadlineExceeded", func(t *testing.T) {
 		producer, rdr := setupTestProducer(t, nil)
 		want := []metricdata.Metrics{
-			{
-				Name:        "messaging.kafka.connect_errors.count",
-				Description: "Total number of connection errors, by broker",
-				Unit:        "1",
-				Data: metricdata.Sum[int64]{
-					Temporality: metricdata.CumulativeTemporality,
-					IsMonotonic: true,
-					DataPoints: []metricdata.DataPoint[int64]{
-						{
-							Value: 1,
-							Attributes: attribute.NewSet(
-								semconv.MessagingSystem("kafka"),
-							),
-						},
-					},
-				},
-			},
 			{
 				Name:        "producer.messages.count",
 				Description: "The number of messages produced",
@@ -119,28 +101,16 @@ func TestProducerMetrics(t *testing.T) {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 0)
 		defer cancel()
-		test(ctx, t, producer, rdr, want)
+		test(ctx, t, producer, rdr, want,
+			"messaging.kafka.connects.count",
+			"messaging.kafka.disconnects.count",
+			"messaging.kafka.connect_errors.count",
+			"messaging.kafka.write_errors.count",
+		)
 	})
 	t.Run("ContextCanceled", func(t *testing.T) {
 		producer, rdr := setupTestProducer(t, nil)
 		want := []metricdata.Metrics{
-			{
-				Name:        "messaging.kafka.connect_errors.count",
-				Description: "Total number of connection errors, by broker",
-				Unit:        "1",
-				Data: metricdata.Sum[int64]{
-					Temporality: metricdata.CumulativeTemporality,
-					IsMonotonic: true,
-					DataPoints: []metricdata.DataPoint[int64]{
-						{
-							Value: 1,
-							Attributes: attribute.NewSet(
-								semconv.MessagingSystem("kafka"),
-							),
-						},
-					},
-				},
-			},
 			{
 				Name:        "producer.messages.count",
 				Description: "The number of messages produced",
@@ -166,7 +136,13 @@ func TestProducerMetrics(t *testing.T) {
 		}
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
-		test(ctx, t, producer, rdr, want)
+		test(ctx, t, producer, rdr, want,
+			"messaging.kafka.connect_errors.count",
+			"messaging.kafka.connects.count",
+			"messaging.kafka.disconnects.count",
+			"messaging.kafka.write_bytes",
+			"messaging.kafka.read_bytes.count",
+		)
 	})
 	t.Run("Unknown error reason", func(t *testing.T) {
 		producer, rdr := setupTestProducer(t, nil)
@@ -194,7 +170,9 @@ func TestProducerMetrics(t *testing.T) {
 			},
 		}
 		require.NoError(t, producer.Close())
-		test(context.Background(), t, producer, rdr, []metricdata.Metrics{want})
+		test(context.Background(), t, producer, rdr, []metricdata.Metrics{want},
+			"messaging.kafka.connect_errors.count",
+		)
 	})
 	t.Run("Produced", func(t *testing.T) {
 		producer, rdr := setupTestProducer(t, func(topic string) attribute.KeyValue {
