@@ -44,6 +44,7 @@ const (
 	msgDelayKey                     = "consumer.messages.delay"
 	msgConsumedBytesKey             = "consumer.messages.bytes"
 	msgConsumedUncompressedBytesKey = "consumer.messages.uncompressed.bytes"
+	throttlingDurationKey           = "messaging.kafka.throttling.duration"
 	errorReasonKey                  = "error_reason"
 )
 
@@ -56,6 +57,7 @@ var (
 	_ kgo.HookFetchBatchRead          = new(metricHooks)
 	_ kgo.HookFetchRecordUnbuffered   = new(metricHooks)
 	_ kgo.HookProduceRecordUnbuffered = new(metricHooks)
+	_ kgo.HookBrokerThrottle          = new(metricHooks)
 )
 
 // TopicAttributeFunc run on `kgo.HookProduceBatchWritten` and
@@ -93,6 +95,7 @@ type metricHooks struct {
 	messageFetchedBytes              metric.Int64Counter
 	messageFetchedUncompressedBytes  metric.Int64Counter
 	messageDelay                     metric.Float64Histogram
+	throttlingDuration               metric.Float64Histogram
 
 	topicAttributeFunc TopicAttributeFunc
 }
@@ -265,6 +268,14 @@ func newKgoHooks(mp metric.MeterProvider, namespace, topicPrefix string,
 		return nil, formatMetricError(msgDelayKey, err)
 	}
 
+	throttlingDurationHistogram, err := m.Float64Histogram(throttlingDurationKey,
+		metric.WithDescription("The throttling interval imposed by the broker"),
+		metric.WithUnit("s"),
+	)
+	if err != nil {
+		return nil, formatMetricError(throttlingDurationKey, err)
+	}
+
 	if topicAttributeFunc == nil {
 		topicAttributeFunc = func(topic string) attribute.KeyValue {
 			return attribute.KeyValue{}
@@ -301,6 +312,7 @@ func newKgoHooks(mp metric.MeterProvider, namespace, topicPrefix string,
 		messageFetchedBytes:             messageFetchedBytes,
 		messageFetchedUncompressedBytes: messageFetchedUncompressedBytes,
 		messageDelay:                    messageDelayHistogram,
+		throttlingDuration:              throttlingDurationHistogram,
 
 		topicAttributeFunc: topicAttributeFunc,
 	}, nil
@@ -504,6 +516,18 @@ func (h *metricHooks) OnFetchRecordUnbuffered(r *kgo.Record, polled bool) {
 	}
 	h.messageDelay.Record(context.Background(),
 		time.Since(r.Timestamp).Seconds(),
+		metric.WithAttributeSet(attribute.NewSet(attrs...)),
+	)
+}
+
+func (h *metricHooks) OnBrokerThrottle(meta kgo.BrokerMetadata, throttleInterval time.Duration, throttledAfterResponse bool) {
+	attrs := make([]attribute.KeyValue, 0, 2)
+	attrs = append(attrs, semconv.MessagingSystem("kafka"))
+	if h.namespace != "" {
+		attrs = append(attrs, attribute.String("namespace", h.namespace))
+	}
+	h.throttlingDuration.Record(context.Background(),
+		throttleInterval.Seconds(),
 		metric.WithAttributeSet(attribute.NewSet(attrs...)),
 	)
 }
