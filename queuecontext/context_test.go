@@ -49,3 +49,13 @@ func TestDetachedContext(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, map[string]string{"a": "b"}, meta)
 }
+
+func TestEnrichedContext(t *testing.T) {
+	ctx := context.Background()
+	ctx = WithMetadata(ctx, map[string]string{"a": "b"})
+	ctx = Enrich(ctx, "partition_id", "1")
+
+	meta, ok := MetadataFromContext(ctx)
+	require.True(t, ok)
+	assert.Equal(t, map[string]string{"a": "b", "partition_id": "1"}, meta)
+}

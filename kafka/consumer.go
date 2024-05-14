@@ -530,13 +530,15 @@ func (c *pc) consumeRecords(ftp kgo.FetchTopicPartition) {
 		// only the first record is received.
 		last := -1
 		for i, msg := range ftp.Records {
-			meta := make(map[string]string)
+			meta := make(map[string]string, len(msg.Headers))
 			for _, h := range msg.Headers {
 				meta[h.Key] = string(h.Value)
 			}
+
 			processCtx := queuecontext.WithMetadata(msg.Context, meta)
 			record := apmqueue.Record{
 				Topic:       c.topic,
+				Partition:   msg.Partition,
 				OrderingKey: msg.Key,
 				Value:       msg.Value,
 			}
