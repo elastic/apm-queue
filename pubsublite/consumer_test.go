@@ -27,6 +27,7 @@ import (
 	"testing"
 
 	"cloud.google.com/go/pubsublite/apiv1/pubsublitepb"
+	"github.com/google/go-cmp/cmp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
@@ -137,39 +138,41 @@ func TestConsumerConsume(t *testing.T) {
 		records[sp] = append(records[sp], record)
 	}
 
-	assert.Equal(t, map[subscriptionPartition][]apmqueue.Record{
+	expected := map[subscriptionPartition][]apmqueue.Record{
 		subscriptionPartition{
 			Subscription: topic1SubscriptionPath,
 			Partition:    1,
-		}: []apmqueue.Record{
-			{Topic: "topic1", Value: []byte("message1")},
-			{Topic: "topic1", Value: []byte("message2")},
+		}: {
+			{Topic: "topic1", Value: []byte("message1"), Partition: 1},
+			{Topic: "topic1", Value: []byte("message2"), Partition: 1},
 		},
 
 		subscriptionPartition{
 			Subscription: topic1SubscriptionPath,
 			Partition:    2,
-		}: []apmqueue.Record{
-			{Topic: "topic1", Value: []byte("message1")},
-			{Topic: "topic1", Value: []byte("message2")},
+		}: {
+			{Topic: "topic1", Value: []byte("message1"), Partition: 2},
+			{Topic: "topic1", Value: []byte("message2"), Partition: 2},
 		},
 
 		subscriptionPartition{
 			Subscription: topic2SubscriptionPath,
 			Partition:    1,
-		}: []apmqueue.Record{
-			{Topic: "topic2", Value: []byte("message1")},
-			{Topic: "topic2", Value: []byte("message2")},
+		}: {
+			{Topic: "topic2", Value: []byte("message1"), Partition: 1},
+			{Topic: "topic2", Value: []byte("message2"), Partition: 1},
 		},
 
 		subscriptionPartition{
 			Subscription: topic2SubscriptionPath,
 			Partition:    2,
-		}: []apmqueue.Record{
-			{Topic: "topic2", Value: []byte("message1")},
-			{Topic: "topic2", Value: []byte("message2")},
+		}: {
+			{Topic: "topic2", Value: []byte("message1"), Partition: 2},
+			{Topic: "topic2", Value: []byte("message2"), Partition: 2},
 		},
-	}, records)
+	}
+	assert.EqualValues(t, expected, records, "records mismatch\n%v",
+		cmp.Diff(expected, records))
 }
 
 func newConsumerService(t testing.TB) (*subscriberServiceServer, ConsumerConfig) {

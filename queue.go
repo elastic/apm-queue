@@ -75,13 +75,17 @@ type Producer interface {
 
 // Record wraps a record's value with the topic where it's produced / consumed.
 type Record struct {
-	// Topics holds the topic where the record will be produced.
-	Topic Topic
 	// OrderingKey is an optional field that is hashed to map to a partition.
 	// Records with same ordering key are routed to the same partition.
 	OrderingKey []byte
 	// Value holds the record's content. It must not be mutated after Produce.
 	Value []byte
+	// Topics holds the topic where the record will be produced.
+	Topic Topic
+	// Partition identifies the partition ID where the record was polled from.
+	// It is optional and only used for consumers.
+	// When not specified, the zero value for int32 (0) identifies the only partition.
+	Partition int32
 }
 
 // Processor defines record processing signature.
