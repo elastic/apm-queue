@@ -440,6 +440,7 @@ func TestConsumerMetrics(t *testing.T) {
 		"messaging.kafka.fetch_bytes.count",
 		"messaging.kafka.fetch_records.count",
 		"consumer.messages.bytes",
+		"consumer.messages.wire.bytes",
 		"consumer.messages.uncompressed.bytes",
 	}
 
