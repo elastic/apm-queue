@@ -237,7 +237,7 @@ func newKgoHooks(mp metric.MeterProvider, namespace, topicPrefix string,
 		metric.WithUnit(unitBytes),
 	)
 	if err != nil {
-		return nil, formatMetricError(msgProducedBytesKey, err)
+		return nil, formatMetricError(msgProducedWireBytesKey, err)
 	}
 
 	messageProducedUncompressedBytes, err := m.Int64Counter(msgProducedUncompressedBytesKey,
@@ -267,7 +267,7 @@ func newKgoHooks(mp metric.MeterProvider, namespace, topicPrefix string,
 		metric.WithUnit(unitBytes),
 	)
 	if err != nil {
-		return nil, formatMetricError(msgConsumedBytesKey, err)
+		return nil, formatMetricError(msgConsumedWireBytesKey, err)
 	}
 
 	messageFetchedUncompressedBytes, err := m.Int64Counter(msgConsumedUncompressedBytesKey,
