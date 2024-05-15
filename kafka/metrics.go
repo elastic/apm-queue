@@ -71,7 +71,6 @@ type TopicAttributeFunc func(topic string) attribute.KeyValue
 type metricHooks struct {
 	namespace   string
 	topicPrefix string
-	compression string
 
 	// kotel metrics
 
