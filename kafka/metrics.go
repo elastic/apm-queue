@@ -486,6 +486,9 @@ func (h *metricHooks) OnFetchBatchRead(meta kgo.BrokerMetadata,
 	h.messageFetchedBytes.Add(context.Background(), int64(m.CompressedBytes),
 		metric.WithAttributeSet(attribute.NewSet(attrs...)),
 	)
+	h.messageFetchedWireBytes.Add(context.Background(), int64(m.CompressedBytes),
+		metric.WithAttributeSet(attribute.NewSet(attrs...)),
+	)
 	h.messageFetchedUncompressedBytes.Add(context.Background(), int64(m.UncompressedBytes),
 		metric.WithAttributeSet(attribute.NewSet(attrs...)),
 	)
