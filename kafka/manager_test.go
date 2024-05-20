@@ -537,10 +537,10 @@ func TestManagerMetrics(t *testing.T) {
 	assert.Equal(t, int16(5), describeGroupsRequest.Version)
 	assert.ElementsMatch(t, []string{"connect", "consumer1", "consumer2", "consumer3"}, describeGroupsRequest.Groups)
 	assert.ElementsMatch(t, []kmsg.OffsetFetchRequestGroup{
-		{Group: "connect"},
-		{Group: "consumer1"},
-		{Group: "consumer2"},
-		{Group: "consumer3"},
+		{Group: "connect", MemberEpoch: -1},
+		{Group: "consumer1", MemberEpoch: -1},
+		{Group: "consumer2", MemberEpoch: -1},
+		{Group: "consumer3", MemberEpoch: -1},
 	}, offsetFetchRequest.Groups)
 	assert.ElementsMatch(t, []kmsg.MetadataRequestTopic{
 		{Topic: kmsg.StringPtr("name_space-topic1")},
