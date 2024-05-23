@@ -104,7 +104,6 @@ func TestProducerMetrics(t *testing.T) {
 		test(ctx, t, producer, rdr, want,
 			"messaging.kafka.connects.count",
 			"messaging.kafka.disconnects.count",
-			"messaging.kafka.connect_errors.count",
 			"messaging.kafka.write_errors.count",
 		)
 	})
@@ -137,7 +136,6 @@ func TestProducerMetrics(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
 		test(ctx, t, producer, rdr, want,
-			"messaging.kafka.connect_errors.count",
 			"messaging.kafka.connects.count",
 			"messaging.kafka.disconnects.count",
 			"messaging.kafka.write_bytes",
@@ -171,7 +169,7 @@ func TestProducerMetrics(t *testing.T) {
 		}
 		require.NoError(t, producer.Close())
 		test(context.Background(), t, producer, rdr, []metricdata.Metrics{want},
-			"messaging.kafka.connect_errors.count",
+			"messaging.kafka.connects.count",
 		)
 	})
 	t.Run("Produced", func(t *testing.T) {
