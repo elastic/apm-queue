@@ -222,7 +222,16 @@ func TestNewProducerBasic(t *testing.T) {
 	test(t, false)
 }
 
+func testVerboseLogger(t *testing.T) *zap.Logger {
+	t.Helper()
+	if testing.Verbose() {
+		return zaptest.NewLogger(t, zaptest.Level(zapcore.DebugLevel))
+	}
+	return zap.NewNop()
+}
+
 func TestProducerGracefulShutdown(t *testing.T) {
+	l := testVerboseLogger(t)
 	test := func(t testing.TB, dt apmqueue.DeliveryType, syncProducer bool) {
 		brokers := newClusterAddrWithTopics(t, 1, "topic")
 		var processed atomic.Int64
@@ -230,14 +239,14 @@ func TestProducerGracefulShutdown(t *testing.T) {
 		producer := newProducer(t, ProducerConfig{
 			CommonConfig: CommonConfig{
 				Brokers: brokers,
-				Logger:  zaptest.NewLogger(t, zaptest.Level(zapcore.DebugLevel)),
+				Logger:  l,
 			},
 			Sync: syncProducer,
 		})
 		consumer := newConsumer(t, ConsumerConfig{
 			CommonConfig: CommonConfig{
 				Brokers: brokers,
-				Logger:  zaptest.NewLogger(t, zaptest.Level(zapcore.DebugLevel)),
+				Logger:  l,
 			},
 			GroupID:  "group",
 			Topics:   []apmqueue.Topic{"topic"},
