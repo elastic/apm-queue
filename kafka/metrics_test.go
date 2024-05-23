@@ -172,6 +172,7 @@ func TestProducerMetrics(t *testing.T) {
 		require.NoError(t, producer.Close())
 		test(context.Background(), t, producer, rdr, []metricdata.Metrics{want},
 			"messaging.kafka.connect_errors.count",
+			"messaging.kafka.connects.count",
 		)
 	})
 	t.Run("Produced", func(t *testing.T) {

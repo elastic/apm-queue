@@ -157,6 +157,7 @@ func TestManagerDeleteTopics(t *testing.T) {
 		{Name: "messaging.kafka.connects.count", Unit: "1"}: {
 			{K: "messaging.system", V: "kafka"}: 2,
 			{K: "namespace", V: "name_space"}:   2,
+			{K: "outcome", V: "success"}:        2,
 		},
 		{Name: "messaging.kafka.read_bytes.count", Unit: "By"}: {
 			{K: "messaging.system", V: "kafka"}: 725,
