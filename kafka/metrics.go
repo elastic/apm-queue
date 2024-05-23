@@ -73,6 +73,7 @@ type metricHooks struct {
 	// kotel metrics
 
 	connects    metric.Int64Counter
+	connectErrs metric.Int64Counter
 	disconnects metric.Int64Counter
 
 	writeErrs  metric.Int64Counter
@@ -114,6 +115,15 @@ func newKgoHooks(mp metric.MeterProvider, namespace, topicPrefix string,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create connects instrument, %w", err)
+	}
+
+	connectErrs, err := m.Int64Counter(
+		"messaging.kafka.connect_errors.count",
+		metric.WithUnit(unitCount),
+		metric.WithDescription("Total number of connection errors, by broker"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create connectErrs instrument, %w", err)
 	}
 
 	disconnects, err := m.Int64Counter(
@@ -277,6 +287,7 @@ func newKgoHooks(mp metric.MeterProvider, namespace, topicPrefix string,
 		topicPrefix: topicPrefix,
 		// kotel metrics
 		connects:    connects,
+		connectErrs: connectErrs,
 		disconnects: disconnects,
 
 		writeErrs:  writeErrs,
