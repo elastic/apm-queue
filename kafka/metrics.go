@@ -329,6 +329,11 @@ func (h *metricHooks) OnBrokerConnect(meta kgo.BrokerMetadata, _ time.Duration, 
 		attrs = append(attrs, attribute.String("namespace", h.namespace))
 	}
 	if err != nil {
+		h.connectErrs.Add(
+			context.Background(),
+			1,
+			metric.WithAttributeSet(attribute.NewSet(attrs...)),
+		)
 		attrs = append(attrs, attribute.String("outcome", "failure"))
 		h.connects.Add(
 			context.Background(),
