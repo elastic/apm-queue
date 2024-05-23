@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/twmb/franz-go/pkg/kgo"
+	"github.com/twmb/franz-go/pkg/kmsg"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 	semconv "go.opentelemetry.io/otel/semconv/v1.17.0"
@@ -40,6 +41,7 @@ const (
 	msgProducedCountKey             = "producer.messages.count"
 	msgProducedBytesKey             = "producer.messages.bytes"
 	msgProducedUncompressedBytesKey = "producer.messages.uncompressed.bytes"
+	messageWriteLatencyKey          = "producer.messages.write.latency"
 	msgFetchedKey                   = "consumer.messages.fetched"
 	msgDelayKey                     = "consumer.messages.delay"
 	msgConsumedBytesKey             = "consumer.messages.bytes"
@@ -91,6 +93,7 @@ type metricHooks struct {
 	messageProduced                  metric.Int64Counter
 	messageProducedBytes             metric.Int64Counter
 	messageProducedUncompressedBytes metric.Int64Counter
+	messageWriteLatency              metric.Float64Histogram
 	messageFetched                   metric.Int64Counter
 	messageFetchedBytes              metric.Int64Counter
 	messageFetchedUncompressedBytes  metric.Int64Counter
@@ -237,6 +240,14 @@ func newKgoHooks(mp metric.MeterProvider, namespace, topicPrefix string,
 		return nil, formatMetricError(msgProducedUncompressedBytesKey, err)
 	}
 
+	messageWriteLatency, err := m.Float64Histogram(messageWriteLatencyKey,
+		metric.WithDescription("The time took to write a message to the queue"),
+		metric.WithUnit("s"),
+	)
+	if err != nil {
+		return nil, formatMetricError(messageWriteLatencyKey, err)
+	}
+
 	messageFetchedCounter, err := m.Int64Counter(msgFetchedKey,
 		metric.WithDescription("The number of messages that were fetched from a kafka topic"),
 		metric.WithUnit(unitCount),
@@ -307,6 +318,7 @@ func newKgoHooks(mp metric.MeterProvider, namespace, topicPrefix string,
 		messageProduced:                  messageProducedCounter,
 		messageProducedBytes:             messageProducedBytes,
 		messageProducedUncompressedBytes: messageProducedUncompressedBytes,
+		messageWriteLatency:              messageWriteLatency,
 		// Consumer
 		messageFetched:                  messageFetchedCounter,
 		messageFetchedBytes:             messageFetchedBytes,
@@ -356,7 +368,11 @@ func (h *metricHooks) OnBrokerDisconnect(meta kgo.BrokerMetadata, _ net.Conn) {
 	)
 }
 
-func (h *metricHooks) OnBrokerWrite(meta kgo.BrokerMetadata, _ int16, bytesWritten int, _, _ time.Duration, err error) {
+func (h *metricHooks) OnBrokerWrite(meta kgo.BrokerMetadata, key int16, bytesWritten int, writeWait, timeToWrite time.Duration, err error) {
+	if key != int16(kmsg.Produce) {
+		return
+	}
+
 	attrs := make([]attribute.KeyValue, 0, 2)
 	attrs = append(attrs, semconv.MessagingSystem("kafka"))
 	if h.namespace != "" {
@@ -373,6 +389,12 @@ func (h *metricHooks) OnBrokerWrite(meta kgo.BrokerMetadata, _ int16, bytesWritt
 	h.writeBytes.Add(
 		context.Background(),
 		int64(bytesWritten),
+		metric.WithAttributeSet(attribute.NewSet(attrs...)),
+	)
+
+	h.messageWriteLatency.Record(
+		context.Background(),
+		writeWait.Seconds()+timeToWrite.Seconds(),
 		metric.WithAttributeSet(attribute.NewSet(attrs...)),
 	)
 }

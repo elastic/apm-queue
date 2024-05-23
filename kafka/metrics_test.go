@@ -61,6 +61,7 @@ func TestProducerMetrics(t *testing.T) {
 		assert.NoError(t, rdr.Collect(context.Background(), &rm))
 
 		metrics := filterMetrics(t, rm.ScopeMetrics)
+		assert.Len(t, metrics, len(want)+len(ignore))
 		for i := range metrics {
 			t.Log(metrics[i].Name)
 		}
@@ -102,10 +103,7 @@ func TestProducerMetrics(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 0)
 		defer cancel()
 		test(ctx, t, producer, rdr, want,
-			"messaging.kafka.connects.count",
-			"messaging.kafka.disconnects.count",
 			"messaging.kafka.connect_errors.count",
-			"messaging.kafka.write_errors.count",
 		)
 	})
 	t.Run("ContextCanceled", func(t *testing.T) {
@@ -136,13 +134,7 @@ func TestProducerMetrics(t *testing.T) {
 		}
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
-		test(ctx, t, producer, rdr, want,
-			"messaging.kafka.connect_errors.count",
-			"messaging.kafka.connects.count",
-			"messaging.kafka.disconnects.count",
-			"messaging.kafka.write_bytes",
-			"messaging.kafka.read_bytes.count",
-		)
+		test(ctx, t, producer, rdr, want)
 	})
 	t.Run("Unknown error reason", func(t *testing.T) {
 		producer, rdr := setupTestProducer(t, nil)
@@ -170,9 +162,7 @@ func TestProducerMetrics(t *testing.T) {
 			},
 		}
 		require.NoError(t, producer.Close())
-		test(context.Background(), t, producer, rdr, []metricdata.Metrics{want},
-			"messaging.kafka.connect_errors.count",
-		)
+		test(context.Background(), t, producer, rdr, []metricdata.Metrics{want})
 	})
 	t.Run("Produced", func(t *testing.T) {
 		producer, rdr := setupTestProducer(t, func(topic string) attribute.KeyValue {
@@ -256,6 +246,7 @@ func TestProducerMetrics(t *testing.T) {
 			"messaging.kafka.read_bytes.count",
 			"messaging.kafka.produce_bytes.count",
 			"messaging.kafka.produce_records.count",
+			"producer.messages.write.latency", // TODO: is it possible to assert?
 		)
 	})
 	t.Run("ProducedWithHeaders", func(t *testing.T) {
@@ -332,6 +323,24 @@ func TestProducerMetrics(t *testing.T) {
 					},
 				},
 			},
+			{
+				Name:        "producer.messages.write.latency",
+				Description: "The time took to write a message to the queue",
+				Unit:        "s",
+				Data: metricdata.Histogram[float64]{
+					Temporality: metricdata.CumulativeTemporality,
+					DataPoints: []metricdata.HistogramDataPoint[float64]{{
+						Attributes: attribute.NewSet(
+							attribute.String("namespace", "name_space"),
+							semconv.MessagingSystem("kafka"),
+							attribute.String("header", "included"),
+						),
+
+						Bounds: []float64{},
+						Count:  uint64(1),
+					}},
+				},
+			},
 		}
 		ctx := queuecontext.WithMetadata(context.Background(), map[string]string{
 			"key":      "value",
@@ -344,6 +353,7 @@ func TestProducerMetrics(t *testing.T) {
 			"messaging.kafka.read_bytes.count",
 			"messaging.kafka.produce_bytes.count",
 			"messaging.kafka.produce_records.count",
+			"producer.messages.write.latency", // TODO: is it possible to assert?
 		)
 	})
 }
@@ -441,6 +451,7 @@ func TestConsumerMetrics(t *testing.T) {
 		"messaging.kafka.fetch_records.count",
 		"consumer.messages.bytes",
 		"consumer.messages.uncompressed.bytes",
+		"producer.messages.write.latency", // TODO: is it possible to assert?
 	}
 
 	metrics := filterMetrics(t, rm.ScopeMetrics)
