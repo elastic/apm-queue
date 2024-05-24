@@ -1,5 +1,5 @@
 GO_TEST_TIMEOUT=60s
-GO_VERBOSE=
+GOTESTFLAGS=
 
 .DEFAULT_GOAL := all
 all: test
@@ -20,11 +20,11 @@ clean:
 
 .PHONY: test
 test: go.mod
-	go test -race $(GO_VERBOSE) -timeout=$(GO_TEST_TIMEOUT) ./...
+	go test -race $(GOTESTFLAGS) -timeout=$(GO_TEST_TIMEOUT) ./...
 
 .PHONY: test-verbose
 test-verbose:
-	make test GO_VERBOSE=-v
+	make test GOTESTFLAGS=-v
 
 MODULE_DEPS=$(sort $(shell go list -deps -tags=darwin,linux,windows -f "{{with .Module}}{{if not .Main}}{{.Path}}{{end}}{{end}}"))
 
