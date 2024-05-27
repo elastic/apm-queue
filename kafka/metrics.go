@@ -376,10 +376,6 @@ func (h *metricHooks) OnBrokerDisconnect(meta kgo.BrokerMetadata, _ net.Conn) {
 }
 
 func (h *metricHooks) OnBrokerWrite(meta kgo.BrokerMetadata, key int16, bytesWritten int, writeWait, timeToWrite time.Duration, err error) {
-	if key != int16(kmsg.Produce) {
-		return
-	}
-
 	attrs := make([]attribute.KeyValue, 0, 2)
 	attrs = append(attrs, semconv.MessagingSystem("kafka"))
 	if h.namespace != "" {
@@ -399,11 +395,14 @@ func (h *metricHooks) OnBrokerWrite(meta kgo.BrokerMetadata, key int16, bytesWri
 		metric.WithAttributeSet(attribute.NewSet(attrs...)),
 	)
 
-	h.messageWriteLatency.Record(
-		context.Background(),
-		writeWait.Seconds()+timeToWrite.Seconds(),
-		metric.WithAttributeSet(attribute.NewSet(attrs...)),
-	)
+	// Record latency when the request type is Produce.
+	if key == int16(kmsg.Produce) {
+		h.messageWriteLatency.Record(
+			context.Background(),
+			writeWait.Seconds()+timeToWrite.Seconds(),
+			metric.WithAttributeSet(attribute.NewSet(attrs...)),
+		)
+	}
 }
 
 func (h *metricHooks) OnBrokerRead(meta kgo.BrokerMetadata, _ int16, bytesRead int, _, _ time.Duration, err error) {
