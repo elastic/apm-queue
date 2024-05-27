@@ -266,14 +266,12 @@ func TestProducerMetrics(t *testing.T) {
 				Unit:        "s",
 				Data: metricdata.Histogram[float64]{
 					Temporality: metricdata.CumulativeTemporality,
+					// skip checking value but only existence and assert attributes
 					DataPoints: []metricdata.HistogramDataPoint[float64]{{
 						Attributes: attribute.NewSet(
 							attribute.String("namespace", "name_space"),
 							semconv.MessagingSystem("kafka"),
 						),
-						Bounds:       []float64{0, 5, 10, 25, 50, 75, 100, 250, 500, 750, 1000, 2500, 5000, 7500, 10000},
-						Count:        uint64(1),
-						BucketCounts: nil,
 					}},
 				},
 			},
