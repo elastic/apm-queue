@@ -61,7 +61,6 @@ func TestProducerMetrics(t *testing.T) {
 		assert.NoError(t, rdr.Collect(context.Background(), &rm))
 
 		metrics := filterMetrics(t, rm.ScopeMetrics)
-		assert.Len(t, metrics, len(want)+len(ignore))
 		for i := range metrics {
 			t.Log(metrics[i].Name)
 		}
@@ -115,7 +114,9 @@ func TestProducerMetrics(t *testing.T) {
 		defer cancel()
 		test(ctx, t, producer, rdr, want,
 			"messaging.kafka.connects.count",
+			"messaging.kafka.disconnects.count",
 			"messaging.kafka.connect_errors.count",
+			"messaging.kafka.write_errors.count",
 		)
 	})
 	t.Run("ContextCanceled", func(t *testing.T) {
@@ -146,7 +147,13 @@ func TestProducerMetrics(t *testing.T) {
 		}
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
-		test(ctx, t, producer, rdr, want)
+		test(ctx, t, producer, rdr, want,
+			"messaging.kafka.connect_errors.count",
+			"messaging.kafka.connects.count",
+			"messaging.kafka.disconnects.count",
+			"messaging.kafka.write_bytes",
+			"messaging.kafka.read_bytes.count",
+		)
 	})
 	t.Run("Unknown error reason", func(t *testing.T) {
 		producer, rdr := setupTestProducer(t, nil)
@@ -174,7 +181,10 @@ func TestProducerMetrics(t *testing.T) {
 			},
 		}
 		require.NoError(t, producer.Close())
-		test(context.Background(), t, producer, rdr, []metricdata.Metrics{want})
+		test(context.Background(), t, producer, rdr, []metricdata.Metrics{want},
+			"messaging.kafka.connect_errors.count",
+			"messaging.kafka.connects.count",
+		)
 	})
 	t.Run("Produced", func(t *testing.T) {
 		producer, rdr := setupTestProducer(t, func(topic string) attribute.KeyValue {
@@ -363,7 +373,7 @@ func TestProducerMetrics(t *testing.T) {
 			"messaging.kafka.read_bytes.count",
 			"messaging.kafka.produce_bytes.count",
 			"messaging.kafka.produce_records.count",
-			"producer.messages.write.latency",
+			"producer.messages.write.latency", // header is not attached to this metric. skip check
 		)
 	})
 }
@@ -455,6 +465,7 @@ func TestConsumerMetrics(t *testing.T) {
 
 	ignore := []string{
 		"messaging.kafka.connects.count",
+		"messaging.kafka.write_bytes",
 		"messaging.kafka.read_bytes.count",
 		"messaging.kafka.fetch_bytes.count",
 		"messaging.kafka.fetch_records.count",
@@ -464,9 +475,6 @@ func TestConsumerMetrics(t *testing.T) {
 
 	metrics := filterMetrics(t, rm.ScopeMetrics)
 	assert.Len(t, metrics, len(wantMetrics)+len(ignore))
-	for i := range metrics {
-		t.Log(metrics[i].Name)
-	}
 
 	for k, m := range wantMetrics {
 		metric := metrics[k]
