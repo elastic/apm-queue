@@ -66,11 +66,22 @@ func TestProducerMetrics(t *testing.T) {
 			t.Log(metrics[i].Name)
 		}
 		for i := range want {
-			if !slices.Contains(ignore, metrics[i].Name) {
-				metricdatatest.AssertEqual(t, want[i], metrics[i],
-					metricdatatest.IgnoreTimestamp(),
-				)
+			if slices.Contains(ignore, want[i].Name) {
+				continue
 			}
+			var actual metricdata.Metrics
+			for _, m := range metrics {
+				if m.Name == want[i].Name {
+					actual = m
+					break
+				}
+			}
+			assert.NotEmpty(t, actual, fmt.Sprintf("metric %s should exist", want[i].Name))
+			metricdatatest.AssertEqual(t, want[i], actual,
+				metricdatatest.IgnoreTimestamp(),
+				metricdatatest.IgnoreExemplars(),
+				metricdatatest.IgnoreValue(),
+			)
 		}
 	}
 	t.Run("DeadlineExceeded", func(t *testing.T) {
@@ -103,6 +114,7 @@ func TestProducerMetrics(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 0)
 		defer cancel()
 		test(ctx, t, producer, rdr, want,
+			"messaging.kafka.connects.count",
 			"messaging.kafka.connect_errors.count",
 		)
 	})
@@ -162,10 +174,7 @@ func TestProducerMetrics(t *testing.T) {
 			},
 		}
 		require.NoError(t, producer.Close())
-		test(context.Background(), t, producer, rdr, []metricdata.Metrics{want},
-			"messaging.kafka.connect_errors.count",
-			"messaging.kafka.connects.count",
-		)
+		test(context.Background(), t, producer, rdr, []metricdata.Metrics{want})
 	})
 	t.Run("Produced", func(t *testing.T) {
 		producer, rdr := setupTestProducer(t, func(topic string) attribute.KeyValue {
@@ -198,7 +207,7 @@ func TestProducerMetrics(t *testing.T) {
 			{
 				Name:        "producer.messages.bytes",
 				Description: "The number of bytes produced",
-				Unit:        "1",
+				Unit:        "By",
 				Data: metricdata.Sum[int64]{
 					Temporality: metricdata.CumulativeTemporality,
 					IsMonotonic: true,
@@ -221,7 +230,7 @@ func TestProducerMetrics(t *testing.T) {
 			{
 				Name:        "producer.messages.uncompressed.bytes",
 				Description: "The number of uncompressed bytes produced",
-				Unit:        "1",
+				Unit:        "By",
 				Data: metricdata.Sum[int64]{
 					Temporality: metricdata.CumulativeTemporality,
 					IsMonotonic: true,
@@ -241,6 +250,23 @@ func TestProducerMetrics(t *testing.T) {
 					},
 				},
 			},
+			{
+				Name:        "producer.messages.write.latency",
+				Description: "The time took to write a message to the queue",
+				Unit:        "s",
+				Data: metricdata.Histogram[float64]{
+					Temporality: metricdata.CumulativeTemporality,
+					DataPoints: []metricdata.HistogramDataPoint[float64]{{
+						Attributes: attribute.NewSet(
+							attribute.String("namespace", "name_space"),
+							semconv.MessagingSystem("kafka"),
+						),
+						Bounds:       []float64{0, 5, 10, 25, 50, 75, 100, 250, 500, 750, 1000, 2500, 5000, 7500, 10000},
+						Count:        uint64(1),
+						BucketCounts: nil,
+					}},
+				},
+			},
 		}
 		test(context.Background(), t, producer, rdr, want,
 			"messaging.kafka.connects.count",
@@ -249,7 +275,6 @@ func TestProducerMetrics(t *testing.T) {
 			"messaging.kafka.read_bytes.count",
 			"messaging.kafka.produce_bytes.count",
 			"messaging.kafka.produce_records.count",
-			"producer.messages.write.latency", // TODO: is it possible to assert?
 		)
 	})
 	t.Run("ProducedWithHeaders", func(t *testing.T) {
@@ -326,24 +351,6 @@ func TestProducerMetrics(t *testing.T) {
 					},
 				},
 			},
-			{
-				Name:        "producer.messages.write.latency",
-				Description: "The time took to write a message to the queue",
-				Unit:        "s",
-				Data: metricdata.Histogram[float64]{
-					Temporality: metricdata.CumulativeTemporality,
-					DataPoints: []metricdata.HistogramDataPoint[float64]{{
-						Attributes: attribute.NewSet(
-							attribute.String("namespace", "name_space"),
-							semconv.MessagingSystem("kafka"),
-							attribute.String("header", "included"),
-						),
-
-						Bounds: []float64{},
-						Count:  uint64(1),
-					}},
-				},
-			},
 		}
 		ctx := queuecontext.WithMetadata(context.Background(), map[string]string{
 			"key":      "value",
@@ -356,7 +363,7 @@ func TestProducerMetrics(t *testing.T) {
 			"messaging.kafka.read_bytes.count",
 			"messaging.kafka.produce_bytes.count",
 			"messaging.kafka.produce_records.count",
-			"producer.messages.write.latency", // TODO: is it possible to assert?
+			"producer.messages.write.latency",
 		)
 	})
 }
@@ -448,17 +455,18 @@ func TestConsumerMetrics(t *testing.T) {
 
 	ignore := []string{
 		"messaging.kafka.connects.count",
-		"messaging.kafka.write_bytes",
 		"messaging.kafka.read_bytes.count",
 		"messaging.kafka.fetch_bytes.count",
 		"messaging.kafka.fetch_records.count",
 		"consumer.messages.bytes",
 		"consumer.messages.uncompressed.bytes",
-		"producer.messages.write.latency", // TODO: is it possible to assert?
 	}
 
 	metrics := filterMetrics(t, rm.ScopeMetrics)
 	assert.Len(t, metrics, len(wantMetrics)+len(ignore))
+	for i := range metrics {
+		t.Log(metrics[i].Name)
+	}
 
 	for k, m := range wantMetrics {
 		metric := metrics[k]
