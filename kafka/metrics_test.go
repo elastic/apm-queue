@@ -266,14 +266,30 @@ func TestProducerMetrics(t *testing.T) {
 				Unit:        "s",
 				Data: metricdata.Histogram[float64]{
 					Temporality: metricdata.CumulativeTemporality,
-					// skip checking value but only existence and assert attributes
+					// do not check the value but only assert attributes
+					// as it is tricky to control the latency
 					DataPoints: []metricdata.HistogramDataPoint[float64]{{
 						Attributes: attribute.NewSet(
 							attribute.String("namespace", "name_space"),
 							semconv.MessagingSystem("kafka"),
-						),
+							attribute.String("op", "ApiVersions"),
+						)}, {
+						Attributes: attribute.NewSet(
+							attribute.String("namespace", "name_space"),
+							semconv.MessagingSystem("kafka"),
+							attribute.String("op", "Metadata"),
+						)}, {
+						Attributes: attribute.NewSet(
+							attribute.String("namespace", "name_space"),
+							semconv.MessagingSystem("kafka"),
+							attribute.String("op", "InitProducerID"),
+						)}, {
+						Attributes: attribute.NewSet(
+							attribute.String("namespace", "name_space"),
+							semconv.MessagingSystem("kafka"),
+							attribute.String("op", "Produce"),
+						)},
 					}},
-				},
 			},
 		}
 		test(context.Background(), t, producer, rdr, want,
