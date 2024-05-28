@@ -261,8 +261,8 @@ func TestProducerMetrics(t *testing.T) {
 				},
 			},
 			{
-				Name:        "producer.messages.write.latency",
-				Description: "The time took to write a message to the queue",
+				Name:        "messaging.kafka.write.latency",
+				Description: "Time took to write including waited before being written",
 				Unit:        "s",
 				Data: metricdata.Histogram[float64]{
 					Temporality: metricdata.CumulativeTemporality,
@@ -387,7 +387,7 @@ func TestProducerMetrics(t *testing.T) {
 			"messaging.kafka.read_bytes.count",
 			"messaging.kafka.produce_bytes.count",
 			"messaging.kafka.produce_records.count",
-			"producer.messages.write.latency", // header is not attached to this metric. skip check
+			"messaging.kafka.write.latency", // header is not attached to this metric. skip check
 		)
 	})
 }
@@ -485,6 +485,7 @@ func TestConsumerMetrics(t *testing.T) {
 		"messaging.kafka.fetch_records.count",
 		"consumer.messages.bytes",
 		"consumer.messages.uncompressed.bytes",
+		"messaging.kafka.write.latency",
 	}
 
 	metrics := filterMetrics(t, rm.ScopeMetrics)
