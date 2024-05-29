@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/twmb/franz-go/pkg/kgo"
+	"github.com/twmb/franz-go/pkg/kmsg"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 	semconv "go.opentelemetry.io/otel/semconv/v1.17.0"
@@ -47,6 +48,7 @@ const (
 	msgConsumedWireBytesKey         = "consumer.messages.wire.bytes"
 	msgConsumedUncompressedBytesKey = "consumer.messages.uncompressed.bytes"
 	throttlingDurationKey           = "messaging.kafka.throttling.duration"
+	messageWriteLatencyKey          = "messaging.kafka.write.latency"
 	errorReasonKey                  = "error_reason"
 )
 
@@ -94,6 +96,7 @@ type metricHooks struct {
 	messageProducedBytes             metric.Int64Counter
 	messageProducedWireBytes         metric.Int64Counter
 	messageProducedUncompressedBytes metric.Int64Counter
+	messageWriteLatency              metric.Float64Histogram
 	messageFetched                   metric.Int64Counter
 	messageFetchedBytes              metric.Int64Counter
 	messageFetchedWireBytes          metric.Int64Counter
@@ -248,6 +251,14 @@ func newKgoHooks(mp metric.MeterProvider, namespace, topicPrefix string,
 		return nil, formatMetricError(msgProducedUncompressedBytesKey, err)
 	}
 
+	messageWriteLatency, err := m.Float64Histogram(messageWriteLatencyKey,
+		metric.WithDescription("Time took to write including waited before being written"),
+		metric.WithUnit("s"),
+	)
+	if err != nil {
+		return nil, formatMetricError(messageWriteLatencyKey, err)
+	}
+
 	messageFetchedCounter, err := m.Int64Counter(msgFetchedKey,
 		metric.WithDescription("The number of messages that were fetched from a kafka topic"),
 		metric.WithUnit(unitCount),
@@ -326,6 +337,7 @@ func newKgoHooks(mp metric.MeterProvider, namespace, topicPrefix string,
 		messageProducedBytes:             messageProducedBytes,
 		messageProducedWireBytes:         messageProducedWireBytes,
 		messageProducedUncompressedBytes: messageProducedUncompressedBytes,
+		messageWriteLatency:              messageWriteLatency,
 		// Consumer
 		messageFetched:                  messageFetchedCounter,
 		messageFetchedBytes:             messageFetchedBytes,
@@ -343,7 +355,7 @@ func formatMetricError(name string, err error) error {
 }
 
 func (h *metricHooks) OnBrokerConnect(meta kgo.BrokerMetadata, _ time.Duration, _ net.Conn, err error) {
-	attrs := make([]attribute.KeyValue, 0, 2)
+	attrs := make([]attribute.KeyValue, 0, 3)
 	attrs = append(attrs, semconv.MessagingSystem("kafka"))
 	if h.namespace != "" {
 		attrs = append(attrs, attribute.String("namespace", h.namespace))
@@ -354,8 +366,15 @@ func (h *metricHooks) OnBrokerConnect(meta kgo.BrokerMetadata, _ time.Duration, 
 			1,
 			metric.WithAttributeSet(attribute.NewSet(attrs...)),
 		)
+		attrs = append(attrs, attribute.String("outcome", "failure"))
+		h.connects.Add(
+			context.Background(),
+			1,
+			metric.WithAttributeSet(attribute.NewSet(attrs...)),
+		)
 		return
 	}
+	attrs = append(attrs, attribute.String("outcome", "success"))
 	h.connects.Add(
 		context.Background(),
 		1,
@@ -376,23 +395,34 @@ func (h *metricHooks) OnBrokerDisconnect(meta kgo.BrokerMetadata, _ net.Conn) {
 	)
 }
 
-func (h *metricHooks) OnBrokerWrite(meta kgo.BrokerMetadata, _ int16, bytesWritten int, _, _ time.Duration, err error) {
-	attrs := make([]attribute.KeyValue, 0, 2)
-	attrs = append(attrs, semconv.MessagingSystem("kafka"))
+func (h *metricHooks) OnBrokerWrite(meta kgo.BrokerMetadata, key int16, bytesWritten int, writeWait, timeToWrite time.Duration, err error) {
+	attrs := make([]attribute.KeyValue, 0, 3)
+	attrs = append(attrs,
+		semconv.MessagingSystem("kafka"),
+		attribute.String("operation", kmsg.NameForKey(key)),
+	)
 	if h.namespace != "" {
 		attrs = append(attrs, attribute.String("namespace", h.namespace))
 	}
+	outcome := "success"
 	if err != nil {
+		outcome = "failure"
 		h.writeErrs.Add(
 			context.Background(),
 			1,
 			metric.WithAttributeSet(attribute.NewSet(attrs...)),
 		)
-		return
+	} else {
+		h.writeBytes.Add(
+			context.Background(),
+			int64(bytesWritten),
+			metric.WithAttributeSet(attribute.NewSet(attrs...)),
+		)
 	}
-	h.writeBytes.Add(
+	attrs = append(attrs, attribute.String("outcome", outcome))
+	h.messageWriteLatency.Record(
 		context.Background(),
-		int64(bytesWritten),
+		writeWait.Seconds()+timeToWrite.Seconds(),
 		metric.WithAttributeSet(attribute.NewSet(attrs...)),
 	)
 }

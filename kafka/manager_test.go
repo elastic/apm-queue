@@ -157,6 +157,7 @@ func TestManagerDeleteTopics(t *testing.T) {
 		{Name: "messaging.kafka.connects.count", Unit: "1"}: {
 			{K: "messaging.system", V: "kafka"}: 2,
 			{K: "namespace", V: "name_space"}:   2,
+			{K: "outcome", V: "success"}:        2,
 		},
 		{Name: "messaging.kafka.read_bytes.count", Unit: "By"}: {
 			{K: "messaging.system", V: "kafka"}: 725,
@@ -165,6 +166,9 @@ func TestManagerDeleteTopics(t *testing.T) {
 		{Name: "messaging.kafka.write_bytes", Unit: "By"}: {
 			{K: "messaging.system", V: "kafka"}: 235,
 			{K: "namespace", V: "name_space"}:   235,
+			{K: "operation", V: "ApiVersions"}:  62,
+			{K: "operation", V: "DeleteTopics"}: 129,
+			{K: "operation", V: "Metadata"}:     44,
 		},
 		{Name: "topics.deleted.count"}: {
 			{K: "topic", V: "topic2"}:           1,
@@ -432,10 +436,10 @@ func TestManagerMetrics(t *testing.T) {
 	assert.Equal(t, "github.com/elastic/apm-queue/kafka", rm.ScopeMetrics[0].Scope.Name)
 
 	metrics := rm.ScopeMetrics[0].Metrics
-	require.Len(t, metrics, 6)
+	require.Len(t, metrics, 7)
 	var lagMetric, assignmentMetric metricdata.Metrics
 	// these are not stable so we just assert for existence
-	var connectsMetric, disconnectsMetric, writeBytesMetric, readBytesMetric bool
+	var connectsMetric, disconnectsMetric, writeBytesMetric, readBytesMetric, writeLatencyMetric bool
 	for _, metric := range metrics {
 		switch metric.Name {
 		case "consumer_group_lag":
@@ -450,12 +454,15 @@ func TestManagerMetrics(t *testing.T) {
 			writeBytesMetric = true
 		case "messaging.kafka.read_bytes.count":
 			readBytesMetric = true
+		case "messaging.kafka.write.latency":
+			writeLatencyMetric = true
 		}
 	}
 	assert.True(t, writeBytesMetric)
 	assert.True(t, readBytesMetric)
 	assert.True(t, connectsMetric)
 	assert.True(t, disconnectsMetric)
+	assert.True(t, writeLatencyMetric)
 	metricdatatest.AssertAggregationsEqual(t, metricdata.Gauge[int64]{
 		DataPoints: []metricdata.DataPoint[int64]{{
 			Attributes: attribute.NewSet(
@@ -537,10 +544,10 @@ func TestManagerMetrics(t *testing.T) {
 	assert.Equal(t, int16(5), describeGroupsRequest.Version)
 	assert.ElementsMatch(t, []string{"connect", "consumer1", "consumer2", "consumer3"}, describeGroupsRequest.Groups)
 	assert.ElementsMatch(t, []kmsg.OffsetFetchRequestGroup{
-		{Group: "connect"},
-		{Group: "consumer1"},
-		{Group: "consumer2"},
-		{Group: "consumer3"},
+		{Group: "connect", MemberEpoch: -1},
+		{Group: "consumer1", MemberEpoch: -1},
+		{Group: "consumer2", MemberEpoch: -1},
+		{Group: "consumer3", MemberEpoch: -1},
 	}, offsetFetchRequest.Groups)
 	assert.ElementsMatch(t, []kmsg.MetadataRequestTopic{
 		{Topic: kmsg.StringPtr("name_space-topic1")},
