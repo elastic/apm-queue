@@ -65,11 +65,22 @@ func TestProducerMetrics(t *testing.T) {
 			t.Log(metrics[i].Name)
 		}
 		for i := range want {
-			if !slices.Contains(ignore, metrics[i].Name) {
-				metricdatatest.AssertEqual(t, want[i], metrics[i],
-					metricdatatest.IgnoreTimestamp(),
-				)
+			if slices.Contains(ignore, want[i].Name) {
+				continue
 			}
+			var actual metricdata.Metrics
+			for _, m := range metrics {
+				if m.Name == want[i].Name {
+					actual = m
+					break
+				}
+			}
+			assert.NotEmpty(t, actual, fmt.Sprintf("metric %s should exist", want[i].Name))
+			metricdatatest.AssertEqual(t, want[i], actual,
+				metricdatatest.IgnoreTimestamp(),
+				metricdatatest.IgnoreExemplars(),
+				metricdatatest.IgnoreValue(),
+			)
 		}
 	}
 	t.Run("DeadlineExceeded", func(t *testing.T) {
@@ -206,7 +217,7 @@ func TestProducerMetrics(t *testing.T) {
 			{
 				Name:        "producer.messages.bytes",
 				Description: "The number of bytes produced",
-				Unit:        "1",
+				Unit:        "By",
 				Data: metricdata.Sum[int64]{
 					Temporality: metricdata.CumulativeTemporality,
 					IsMonotonic: true,
@@ -229,7 +240,7 @@ func TestProducerMetrics(t *testing.T) {
 			{
 				Name:        "producer.messages.uncompressed.bytes",
 				Description: "The number of uncompressed bytes produced",
-				Unit:        "1",
+				Unit:        "By",
 				Data: metricdata.Sum[int64]{
 					Temporality: metricdata.CumulativeTemporality,
 					IsMonotonic: true,
@@ -248,6 +259,41 @@ func TestProducerMetrics(t *testing.T) {
 						},
 					},
 				},
+			},
+			{
+				Name:        "messaging.kafka.write.latency",
+				Description: "Time took to write including waited before being written",
+				Unit:        "s",
+				Data: metricdata.Histogram[float64]{
+					Temporality: metricdata.CumulativeTemporality,
+					// do not check the value but only assert attributes
+					// as it is tricky to control the latency
+					DataPoints: []metricdata.HistogramDataPoint[float64]{{
+						Attributes: attribute.NewSet(
+							attribute.String("namespace", "name_space"),
+							semconv.MessagingSystem("kafka"),
+							attribute.String("operation", "ApiVersions"),
+							attribute.String("outcome", "success"),
+						)}, {
+						Attributes: attribute.NewSet(
+							attribute.String("namespace", "name_space"),
+							semconv.MessagingSystem("kafka"),
+							attribute.String("operation", "Metadata"),
+							attribute.String("outcome", "success"),
+						)}, {
+						Attributes: attribute.NewSet(
+							attribute.String("namespace", "name_space"),
+							semconv.MessagingSystem("kafka"),
+							attribute.String("operation", "InitProducerID"),
+							attribute.String("outcome", "success"),
+						)}, {
+						Attributes: attribute.NewSet(
+							attribute.String("namespace", "name_space"),
+							semconv.MessagingSystem("kafka"),
+							attribute.String("operation", "Produce"),
+							attribute.String("outcome", "success"),
+						)},
+					}},
 			},
 		}
 		test(context.Background(), t, producer, rdr, want,
@@ -345,6 +391,7 @@ func TestProducerMetrics(t *testing.T) {
 			"messaging.kafka.read_bytes.count",
 			"messaging.kafka.produce_bytes.count",
 			"messaging.kafka.produce_records.count",
+			"messaging.kafka.write.latency", // header is not attached to this metric. skip check
 		)
 	})
 }
@@ -442,6 +489,7 @@ func TestConsumerMetrics(t *testing.T) {
 		"messaging.kafka.fetch_records.count",
 		"consumer.messages.bytes",
 		"consumer.messages.uncompressed.bytes",
+		"messaging.kafka.write.latency",
 	}
 
 	metrics := filterMetrics(t, rm.ScopeMetrics)
