@@ -166,9 +166,9 @@ func TestManagerDeleteTopics(t *testing.T) {
 		{Name: "messaging.kafka.write_bytes", Unit: "By"}: {
 			{K: "messaging.system", V: "kafka"}: 235,
 			{K: "namespace", V: "name_space"}:   235,
-			{K: "op", V: "ApiVersions"}:         62,
-			{K: "op", V: "DeleteTopics"}:        129,
-			{K: "op", V: "Metadata"}:            44,
+			{K: "operation", V: "ApiVersions"}:  62,
+			{K: "operation", V: "DeleteTopics"}: 129,
+			{K: "operation", V: "Metadata"}:     44,
 		},
 		{Name: "topics.deleted.count"}: {
 			{K: "topic", V: "topic2"}:           1,

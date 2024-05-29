@@ -272,22 +272,26 @@ func TestProducerMetrics(t *testing.T) {
 						Attributes: attribute.NewSet(
 							attribute.String("namespace", "name_space"),
 							semconv.MessagingSystem("kafka"),
-							attribute.String("op", "ApiVersions"),
+							attribute.String("operation", "ApiVersions"),
+							attribute.String("outcome", "success"),
 						)}, {
 						Attributes: attribute.NewSet(
 							attribute.String("namespace", "name_space"),
 							semconv.MessagingSystem("kafka"),
-							attribute.String("op", "Metadata"),
+							attribute.String("operation", "Metadata"),
+							attribute.String("outcome", "success"),
 						)}, {
 						Attributes: attribute.NewSet(
 							attribute.String("namespace", "name_space"),
 							semconv.MessagingSystem("kafka"),
-							attribute.String("op", "InitProducerID"),
+							attribute.String("operation", "InitProducerID"),
+							attribute.String("outcome", "success"),
 						)}, {
 						Attributes: attribute.NewSet(
 							attribute.String("namespace", "name_space"),
 							semconv.MessagingSystem("kafka"),
-							attribute.String("op", "Produce"),
+							attribute.String("operation", "Produce"),
+							attribute.String("outcome", "success"),
 						)},
 					}},
 			},

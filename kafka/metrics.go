@@ -379,28 +379,30 @@ func (h *metricHooks) OnBrokerWrite(meta kgo.BrokerMetadata, key int16, bytesWri
 	attrs := make([]attribute.KeyValue, 0, 3)
 	attrs = append(attrs,
 		semconv.MessagingSystem("kafka"),
-		attribute.String("op", kmsg.NameForKey(key)),
+		attribute.String("operation", kmsg.NameForKey(key)),
 	)
 	if h.namespace != "" {
 		attrs = append(attrs, attribute.String("namespace", h.namespace))
 	}
-	h.messageWriteLatency.Record(
-		context.Background(),
-		writeWait.Seconds()+timeToWrite.Seconds(),
-		metric.WithAttributeSet(attribute.NewSet(attrs...)),
-	)
-
+	outcome := "success"
 	if err != nil {
+		outcome = "failure"
 		h.writeErrs.Add(
 			context.Background(),
 			1,
 			metric.WithAttributeSet(attribute.NewSet(attrs...)),
 		)
-		return
+	} else {
+		h.writeBytes.Add(
+			context.Background(),
+			int64(bytesWritten),
+			metric.WithAttributeSet(attribute.NewSet(attrs...)),
+		)
 	}
-	h.writeBytes.Add(
+	attrs = append(attrs, attribute.String("outcome", outcome))
+	h.messageWriteLatency.Record(
 		context.Background(),
-		int64(bytesWritten),
+		writeWait.Seconds()+timeToWrite.Seconds(),
 		metric.WithAttributeSet(attribute.NewSet(attrs...)),
 	)
 }
