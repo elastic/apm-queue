@@ -5,7 +5,7 @@ go 1.21
 require (
 	cloud.google.com/go/monitoring v1.19.0
 	cloud.google.com/go/pubsub v1.38.0
-	cloud.google.com/go/pubsublite v1.8.1
+	cloud.google.com/go/pubsublite v1.8.2
 	github.com/aws/aws-sdk-go-v2/config v1.27.17
 	github.com/google/go-cmp v0.6.0
 	github.com/googleapis/gax-go/v2 v2.12.4
@@ -24,7 +24,7 @@ require (
 	go.uber.org/zap v1.27.0
 	golang.org/x/sync v0.7.0
 	google.golang.org/api v0.183.0
-	google.golang.org/genproto/googleapis/api v0.0.0-20240521202816-d264139d666e
+	google.golang.org/genproto/googleapis/api v0.0.0-20240528184218-531527333157
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20240528184218-531527333157
 	google.golang.org/grpc v1.64.0
 	google.golang.org/protobuf v1.34.1
