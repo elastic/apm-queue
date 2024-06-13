@@ -21,6 +21,7 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
+	"math"
 	"strconv"
 	"sync/atomic"
 	"testing"
@@ -227,6 +228,8 @@ func TestConsumerDelivery(t *testing.T) {
 			lastRecords:    10,
 
 			// 30 total - 2 errored - 2 lost.
+			// 30 total - 2 errored - 2 ignored.
+			// 30 total - 2 errored
 			processed: 26,
 			errored:   2, // The first two fetch fails.
 		},
@@ -263,7 +266,7 @@ func TestConsumerDelivery(t *testing.T) {
 			maxPollRecords: 1,
 			lastRecords:    11,
 
-			processed: 11,
+			processed: 12,
 			errored:   1,
 		},
 		"1_produced_1_poll_ALOD": {
@@ -281,10 +284,19 @@ func TestConsumerDelivery(t *testing.T) {
 			client, addrs := newClusterWithTopics(t, 2, "name_space-topic")
 			baseLogger := zapTest(t)
 
+			var expected atomic.Int32
 			var processed atomic.Int32
 			var errored atomic.Int32
 			newProcessor := func(processRecord, failRecord <-chan struct{}, fn func()) apmqueue.Processor {
 				return apmqueue.ProcessorFunc(func(_ context.Context, r apmqueue.Record) error {
+					if expected.Add(-1) < 0 {
+						// processing happens in a separate goroutine so even if
+						// we cancel the context as soon as we start processing the first
+						// batch of records a second fetch might have completed already.
+						// Hence ignore any 'extra' record.
+						return errors.New("extra records are lost")
+					}
+
 					defer fn()
 					select {
 					// Records are marked as processed on receive processRecord.
@@ -309,11 +321,12 @@ func TestConsumerDelivery(t *testing.T) {
 					Logger:    baseLogger,
 					Namespace: "name_space",
 				},
-				Delivery:       tc.deliveryType,
-				Topics:         []apmqueue.Topic{"topic"},
-				GroupID:        "groupid",
-				MaxPollRecords: tc.maxPollRecords,
-				Processor:      newProcessor(nil, failRecord, cancel),
+				Delivery:             tc.deliveryType,
+				Topics:               []apmqueue.Topic{"topic"},
+				GroupID:              "groupid",
+				MaxPollRecords:       tc.maxPollRecords,
+				MaxConcurrentFetches: 1,
+				Processor:            newProcessor(nil, failRecord, cancel),
 			}
 
 			record := &kgo.Record{
@@ -324,6 +337,9 @@ func TestConsumerDelivery(t *testing.T) {
 			for i := 0; i < int(tc.initialRecords); i++ {
 				produceRecord(ctx, t, client, record)
 			}
+
+			// expect up to tc.maxPollRecords
+			expected.Store(int32(tc.maxPollRecords))
 
 			cfg.Logger = baseLogger.Named("1")
 			consumer := newConsumer(t, cfg)
@@ -345,7 +361,6 @@ func TestConsumerDelivery(t *testing.T) {
 			// means that records may be lost before they reach the Processor.
 			select {
 			case failRecord <- struct{}{}:
-				cancel() // Stop the consumer from returning buffered records.
 				close(failRecord)
 			case <-time.After(time.Second):
 				t.Fatal("timed out waiting for consumer to process event")
@@ -359,10 +374,7 @@ func TestConsumerDelivery(t *testing.T) {
 			}
 
 			assert.Eventually(t, func() bool {
-				if tc.deliveryType == apmqueue.AtLeastOnceDeliveryType {
-					return int(errored.Load()) >= int(tc.errored)
-				}
-				return int(errored.Load()) == int(tc.errored)
+				return processed.Load() == 0 && errored.Load() == tc.errored
 			}, time.Second, time.Millisecond)
 			t.Logf("got: %d events errored, %d processed, want: %d errored, %d processed",
 				errored.Load(), processed.Load(), tc.errored, tc.processed,
@@ -380,6 +392,9 @@ func TestConsumerDelivery(t *testing.T) {
 			processRecord := make(chan struct{})
 			cfg.Processor = newProcessor(processRecord, nil, func() {})
 			consumer = newConsumer(t, cfg)
+			// there should be no remaining records once this is over so just
+			// set a 'unlimited' value to avoid ignoring records.
+			expected.Store(math.MaxInt32)
 			go func() {
 				assert.NoError(t, consumer.Run(ctx))
 			}()
@@ -392,9 +407,22 @@ func TestConsumerDelivery(t *testing.T) {
 			}
 
 			assert.Eventually(t, func() bool {
-				// Some events may or may not be processed. Assert GE.
-				return processed.Load() >= tc.processed &&
-					errored.Load() >= tc.errored
+				if tc.deliveryType == apmqueue.AtMostOnceDeliveryType {
+					// For AMOD, we need to account for the following situations:
+					// - A second fetch started and the events were processed before the context was canceled
+					// so the events got ignored.
+					// - A second fetch started before the context was canceled but they were never processed
+					// so the events got lost.
+					// - The context was canceled before the second fetch could start
+					//
+					// This is only an issue if tc.initialRecords != tc.maxPollRecords and the tests seems to
+					// use the first two cases as the expected scenario.
+					// For the third case it means we receive an extra 'tc.maxPollRecords' records.
+					return errored.Load() == tc.errored && (processed.Load() == tc.processed || processed.Load() == tc.processed+int32(tc.maxPollRecords))
+				}
+				// For ALOD, the extra/ignored records in the first fetch were not committed so they
+				// didn't affect the record count.
+				return processed.Load() == tc.processed && errored.Load() == tc.errored
 			}, 2*time.Second, time.Millisecond)
 			t.Logf("got: %d events errored, %d processed, want: %d errored, %d processed",
 				errored.Load(), processed.Load(), tc.errored, tc.processed,
