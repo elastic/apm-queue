@@ -39,12 +39,10 @@ const (
 	unitBytes = "By"
 
 	msgProducedCountKey             = "producer.messages.count"
-	msgProducedBytesKey             = "producer.messages.bytes"
 	msgProducedWireBytesKey         = "producer.messages.wire.bytes"
 	msgProducedUncompressedBytesKey = "producer.messages.uncompressed.bytes"
 	msgFetchedKey                   = "consumer.messages.fetched"
 	msgDelayKey                     = "consumer.messages.delay"
-	msgConsumedBytesKey             = "consumer.messages.bytes"
 	msgConsumedWireBytesKey         = "consumer.messages.wire.bytes"
 	msgConsumedUncompressedBytesKey = "consumer.messages.uncompressed.bytes"
 	throttlingDurationKey           = "messaging.kafka.throttling.duration"
@@ -93,12 +91,10 @@ type metricHooks struct {
 
 	// custom metrics
 	messageProduced                  metric.Int64Counter
-	messageProducedBytes             metric.Int64Counter
 	messageProducedWireBytes         metric.Int64Counter
 	messageProducedUncompressedBytes metric.Int64Counter
 	messageWriteLatency              metric.Float64Histogram
 	messageFetched                   metric.Int64Counter
-	messageFetchedBytes              metric.Int64Counter
 	messageFetchedWireBytes          metric.Int64Counter
 	messageFetchedUncompressedBytes  metric.Int64Counter
 	messageDelay                     metric.Float64Histogram
@@ -228,13 +224,6 @@ func newKgoHooks(mp metric.MeterProvider, namespace, topicPrefix string,
 	if err != nil {
 		return nil, formatMetricError(msgProducedCountKey, err)
 	}
-	messageProducedBytes, err := m.Int64Counter(msgProducedBytesKey,
-		metric.WithDescription("The number of bytes produced"),
-		metric.WithUnit(unitBytes),
-	)
-	if err != nil {
-		return nil, formatMetricError(msgProducedBytesKey, err)
-	}
 	messageProducedWireBytes, err := m.Int64Counter(msgProducedWireBytesKey,
 		metric.WithDescription("The number of bytes produced"),
 		metric.WithUnit(unitBytes),
@@ -265,13 +254,6 @@ func newKgoHooks(mp metric.MeterProvider, namespace, topicPrefix string,
 	)
 	if err != nil {
 		return nil, formatMetricError(msgFetchedKey, err)
-	}
-	messageFetchedBytes, err := m.Int64Counter(msgConsumedBytesKey,
-		metric.WithDescription("The number of bytes consumed"),
-		metric.WithUnit(unitBytes),
-	)
-	if err != nil {
-		return nil, formatMetricError(msgConsumedBytesKey, err)
 	}
 	messageFetchedWireBytes, err := m.Int64Counter(msgConsumedWireBytesKey,
 		metric.WithDescription("The number of bytes consumed"),
@@ -334,13 +316,11 @@ func newKgoHooks(mp metric.MeterProvider, namespace, topicPrefix string,
 
 		// Producer
 		messageProduced:                  messageProducedCounter,
-		messageProducedBytes:             messageProducedBytes,
 		messageProducedWireBytes:         messageProducedWireBytes,
 		messageProducedUncompressedBytes: messageProducedUncompressedBytes,
 		messageWriteLatency:              messageWriteLatency,
 		// Consumer
 		messageFetched:                  messageFetchedCounter,
-		messageFetchedBytes:             messageFetchedBytes,
 		messageFetchedWireBytes:         messageFetchedWireBytes,
 		messageFetchedUncompressedBytes: messageFetchedUncompressedBytes,
 		messageDelay:                    messageDelayHistogram,
@@ -469,9 +449,6 @@ func (h *metricHooks) OnProduceBatchWritten(meta kgo.BrokerMetadata,
 	h.messageProduced.Add(context.Background(), int64(m.NumRecords),
 		metric.WithAttributeSet(attribute.NewSet(attrs...)),
 	)
-	h.messageProducedBytes.Add(context.Background(), int64(m.CompressedBytes),
-		metric.WithAttributeSet(attribute.NewSet(attrs...)),
-	)
 	h.messageProducedWireBytes.Add(context.Background(), int64(m.CompressedBytes),
 		metric.WithAttributeSet(attribute.NewSet(attrs...)),
 	)
@@ -511,9 +488,6 @@ func (h *metricHooks) OnFetchBatchRead(meta kgo.BrokerMetadata,
 		attrs = append(attrs, attribute.String("namespace", h.namespace))
 	}
 	h.messageFetched.Add(context.Background(), int64(m.NumRecords),
-		metric.WithAttributeSet(attribute.NewSet(attrs...)),
-	)
-	h.messageFetchedBytes.Add(context.Background(), int64(m.CompressedBytes),
 		metric.WithAttributeSet(attribute.NewSet(attrs...)),
 	)
 	h.messageFetchedWireBytes.Add(context.Background(), int64(m.CompressedBytes),
