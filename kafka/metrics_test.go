@@ -216,30 +216,6 @@ func TestProducerMetrics(t *testing.T) {
 				},
 			},
 			{
-				Name:        "producer.messages.bytes",
-				Description: "The number of bytes produced",
-				Unit:        "By",
-				Data: metricdata.Sum[int64]{
-					Temporality: metricdata.CumulativeTemporality,
-					IsMonotonic: true,
-					DataPoints: []metricdata.DataPoint[int64]{
-						{
-							Value: 24,
-							Attributes: attribute.NewSet(
-								attribute.String("outcome", "success"),
-								attribute.String("namespace", "name_space"),
-								attribute.String("topic", "name_space-default-topic"),
-								semconv.MessagingSystem("kafka"),
-								semconv.MessagingDestinationName("default-topic"),
-								semconv.MessagingKafkaDestinationPartition(0),
-								attribute.String("test", "test"),
-								attribute.String("compression.codec", "none"),
-							),
-						},
-					},
-				},
-			},
-			{
 				Name:        "producer.messages.wire.bytes",
 				Description: "The number of bytes produced",
 				Unit:        "By",
@@ -347,30 +323,6 @@ func TestProducerMetrics(t *testing.T) {
 					DataPoints: []metricdata.DataPoint[int64]{
 						{
 							Value: 3,
-							Attributes: attribute.NewSet(
-								attribute.String("outcome", "success"),
-								attribute.String("namespace", "name_space"),
-								attribute.String("topic", "name_space-default-topic"),
-								semconv.MessagingSystem("kafka"),
-								semconv.MessagingDestinationName("default-topic"),
-								semconv.MessagingKafkaDestinationPartition(0),
-								attribute.String("some key", "some value"),
-								attribute.String("compression.codec", "snappy"),
-							),
-						},
-					},
-				},
-			},
-			{
-				Name:        "producer.messages.bytes",
-				Description: "The number of bytes produced",
-				Unit:        "By",
-				Data: metricdata.Sum[int64]{
-					Temporality: metricdata.CumulativeTemporality,
-					IsMonotonic: true,
-					DataPoints: []metricdata.DataPoint[int64]{
-						{
-							Value: 53,
 							Attributes: attribute.NewSet(
 								attribute.String("outcome", "success"),
 								attribute.String("namespace", "name_space"),
@@ -541,7 +493,6 @@ func TestConsumerMetrics(t *testing.T) {
 		"messaging.kafka.read_bytes.count",
 		"messaging.kafka.fetch_bytes.count",
 		"messaging.kafka.fetch_records.count",
-		"consumer.messages.bytes",
 		"consumer.messages.wire.bytes",
 		"consumer.messages.uncompressed.bytes",
 		"messaging.kafka.write.latency",
