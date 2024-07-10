@@ -3,7 +3,7 @@ module github.com/elastic/apm-queue/v2
 go 1.21
 
 require (
-	cloud.google.com/go/monitoring v1.20.1
+	cloud.google.com/go/monitoring v1.20.2
 	cloud.google.com/go/pubsub v1.40.0
 	cloud.google.com/go/pubsublite v1.8.2
 	github.com/aws/aws-sdk-go-v2/config v1.27.24
