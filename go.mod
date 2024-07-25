@@ -3,7 +3,7 @@ module github.com/elastic/apm-queue/v2
 go 1.21
 
 require (
-	cloud.google.com/go/monitoring v1.20.2
+	cloud.google.com/go/monitoring v1.20.3
 	cloud.google.com/go/pubsub v1.40.0
 	cloud.google.com/go/pubsublite v1.8.2
 	github.com/aws/aws-sdk-go-v2/config v1.27.27
@@ -24,7 +24,7 @@ require (
 	go.uber.org/zap v1.27.0
 	golang.org/x/sync v0.7.0
 	google.golang.org/api v0.189.0
-	google.golang.org/genproto/googleapis/api v0.0.0-20240711142825-46eb208f015d
+	google.golang.org/genproto/googleapis/api v0.0.0-20240722135656-d784300faade
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20240722135656-d784300faade
 	google.golang.org/grpc v1.65.0
 	google.golang.org/protobuf v1.34.2
