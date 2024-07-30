@@ -15,7 +15,7 @@ updates:
           - "go.opentelemetry.io/otel*"
       franz-go:
         patterns:
-          - "github.com/twmb/franz-go*
+          - "github.com/twmb/franz-go*"
   - package-ecosystem: "gomod" # See documentation for possible values
     directory: "/tools" # Location of package manifests
     schedule:
