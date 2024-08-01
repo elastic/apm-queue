@@ -88,6 +88,10 @@ type ProducerConfig struct {
 	// BatchListener is called per topic/partition after a batch is
 	// successfully produced to a Kafka broker.
 	BatchListener BatchWriteListener
+
+	// RecordPartitioner is a function that returns the partition to which
+	// a record should be sent. If nil, the default partitioner is used.
+	RecordPartitioner kgo.Partitioner
 }
 
 // BatchWriteListener specifies a callback function that is invoked after a batch is
@@ -173,6 +177,9 @@ func NewProducer(cfg ProducerConfig) (*Producer, error) {
 	}
 	if cfg.BatchListener != nil {
 		opts = append(opts, kgo.WithHooks(cfg.BatchListener))
+	}
+	if cfg.RecordPartitioner != nil {
+		opts = append(opts, kgo.RecordPartitioner(cfg.RecordPartitioner))
 	}
 	client, err := cfg.newClient(cfg.TopicAttributeFunc, opts...)
 	if err != nil {
