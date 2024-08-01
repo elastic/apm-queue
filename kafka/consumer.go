@@ -113,6 +113,11 @@ type ConsumerConfig struct {
 	// Kafka consumer setting: fetch.min.bytes
 	// Docs: https://kafka.apache.org/28/documentation.html#consumerconfigs_fetch.min.bytes
 	FetchMinBytes int32
+
+	// ConsumePreferringLagFn alters the order in which partitions are consumed.
+	// Use with caution, as this can lead to uneven consumption of partitions,
+	// and in the worst case scenario, in partitions starved out from being consumed.
+	PreferLagFn kgo.PreferLagFn
 }
 
 // finalize ensures the configuration is valid, setting default values from
@@ -217,6 +222,9 @@ func NewConsumer(cfg ConsumerConfig) (*Consumer, error) {
 	}
 	if cfg.MaxConcurrentFetches > 0 {
 		opts = append(opts, kgo.MaxConcurrentFetches(cfg.MaxConcurrentFetches))
+	}
+	if cfg.PreferLagFn != nil {
+		opts = append(opts, kgo.ConsumePreferringLagFn(cfg.PreferLagFn))
 	}
 	if cfg.ShutdownGracePeriod <= 0 {
 		cfg.ShutdownGracePeriod = 5 * time.Second
