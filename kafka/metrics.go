@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/twmb/franz-go/pkg/kgo"
+	"github.com/twmb/franz-go/pkg/kmsg"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 	semconv "go.opentelemetry.io/otel/semconv/v1.17.0"
@@ -38,13 +39,14 @@ const (
 	unitBytes = "By"
 
 	msgProducedCountKey             = "producer.messages.count"
-	msgProducedBytesKey             = "producer.messages.bytes"
+	msgProducedWireBytesKey         = "producer.messages.wire.bytes"
 	msgProducedUncompressedBytesKey = "producer.messages.uncompressed.bytes"
 	msgFetchedKey                   = "consumer.messages.fetched"
 	msgDelayKey                     = "consumer.messages.delay"
-	msgConsumedBytesKey             = "consumer.messages.bytes"
+	msgConsumedWireBytesKey         = "consumer.messages.wire.bytes"
 	msgConsumedUncompressedBytesKey = "consumer.messages.uncompressed.bytes"
 	throttlingDurationKey           = "messaging.kafka.throttling.duration"
+	messageWriteLatencyKey          = "messaging.kafka.write.latency"
 	errorReasonKey                  = "error_reason"
 )
 
@@ -89,10 +91,11 @@ type metricHooks struct {
 
 	// custom metrics
 	messageProduced                  metric.Int64Counter
-	messageProducedBytes             metric.Int64Counter
+	messageProducedWireBytes         metric.Int64Counter
 	messageProducedUncompressedBytes metric.Int64Counter
+	messageWriteLatency              metric.Float64Histogram
 	messageFetched                   metric.Int64Counter
-	messageFetchedBytes              metric.Int64Counter
+	messageFetchedWireBytes          metric.Int64Counter
 	messageFetchedUncompressedBytes  metric.Int64Counter
 	messageDelay                     metric.Float64Histogram
 	throttlingDuration               metric.Float64Histogram
@@ -221,12 +224,12 @@ func newKgoHooks(mp metric.MeterProvider, namespace, topicPrefix string,
 	if err != nil {
 		return nil, formatMetricError(msgProducedCountKey, err)
 	}
-	messageProducedBytes, err := m.Int64Counter(msgProducedBytesKey,
+	messageProducedWireBytes, err := m.Int64Counter(msgProducedWireBytesKey,
 		metric.WithDescription("The number of bytes produced"),
 		metric.WithUnit(unitBytes),
 	)
 	if err != nil {
-		return nil, formatMetricError(msgProducedBytesKey, err)
+		return nil, formatMetricError(msgProducedWireBytesKey, err)
 	}
 
 	messageProducedUncompressedBytes, err := m.Int64Counter(msgProducedUncompressedBytesKey,
@@ -237,6 +240,14 @@ func newKgoHooks(mp metric.MeterProvider, namespace, topicPrefix string,
 		return nil, formatMetricError(msgProducedUncompressedBytesKey, err)
 	}
 
+	messageWriteLatency, err := m.Float64Histogram(messageWriteLatencyKey,
+		metric.WithDescription("Time took to write including waited before being written"),
+		metric.WithUnit("s"),
+	)
+	if err != nil {
+		return nil, formatMetricError(messageWriteLatencyKey, err)
+	}
+
 	messageFetchedCounter, err := m.Int64Counter(msgFetchedKey,
 		metric.WithDescription("The number of messages that were fetched from a kafka topic"),
 		metric.WithUnit(unitCount),
@@ -244,16 +255,16 @@ func newKgoHooks(mp metric.MeterProvider, namespace, topicPrefix string,
 	if err != nil {
 		return nil, formatMetricError(msgFetchedKey, err)
 	}
-	messageFetchedBytes, err := m.Int64Counter(msgConsumedBytesKey,
-		metric.WithDescription("The number of bytes produced"),
+	messageFetchedWireBytes, err := m.Int64Counter(msgConsumedWireBytesKey,
+		metric.WithDescription("The number of bytes consumed"),
 		metric.WithUnit(unitBytes),
 	)
 	if err != nil {
-		return nil, formatMetricError(msgConsumedBytesKey, err)
+		return nil, formatMetricError(msgConsumedWireBytesKey, err)
 	}
 
 	messageFetchedUncompressedBytes, err := m.Int64Counter(msgConsumedUncompressedBytesKey,
-		metric.WithDescription("The number of uncompressed bytes produced"),
+		metric.WithDescription("The number of uncompressed bytes consumed"),
 		metric.WithUnit(unitBytes),
 	)
 	if err != nil {
@@ -305,11 +316,12 @@ func newKgoHooks(mp metric.MeterProvider, namespace, topicPrefix string,
 
 		// Producer
 		messageProduced:                  messageProducedCounter,
-		messageProducedBytes:             messageProducedBytes,
+		messageProducedWireBytes:         messageProducedWireBytes,
 		messageProducedUncompressedBytes: messageProducedUncompressedBytes,
+		messageWriteLatency:              messageWriteLatency,
 		// Consumer
 		messageFetched:                  messageFetchedCounter,
-		messageFetchedBytes:             messageFetchedBytes,
+		messageFetchedWireBytes:         messageFetchedWireBytes,
 		messageFetchedUncompressedBytes: messageFetchedUncompressedBytes,
 		messageDelay:                    messageDelayHistogram,
 		throttlingDuration:              throttlingDurationHistogram,
@@ -323,7 +335,7 @@ func formatMetricError(name string, err error) error {
 }
 
 func (h *metricHooks) OnBrokerConnect(meta kgo.BrokerMetadata, _ time.Duration, _ net.Conn, err error) {
-	attrs := make([]attribute.KeyValue, 0, 2)
+	attrs := make([]attribute.KeyValue, 0, 3)
 	attrs = append(attrs, semconv.MessagingSystem("kafka"))
 	if h.namespace != "" {
 		attrs = append(attrs, attribute.String("namespace", h.namespace))
@@ -334,8 +346,15 @@ func (h *metricHooks) OnBrokerConnect(meta kgo.BrokerMetadata, _ time.Duration, 
 			1,
 			metric.WithAttributeSet(attribute.NewSet(attrs...)),
 		)
+		attrs = append(attrs, attribute.String("outcome", "failure"))
+		h.connects.Add(
+			context.Background(),
+			1,
+			metric.WithAttributeSet(attribute.NewSet(attrs...)),
+		)
 		return
 	}
+	attrs = append(attrs, attribute.String("outcome", "success"))
 	h.connects.Add(
 		context.Background(),
 		1,
@@ -356,23 +375,34 @@ func (h *metricHooks) OnBrokerDisconnect(meta kgo.BrokerMetadata, _ net.Conn) {
 	)
 }
 
-func (h *metricHooks) OnBrokerWrite(meta kgo.BrokerMetadata, _ int16, bytesWritten int, _, _ time.Duration, err error) {
-	attrs := make([]attribute.KeyValue, 0, 2)
-	attrs = append(attrs, semconv.MessagingSystem("kafka"))
+func (h *metricHooks) OnBrokerWrite(meta kgo.BrokerMetadata, key int16, bytesWritten int, writeWait, timeToWrite time.Duration, err error) {
+	attrs := make([]attribute.KeyValue, 0, 3)
+	attrs = append(attrs,
+		semconv.MessagingSystem("kafka"),
+		attribute.String("operation", kmsg.NameForKey(key)),
+	)
 	if h.namespace != "" {
 		attrs = append(attrs, attribute.String("namespace", h.namespace))
 	}
+	outcome := "success"
 	if err != nil {
+		outcome = "failure"
 		h.writeErrs.Add(
 			context.Background(),
 			1,
 			metric.WithAttributeSet(attribute.NewSet(attrs...)),
 		)
-		return
+	} else {
+		h.writeBytes.Add(
+			context.Background(),
+			int64(bytesWritten),
+			metric.WithAttributeSet(attribute.NewSet(attrs...)),
+		)
 	}
-	h.writeBytes.Add(
+	attrs = append(attrs, attribute.String("outcome", outcome))
+	h.messageWriteLatency.Record(
 		context.Background(),
-		int64(bytesWritten),
+		writeWait.Seconds()+timeToWrite.Seconds(),
 		metric.WithAttributeSet(attribute.NewSet(attrs...)),
 	)
 }
@@ -408,6 +438,7 @@ func (h *metricHooks) OnProduceBatchWritten(meta kgo.BrokerMetadata,
 		semconv.MessagingDestinationName(strings.TrimPrefix(topic, h.topicPrefix)),
 		semconv.MessagingKafkaDestinationPartition(int(partition)),
 		attribute.String("outcome", "success"),
+		attribute.String("compression.codec", compressionFromCodec(m.CompressionType)),
 	)
 	if kv := h.topicAttributeFunc(topic); kv != (attribute.KeyValue{}) {
 		attrs = append(attrs, kv)
@@ -418,7 +449,7 @@ func (h *metricHooks) OnProduceBatchWritten(meta kgo.BrokerMetadata,
 	h.messageProduced.Add(context.Background(), int64(m.NumRecords),
 		metric.WithAttributeSet(attribute.NewSet(attrs...)),
 	)
-	h.messageProducedBytes.Add(context.Background(), int64(m.CompressedBytes),
+	h.messageProducedWireBytes.Add(context.Background(), int64(m.CompressedBytes),
 		metric.WithAttributeSet(attribute.NewSet(attrs...)),
 	)
 	h.messageProducedUncompressedBytes.Add(context.Background(), int64(m.UncompressedBytes),
@@ -448,6 +479,7 @@ func (h *metricHooks) OnFetchBatchRead(meta kgo.BrokerMetadata,
 		attribute.String("topic", topic),
 		semconv.MessagingSourceName(strings.TrimPrefix(topic, h.topicPrefix)),
 		semconv.MessagingKafkaSourcePartition(int(partition)),
+		attribute.String("compression.codec", compressionFromCodec(m.CompressionType)),
 	)
 	if kv := h.topicAttributeFunc(topic); kv != (attribute.KeyValue{}) {
 		attrs = append(attrs, kv)
@@ -458,7 +490,7 @@ func (h *metricHooks) OnFetchBatchRead(meta kgo.BrokerMetadata,
 	h.messageFetched.Add(context.Background(), int64(m.NumRecords),
 		metric.WithAttributeSet(attribute.NewSet(attrs...)),
 	)
-	h.messageFetchedBytes.Add(context.Background(), int64(m.CompressedBytes),
+	h.messageFetchedWireBytes.Add(context.Background(), int64(m.CompressedBytes),
 		metric.WithAttributeSet(attribute.NewSet(attrs...)),
 	)
 	h.messageFetchedUncompressedBytes.Add(context.Background(), int64(m.UncompressedBytes),
@@ -557,4 +589,26 @@ func attributesFromRecord(r *kgo.Record, extra ...attribute.KeyValue) []attribut
 		attrs = append(attrs, attribute.String(v.Key, string(v.Value)))
 	}
 	return attrs
+}
+
+func compressionFromCodec(c uint8) string {
+	// CompressionType signifies which algorithm the batch was compressed
+	// with.
+	//
+	// 0 is no compression, 1 is gzip, 2 is snappy, 3 is lz4, and 4 is
+	// zstd.
+	switch c {
+	case 0:
+		return "none"
+	case 1:
+		return "gzip"
+	case 2:
+		return "snappy"
+	case 3:
+		return "lz4"
+	case 4:
+		return "zstd"
+	default:
+		return "unknown"
+	}
 }

@@ -25,6 +25,7 @@ import (
 	"net"
 	"os"
 	"strings"
+	"time"
 
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/twmb/franz-go/pkg/kgo"
@@ -149,6 +150,11 @@ type CommonConfig struct {
 	// - producer.messages.count
 	// - consumer.messages.fetched
 	TopicAttributeFunc TopicAttributeFunc
+
+	// MetadataMaxAge is the maximum age of metadata before it is refreshed.
+	// The lower the value the more frequently new topics will be discovered.
+	// If zero, the default value of 5 minutes is used.
+	MetadataMaxAge time.Duration
 
 	hooks []kgo.Hook
 }
@@ -284,6 +290,9 @@ func (cfg *CommonConfig) newClient(topicAttributeFunc TopicAttributeFunc, additi
 		opts = append(opts,
 			kgo.WithHooks(metricHooks),
 		)
+	}
+	if cfg.MetadataMaxAge > 0 {
+		opts = append(opts, kgo.MetadataMaxAge(cfg.MetadataMaxAge))
 	}
 	if len(cfg.hooks) != 0 {
 		opts = append(opts, kgo.WithHooks(cfg.hooks...))
