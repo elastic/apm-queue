@@ -26,10 +26,12 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/twmb/franz-go/pkg/kfake"
+	"github.com/twmb/franz-go/pkg/kgo"
 	"github.com/twmb/franz-go/pkg/sasl"
 	"go.uber.org/zap"
 )
@@ -274,4 +276,27 @@ func TestCommonConfigFileHook(t *testing.T) {
 	// and bootstrap.servers to be reevaluated.
 	err = client.Ping(context.Background())
 	require.NoError(t, err)
+}
+
+func newClusterAddrWithTopics(t testing.TB, partitions int32, topics ...string) []string {
+	t.Helper()
+	cluster, err := kfake.NewCluster(kfake.SeedTopics(partitions, topics...))
+	require.NoError(t, err)
+	t.Cleanup(cluster.Close)
+
+	return cluster.ListenAddrs()
+}
+
+func newClusterWithTopics(t testing.TB, partitions int32, topics ...string) (*kgo.Client, []string) {
+	t.Helper()
+	addrs := newClusterAddrWithTopics(t, partitions, topics...)
+
+	client, err := kgo.NewClient(
+		kgo.SeedBrokers(addrs...),
+		// Reduce the max wait time to speed up tests.
+		kgo.FetchMaxWait(100*time.Millisecond),
+	)
+	require.NoError(t, err)
+
+	return client, addrs
 }

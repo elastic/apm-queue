@@ -1,5 +1,6 @@
 GO_TEST_TIMEOUT=60s
 GOTESTFLAGS=
+GO_TEST_COUNT=10
 
 .DEFAULT_GOAL := all
 all: test
@@ -20,7 +21,7 @@ clean:
 
 .PHONY: test
 test: go.mod
-	go test -race $(GOTESTFLAGS) -timeout=$(GO_TEST_TIMEOUT) ./...
+	go test -race $(GOTESTFLAGS) -count=$(GO_TEST_COUNT) -timeout=$(GO_TEST_TIMEOUT) ./...
 
 .PHONY: test-verbose
 test-verbose:
