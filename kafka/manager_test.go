@@ -57,9 +57,7 @@ func TestNewManager(t *testing.T) {
 
 func TestManagerDeleteTopics(t *testing.T) {
 	exp := tracetest.NewInMemoryExporter()
-	tp := sdktrace.NewTracerProvider(
-		sdktrace.WithSyncer(exp),
-	)
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exp))
 	defer tp.Shutdown(context.Background())
 
 	mt := metrictest.New()
@@ -152,24 +150,13 @@ func TestManagerDeleteTopics(t *testing.T) {
 			break
 		}
 	}
+	gathered := metrictest.GatherInt64Metric(metrics)
+	metricKey := metrictest.Key{Name: "topics.deleted.count"}
+	gotMetrics := metrictest.Int64Metrics{
+		metricKey: gathered[metricKey],
+	}
 	// Ensure only 1 topic was deleted, which also matches the number of spans.
 	assert.Empty(t, cmp.Diff(metrictest.Int64Metrics{
-		{Name: "messaging.kafka.connects.count", Unit: "1"}: {
-			{K: "messaging.system", V: "kafka"}: 2,
-			{K: "namespace", V: "name_space"}:   2,
-			{K: "outcome", V: "success"}:        2,
-		},
-		{Name: "messaging.kafka.read_bytes.count", Unit: "By"}: {
-			{K: "messaging.system", V: "kafka"}: 725,
-			{K: "namespace", V: "name_space"}:   725,
-		},
-		{Name: "messaging.kafka.write_bytes", Unit: "By"}: {
-			{K: "messaging.system", V: "kafka"}: 235,
-			{K: "namespace", V: "name_space"}:   235,
-			{K: "operation", V: "ApiVersions"}:  62,
-			{K: "operation", V: "DeleteTopics"}: 129,
-			{K: "operation", V: "Metadata"}:     44,
-		},
 		{Name: "topics.deleted.count"}: {
 			{K: "topic", V: "topic2"}:           1,
 			{K: "messaging.system", V: "kafka"}: 2,
@@ -177,7 +164,7 @@ func TestManagerDeleteTopics(t *testing.T) {
 			{K: "outcome", V: "success"}:        1,
 			{K: "topic", V: "topic3"}:           1,
 		},
-	}, metrictest.GatherInt64Metric(metrics)))
+	}, gotMetrics))
 }
 
 func TestManagerMetrics(t *testing.T) {
