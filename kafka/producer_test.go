@@ -102,13 +102,12 @@ func TestNewProducerBasic(t *testing.T) {
 			namespacedTopic := "name_space-default-topic"
 			partitionCount := 10
 			exp := tracetest.NewInMemoryExporter()
-			tp := sdktrace.NewTracerProvider(
-				sdktrace.WithSyncer(exp),
-			)
+			tp := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exp))
 			defer tp.Shutdown(context.Background())
 
-			topicBytesWritten := make(map[string]int)
-			var mut sync.Mutex
+			topicBytesWritten := map[string]*atomic.Int64{
+				namespacedTopic: &atomic.Int64{},
+			}
 
 			client, brokers := newClusterWithTopics(t, int32(partitionCount), namespacedTopic)
 			producer := newProducer(t, ProducerConfig{
@@ -121,13 +120,13 @@ func TestNewProducerBasic(t *testing.T) {
 				Sync:               isSync,
 				MaxBufferedRecords: 0,
 				BatchListener: func(topic string, bytesWritten int) {
-					mut.Lock()
-					topicBytesWritten[topic] += bytesWritten
-					mut.Unlock()
+					topicBytesWritten[topic].Add(int64(bytesWritten))
 				},
 			})
 
-			ctx := queuecontext.WithMetadata(context.Background(), map[string]string{"a": "b", "c": "d"})
+			ctx := queuecontext.WithMetadata(context.Background(), map[string]string{
+				"a": "b", "c": "d",
+			})
 
 			batch := []apmqueue.Record{
 				{Topic: topic, OrderingKey: nil, Value: []byte("1")},
@@ -200,6 +199,7 @@ func TestNewProducerBasic(t *testing.T) {
 					return bytes.Compare(a.Value, b.Value) < 0
 				}),
 			))
+			// require.NoError(t, producer.Close())
 
 			// Assert no more records have been produced. A nil context is used to
 			// cause PollRecords to return immediately.
@@ -208,13 +208,14 @@ func TestNewProducerBasic(t *testing.T) {
 			assert.Len(t, fetches.Records(), 0)
 
 			// Ensure that we recorded bytes written to the topic.
-			mut.Lock()
 			require.Len(t, topicBytesWritten, 1)
-			require.Contains(t, topicBytesWritten, "name_space-default-topic")
+			require.Contains(t, topicBytesWritten, namespacedTopic)
 			// We can't test equality because the producer batching & compression behavior is not
 			// deterministic.
-			require.GreaterOrEqual(t, topicBytesWritten["name_space-default-topic"], 100)
-			mut.Unlock()
+			require.GreaterOrEqual(t,
+				topicBytesWritten[namespacedTopic].Load(),
+				int64(100),
+			)
 		})
 	}
 	test(t, true)

@@ -445,6 +445,7 @@ func TestConsumerGracefulShutdown(t *testing.T) {
 		var processed atomic.Int32
 		var errored atomic.Int32
 		process := make(chan struct{})
+		processedRecord := make(chan struct{})
 		records := 2
 		consumer := newConsumer(t, ConsumerConfig{
 			CommonConfig: CommonConfig{
@@ -462,6 +463,7 @@ func TestConsumerGracefulShutdown(t *testing.T) {
 					return ctx.Err()
 				case <-process:
 					processed.Add(1)
+					processedRecord <- struct{}{}
 				}
 				return nil
 			}),
@@ -478,11 +480,13 @@ func TestConsumerGracefulShutdown(t *testing.T) {
 		for i := 0; i < records; i++ {
 			produceRecord(ctx, t, client, &kgo.Record{Topic: "topic", Value: []byte("content")})
 		}
-		select {
-		case process <- struct{}{}:
-			close(process) // Allow records to be processed
-		case <-time.After(2 * time.Second):
-			t.Fatal("timed out waiting for consumer to process event")
+		for i := 0; i < records; i++ {
+			select {
+			case process <- struct{}{}:
+				<-processedRecord
+			case <-time.After(time.Second):
+				t.Fatal("timed out waiting for consumer to process event")
+			}
 		}
 		assert.NoError(t, consumer.Close())
 
