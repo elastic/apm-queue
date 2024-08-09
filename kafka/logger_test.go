@@ -49,7 +49,9 @@ func TestHookLogsFailedDial(t *testing.T) {
 	assert.Error(t, c.Ping(context.Background()))
 
 	observedLogs := logs.FilterMessage("failed to connect to broker").TakeAll()
-	assert.Equal(t, 1, len(observedLogs))
+	// Franz-go will retry once to connect to the broker, so we might see either one or two log lines.
+	assert.True(t, len(observedLogs) == 1 || len(observedLogs) == 2,
+		"expected one or two log lines, got %#v", observedLogs)
 
 	// The error message should contain the error message from the dialer.
 	assert.EqualValues(t, observedLogs[0].ContextMap()["error"], errorMsg)
