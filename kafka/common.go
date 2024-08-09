@@ -288,7 +288,7 @@ func (cfg *CommonConfig) newClient(topicAttributeFunc TopicAttributeFunc, additi
 			return nil, fmt.Errorf("kafka: failed creating kgo metrics hooks: %w", err)
 		}
 		opts = append(opts,
-			kgo.WithHooks(metricHooks),
+			kgo.WithHooks(metricHooks, &loggerHook{logger: cfg.Logger}),
 		)
 	}
 	if cfg.MetadataMaxAge > 0 {
