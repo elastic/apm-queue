@@ -25,5 +25,4 @@ func (l *loggerHook) OnBrokerConnect(meta kgo.BrokerMetadata, dialDur time.Durat
 			zap.Int32("port", meta.Port),
 		)
 	}
-	return
 }
