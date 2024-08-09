@@ -14,7 +14,9 @@ import (
 )
 
 func TestHookLogsFailedDial(t *testing.T) {
-	_, cfg := newFakeCluster(t)
+	cluster, cfg := newFakeCluster(t)
+	t.Cleanup(cluster.Close)
+
 	core, logs := observer.New(zap.ErrorLevel)
 	cfg.Logger = zap.New(core)
 	//cfg.hooks = []kgo.Hook{&loggerHook{logger: cfg.Logger}}
@@ -35,4 +37,5 @@ func TestHookLogsFailedDial(t *testing.T) {
 
 	// The error message should contain the error message from the dialer.
 	assert.EqualValues(t, observedLogs[0].ContextMap()["error"], errorMsg)
+	assert.Contains(t, observedLogs[0].ContextMap(), "duration")
 }
