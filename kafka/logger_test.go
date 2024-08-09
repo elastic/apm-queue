@@ -36,7 +36,6 @@ func TestHookLogsFailedDial(t *testing.T) {
 
 	core, logs := observer.New(zap.ErrorLevel)
 	cfg.Logger = zap.New(core)
-	//cfg.hooks = []kgo.Hook{&loggerHook{logger: cfg.Logger}}
 	// Simulate returning an error when dialing the broker.
 	const errorMsg = "busted"
 	cfg.Dialer = func(context.Context, string, string) (net.Conn, error) {
