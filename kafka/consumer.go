@@ -114,6 +114,10 @@ type ConsumerConfig struct {
 	// Docs: https://kafka.apache.org/28/documentation.html#consumerconfigs_fetch.min.bytes
 	FetchMinBytes int32
 
+	// BrokerMaxReadBytes sets the maximum response size that can be read from
+	// Kafka, overriding the default 100MiB.
+	BrokerMaxReadBytes int32
+
 	// ConsumePreferringLagFn alters the order in which partitions are consumed.
 	// Use with caution, as this can lead to uneven consumption of partitions,
 	// and in the worst case scenario, in partitions starved out from being consumed.
@@ -232,6 +236,10 @@ func NewConsumer(cfg ConsumerConfig) (*Consumer, error) {
 	if cfg.FetchMinBytes > 0 {
 		opts = append(opts, kgo.FetchMinBytes(cfg.FetchMinBytes))
 	}
+	if cfg.BrokerMaxReadBytes > 0 {
+		opts = append(opts, kgo.BrokerMaxReadBytes(cfg.BrokerMaxReadBytes))
+	}
+
 	client, err := cfg.newClient(cfg.TopicAttributeFunc, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("kafka: failed creating kafka consumer: %w", err)
