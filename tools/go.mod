@@ -1,6 +1,6 @@
 module github.com/elastic/apm-queue/tools
 
-go 1.20
+go 1.22
 
 require (
 	github.com/elastic/go-licenser v0.4.2
