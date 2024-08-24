@@ -2,8 +2,6 @@ module github.com/elastic/apm-queue/tools
 
 go 1.22.1
 
-toolchain go1.23.0
-
 require (
 	github.com/elastic/go-licenser v0.4.2
 	go.elastic.co/go-licence-detector v0.6.1
