@@ -6,7 +6,7 @@ require (
 	cloud.google.com/go/monitoring v1.21.0
 	cloud.google.com/go/pubsub v1.42.0
 	cloud.google.com/go/pubsublite v1.8.2
-	github.com/aws/aws-sdk-go-v2/config v1.27.29
+	github.com/aws/aws-sdk-go-v2/config v1.27.30
 	github.com/google/go-cmp v0.6.0
 	github.com/googleapis/gax-go/v2 v2.13.0
 	github.com/stretchr/testify v1.9.0
