@@ -77,7 +77,7 @@ func TestConsumer(t *testing.T) {
 						semconv.MessageUncompressedSize(0),
 						attribute.Float64("consumer.messages.delay", 1.0),
 					},
-					InstrumentationLibrary: instrumentation.Library{
+					InstrumentationScope: instrumentation.Scope{
 						Name: "test",
 					},
 				},
@@ -105,7 +105,7 @@ func TestConsumer(t *testing.T) {
 						semconv.MessageUncompressedSize(0),
 						attribute.Float64("consumer.messages.delay", 1.0),
 					},
-					InstrumentationLibrary: instrumentation.Library{
+					InstrumentationScope: instrumentation.Scope{
 						Name: "test",
 					},
 				},
@@ -177,7 +177,7 @@ func TestConsumer(t *testing.T) {
 						semconv.MessageUncompressedSize(0),
 						attribute.Float64("consumer.messages.delay", 1.0),
 					},
-					InstrumentationLibrary: instrumentation.Library{
+					InstrumentationScope: instrumentation.Scope{
 						Name: "test",
 					},
 				},
@@ -239,7 +239,7 @@ func TestConsumer(t *testing.T) {
 						semconv.MessageUncompressedSize(0),
 						attribute.Float64("consumer.messages.delay", 1.0),
 					},
-					InstrumentationLibrary: instrumentation.Library{
+					InstrumentationScope: instrumentation.Scope{
 						Name: "test",
 					},
 				},
@@ -388,7 +388,7 @@ func TestConsumerMultipleEvents(t *testing.T) {
 				semconv.MessageUncompressedSize(1),
 				attribute.Float64("consumer.messages.delay", 1),
 			},
-			InstrumentationLibrary: instrumentation.Library{Name: "test"},
+			InstrumentationScope: instrumentation.Scope{Name: "test"},
 		},
 		{
 			Name:     "topic process",
@@ -403,7 +403,7 @@ func TestConsumerMultipleEvents(t *testing.T) {
 				semconv.MessageUncompressedSize(1),
 				attribute.Float64("consumer.messages.delay", 1),
 			},
-			InstrumentationLibrary: instrumentation.Library{Name: "test"},
+			InstrumentationScope: instrumentation.Scope{Name: "test"},
 		},
 		{
 			Name:     "topic process",
@@ -418,7 +418,7 @@ func TestConsumerMultipleEvents(t *testing.T) {
 				semconv.MessageUncompressedSize(1),
 				attribute.Float64("consumer.messages.delay", 1),
 			},
-			InstrumentationLibrary: instrumentation.Library{Name: "test"},
+			InstrumentationScope: instrumentation.Scope{Name: "test"},
 		},
 	}, exp.GetSpans())
 }
@@ -447,6 +447,8 @@ func assertSpans(t testing.TB, traceID [16]byte, expected, actual tracetest.Span
 		actual[i].Resource = nil
 		actual[i].StartTime = time.Time{}
 		actual[i].EndTime = time.Time{}
+		//lint:ignore SA1019 ignore deprecated fields
+		actual[i].InstrumentationLibrary = instrumentation.Scope{}
 
 		for j, v := range actual[i].Attributes {
 			if v.Key == "consumer.messages.delay" {
