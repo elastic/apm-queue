@@ -81,7 +81,7 @@ func TestPublisher(t *testing.T) {
 						semconv.MessagingDestinationKindTopic,
 						semconv.MessagingMessageIDKey.String("msg-id"),
 					},
-					InstrumentationLibrary: instrumentation.Library{
+					InstrumentationScope: instrumentation.Scope{
 						Name: "test",
 					},
 					Events: []sdktrace.Event{{
@@ -132,7 +132,7 @@ func TestPublisher(t *testing.T) {
 						semconv.MessagingDestinationKindTopic,
 						semconv.MessagingMessageIDKey.String("msg-id"),
 					},
-					InstrumentationLibrary: instrumentation.Library{
+					InstrumentationScope: instrumentation.Scope{
 						Name: "test",
 					},
 					Events: []sdktrace.Event{{
@@ -188,7 +188,7 @@ func TestPublisher(t *testing.T) {
 						attribute.String("key", "value"),
 						semconv.MessagingMessageIDKey.String("msg-id"),
 					},
-					InstrumentationLibrary: instrumentation.Library{
+					InstrumentationScope: instrumentation.Scope{
 						Name: "test",
 					},
 					Status: sdktrace.Status{
@@ -255,6 +255,8 @@ func TestPublisher(t *testing.T) {
 				spans[i].Resource = nil
 				spans[i].StartTime = time.Time{}
 				spans[i].EndTime = time.Time{}
+				//lint:ignore SA1019 ignore deprecated fields
+				spans[i].InstrumentationLibrary = instrumentation.Scope{}
 
 				for k := range spans[i].Events {
 					spans[i].Events[k].Time = time.Time{}
