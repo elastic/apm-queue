@@ -21,6 +21,7 @@ package pubsubabs
 
 import (
 	"context"
+	"time"
 
 	"cloud.google.com/go/pubsub"
 )
@@ -129,4 +130,6 @@ func SetPublishResult(r *IPublishResult, sid string, err error) {
 	r.serverID = sid
 	r.err = err
 	close(r.ready)
+	// Wait for fire-and-forget goroutine in producer.Publish
+	<-time.After(5 * time.Millisecond)
 }

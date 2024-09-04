@@ -238,9 +238,6 @@ func TestPublisher(t *testing.T) {
 				pubsubabs.SetPublishResult(res, "msg-id", errors.New("failed processing message"))
 			}
 
-			// Wait for the async goroutine to finish runnning
-			time.Sleep(time.Millisecond)
-
 			spans := exp.GetSpans()
 			for i := range spans {
 				// Nullify data we don't use/can't set manually
