@@ -37,9 +37,6 @@ func TestManagerCreateTopics(t *testing.T) {
 	//  - Updating the partition count
 	//  - Updating the configuration
 	t.Run("Kafka", func(t *testing.T) {
-		if skipKafka {
-			t.SkipNow()
-		}
 		manager := NewKafkaManager(t)
 		cfg := kafka.TopicCreatorConfig{
 			PartitionCount: 1,
@@ -78,11 +75,5 @@ func TestManagerCreateTopics(t *testing.T) {
 		require.NoError(t, err)
 		// Update topic configuration.
 		assert.NoError(t, creator.CreateTopics(ctx, topics...))
-	})
-	t.Run("PubSubLite", func(t *testing.T) {
-		if skipPubsublite {
-			t.SkipNow()
-		}
-		// TODO(marclop) Not yet implemented.
 	})
 }

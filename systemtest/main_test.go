@@ -34,8 +34,6 @@ func testMain(m *testing.M) (returnCode int) {
 	flag.BoolVar(&runSystemTests, "run-system-tests", false, "run system tests; opt-in to keep 'go test ./...' fast by default")
 	flag.BoolVar(&destroyOnly, "destroy-only", false, "only destroy provisioned infrastructure, do not provision or run tests")
 	flag.BoolVar(&skipDestroy, "skip-destroy", false, "do not destroy the provisioned infrastructure after the tests finish")
-	flag.BoolVar(&skipKafka, "skip-kafka", false, "skip kafka tests")
-	flag.BoolVar(&skipPubsublite, "skip-pubsublite", false, "skip pubsublite tests")
 	flag.Parse()
 
 	if !destroyOnly && !runSystemTests {
@@ -74,17 +72,9 @@ func testMain(m *testing.M) (returnCode int) {
 		})
 		return nil
 	}
-	if !skipKafka {
-		if err := initInfra("kafka", InitKafka); err != nil {
-			logger().Error(err)
-			return 1
-		}
-	}
-	if !skipPubsublite {
-		if err := initInfra("pubsublite", InitPubSubLite); err != nil {
-			logger().Error(err)
-			return 1
-		}
+	if err := initInfra("kafka", InitKafka); err != nil {
+		logger().Error(err)
+		return 1
 	}
 	if !skipDestroy {
 		defer func() {

@@ -18,14 +18,12 @@
 package systemtest
 
 import (
-	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/elastic/apm-queue/v2/kafka"
-	"github.com/elastic/apm-queue/v2/pubsublite"
 )
 
 func newKafkaProducer(t testing.TB, cfg kafka.ProducerConfig) *kafka.Producer {
@@ -39,31 +37,9 @@ func newKafkaProducer(t testing.TB, cfg kafka.ProducerConfig) *kafka.Producer {
 	return producer
 }
 
-func newPubSubLiteProducer(t testing.TB, cfg pubsublite.ProducerConfig) *pubsublite.Producer {
-	cfg.CommonConfig = PubSubLiteCommonConfig(cfg.CommonConfig)
-	producer, err := pubsublite.NewProducer(cfg)
-	require.NoError(t, err)
-	t.Cleanup(func() {
-		err := producer.Close()
-		assert.NoError(t, err)
-	})
-	return producer
-}
-
 func newKafkaConsumer(t testing.TB, cfg kafka.ConsumerConfig) *kafka.Consumer {
 	cfg.CommonConfig = KafkaCommonConfig(t, cfg.CommonConfig)
 	consumer, err := kafka.NewConsumer(cfg)
-	require.NoError(t, err)
-	t.Cleanup(func() {
-		err := consumer.Close()
-		assert.NoError(t, err)
-	})
-	return consumer
-}
-
-func newPubSubLiteConsumer(ctx context.Context, t testing.TB, cfg pubsublite.ConsumerConfig) *pubsublite.Consumer {
-	cfg.CommonConfig = PubSubLiteCommonConfig(cfg.CommonConfig)
-	consumer, err := pubsublite.NewConsumer(ctx, cfg)
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		err := consumer.Close()

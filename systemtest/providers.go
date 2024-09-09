@@ -26,10 +26,7 @@ import (
 
 	apmqueue "github.com/elastic/apm-queue/v2"
 	"github.com/elastic/apm-queue/v2/kafka"
-	"github.com/elastic/apm-queue/v2/pubsublite"
 )
-
-var skipKafka, skipPubsublite bool
 
 type config struct {
 	processor      apmqueue.Processor
@@ -65,16 +62,7 @@ type providerF func(testing.TB, ...option) (apmqueue.Producer, apmqueue.Consumer
 
 func forEachProvider(t *testing.T, f func(*testing.T, providerF)) {
 	t.Run("Kafka", func(t *testing.T) {
-		if skipKafka {
-			t.SkipNow()
-		}
 		f(t, kafkaTypes)
-	})
-	t.Run("PubSubLite", func(t *testing.T) {
-		if skipPubsublite {
-			t.SkipNow()
-		}
-		f(t, pubSubTypes)
 	})
 }
 
@@ -117,35 +105,6 @@ func kafkaTypes(t testing.TB, opts ...option) (apmqueue.Producer, apmqueue.Consu
 		CommonConfig: kafka.CommonConfig{Logger: logger.Named("consumer")},
 		Topics:       topics,
 		GroupID:      t.Name(),
-		Processor:    cfg.processor,
-		Delivery:     cfg.dt,
-	})
-	return producer, consumer
-}
-
-func pubSubTypes(t testing.TB, opts ...option) (apmqueue.Producer, apmqueue.Consumer) {
-	ctx, cancel := context.WithTimeout(context.Background(), defaultProvisionTimeout)
-	defer cancel()
-
-	cfg := defaultCfg
-	for _, opt := range opts {
-		opt(&cfg)
-	}
-
-	logger := cfg.loggerF(t)
-	topics := cfg.topicsF(t)
-	consumerName := "test_consumer"
-	CreatePubsubTopics(ctx, t, cfg.partitions, topics...)
-	CreatePubsubTopicSubscriptions(ctx, t, consumerName, topics...)
-
-	producer := newPubSubLiteProducer(t, pubsublite.ProducerConfig{
-		CommonConfig: pubsublite.CommonConfig{Logger: logger.Named("producer")},
-		Sync:         cfg.sync,
-	})
-	consumer := newPubSubLiteConsumer(context.Background(), t, pubsublite.ConsumerConfig{
-		CommonConfig: pubsublite.CommonConfig{Logger: logger.Named("consumer")},
-		Topics:       topics,
-		ConsumerName: consumerName,
 		Processor:    cfg.processor,
 		Delivery:     cfg.dt,
 	})

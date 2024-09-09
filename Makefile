@@ -15,10 +15,6 @@ lint: tools/go.mod
 	go list -m -json $(MODULE_DEPS) | go run -modfile=tools/go.mod go.elastic.co/go-licence-detector \
 		-includeIndirect -rules tools/notice/rules.json -validate
 
-.PHONY: clean
-clean:
-	rm -fr bin
-
 .PHONY: test
 test: go.mod
 	go test -race $(GOTESTFLAGS) -count=$(GO_TEST_COUNT) -timeout=$(GO_TEST_TIMEOUT) ./...
