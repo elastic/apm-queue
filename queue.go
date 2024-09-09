@@ -16,7 +16,7 @@
 // under the License.
 
 // Package apmqueue provides an abstraction layer for producing and consuming
-// Records from and to Kafka and GCP PubSub Lite.
+// Records from and to Kafka.
 package apmqueue
 
 import (
