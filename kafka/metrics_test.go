@@ -557,6 +557,9 @@ func setupTestProducer(t testing.TB, tafunc TopicAttributeFunc) (*Producer, sdkm
 			MeterProvider:      mp,
 			TopicAttributeFunc: tafunc,
 		},
+		ProduceCallback: func(*kgo.Record, error) {
+			time.Sleep(1 * time.Millisecond)
+		},
 		Sync: true,
 	})
 	return producer, rdr
