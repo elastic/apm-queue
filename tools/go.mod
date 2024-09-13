@@ -5,7 +5,7 @@ go 1.22.1
 require (
 	github.com/elastic/go-licenser v0.4.2
 	go.elastic.co/go-licence-detector v0.6.1
-	golang.org/x/tools v0.24.0
+	golang.org/x/tools v0.25.0
 	honnef.co/go/tools v0.5.1
 )
 
@@ -18,6 +18,6 @@ require (
 	github.com/markbates/pkger v0.17.0 // indirect
 	github.com/sergi/go-diff v1.1.0 // indirect
 	golang.org/x/exp/typeparams v0.0.0-20231108232855-2478ac86f678 // indirect
-	golang.org/x/mod v0.20.0 // indirect
+	golang.org/x/mod v0.21.0 // indirect
 	golang.org/x/sync v0.8.0 // indirect
 )
