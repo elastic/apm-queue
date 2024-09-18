@@ -54,6 +54,10 @@ func TestProducerMetrics(t *testing.T) {
 			apmqueue.Record{Topic: topic, Value: []byte("2")},
 			apmqueue.Record{Topic: topic, Value: []byte("3")},
 		)
+
+		// Fixes https://github.com/elastic/apm-queue/issues/464
+		<-time.After(1 * time.Millisecond)
+
 		// Close the producer so records are flushed.
 		require.NoError(t, producer.Close())
 
@@ -556,9 +560,6 @@ func setupTestProducer(t testing.TB, tafunc TopicAttributeFunc) (*Producer, sdkm
 			TracerProvider:     noop.NewTracerProvider(),
 			MeterProvider:      mp,
 			TopicAttributeFunc: tafunc,
-		},
-		ProduceCallback: func(*kgo.Record, error) {
-			time.Sleep(1 * time.Millisecond)
 		},
 		Sync: true,
 	})
