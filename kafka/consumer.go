@@ -359,10 +359,16 @@ func (c *Consumer) fetch(ctx context.Context) error {
 		c.client.AllowRebalance()
 	}
 	fetches.EachError(func(t string, p int32, err error) {
-		c.cfg.Logger.Error(
+		topicName := strings.TrimPrefix(t, c.consumer.topicPrefix)
+		logger := c.cfg.Logger
+		if c.cfg.TopicLogFieldFunc != nil {
+			logger = logger.With(c.cfg.TopicLogFieldFunc(topicName))
+		}
+
+		logger.Error(
 			"consumer fetches returned error",
 			zap.Error(err),
-			zap.String("topic", strings.TrimPrefix(t, c.consumer.topicPrefix)),
+			zap.String("topic", topicName),
 			zap.Int32("partition", p),
 		)
 	})
