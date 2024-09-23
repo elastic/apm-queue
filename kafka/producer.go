@@ -251,9 +251,15 @@ func (p *Producer) Produce(ctx context.Context, rs ...apmqueue.Record) error {
 			defer wg.Done()
 			// kotel already marks spans as errors. No need to handle it here.
 			if err != nil {
-				p.cfg.Logger.Error("failed producing message",
+				topicName := strings.TrimPrefix(r.Topic, namespacePrefix)
+				logger := p.cfg.Logger
+				if p.cfg.TopicLogFieldFunc != nil {
+					logger = logger.With(p.cfg.TopicLogFieldFunc(topicName))
+				}
+
+				logger.Error("failed producing message",
 					zap.Error(err),
-					zap.String("topic", strings.TrimPrefix(r.Topic, namespacePrefix)),
+					zap.String("topic", topicName),
 					zap.Int64("offset", r.Offset),
 					zap.Int32("partition", r.Partition),
 					zap.Any("headers", headers),

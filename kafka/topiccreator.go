@@ -168,6 +168,9 @@ func (c *TopicCreator) CreateTopics(ctx context.Context, topics ...apmqueue.Topi
 	logger := c.m.cfg.Logger.With(loggerFields...)
 	for _, response := range responses.Sorted() {
 		topicName := strings.TrimPrefix(response.Topic, namespacePrefix)
+		if c.m.cfg.TopicLogFieldFunc != nil {
+			logger = logger.With(c.m.cfg.TopicLogFieldFunc(topicName))
+		}
 		if err := response.Err; err != nil {
 			if errors.Is(err, kerr.TopicAlreadyExists) {
 				// NOTE(axw) apmotel currently does nothing with span events,
@@ -219,6 +222,10 @@ func (c *TopicCreator) CreateTopics(ctx context.Context, topics ...apmqueue.Topi
 		}
 		for _, response := range updateResp.Sorted() {
 			topicName := strings.TrimPrefix(response.Topic, namespacePrefix)
+			if c.m.cfg.TopicLogFieldFunc != nil {
+				logger = logger.With(c.m.cfg.TopicLogFieldFunc(topicName))
+			}
+
 			if errors.Is(response.Err, kerr.InvalidRequest) {
 				// If UpdatePartitions partition count isn't greater than the
 				// current number of partitions, each individual response
@@ -257,6 +264,10 @@ func (c *TopicCreator) CreateTopics(ctx context.Context, topics ...apmqueue.Topi
 		}
 		for _, response := range alterResp {
 			topicName := strings.TrimPrefix(response.Name, namespacePrefix)
+			if c.m.cfg.TopicLogFieldFunc != nil {
+				logger = logger.With(c.m.cfg.TopicLogFieldFunc(topicName))
+			}
+
 			if err := response.Err; err != nil {
 				span.RecordError(err)
 				span.SetStatus(codes.Error, err.Error())

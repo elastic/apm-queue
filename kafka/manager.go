@@ -123,6 +123,10 @@ func (m *Manager) DeleteTopics(ctx context.Context, topics ...apmqueue.Topic) er
 	for _, response := range responses.Sorted() {
 		topic := strings.TrimPrefix(response.Topic, namespacePrefix)
 		logger := m.cfg.Logger.With(zap.String("topic", topic))
+		if m.cfg.TopicLogFieldFunc != nil {
+			logger = logger.With(m.cfg.TopicLogFieldFunc(topic))
+		}
+
 		if err := response.Err; err != nil {
 			if errors.Is(err, kerr.UnknownTopicOrPartition) {
 				logger.Debug("kafka topic does not exist")
@@ -242,6 +246,11 @@ func (m *Manager) MonitorConsumerLag(topicConsumers []apmqueue.TopicConsumer) (m
 				}
 				topic = topic[len(namespacePrefix):]
 
+				logger := m.cfg.Logger
+				if m.cfg.TopicLogFieldFunc != nil {
+					logger = logger.With(m.cfg.TopicLogFieldFunc(topic))
+				}
+
 				var matchesRegex bool
 				for _, re := range regex {
 					if l.Group == re.consumer && re.regex.MatchString(topic) {
@@ -258,7 +267,7 @@ func (m *Manager) MonitorConsumerLag(topicConsumers []apmqueue.TopicConsumer) (m
 				}
 				for partition, lag := range partitions {
 					if lag.Err != nil {
-						m.cfg.Logger.Warn("error getting consumer group lag",
+						logger.Warn("error getting consumer group lag",
 							zap.String("group", l.Group),
 							zap.String("topic", topic),
 							zap.Int32("partition", partition),

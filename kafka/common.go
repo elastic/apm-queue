@@ -42,6 +42,8 @@ import (
 // SASLMechanism type alias to sasl.Mechanism
 type SASLMechanism = sasl.Mechanism
 
+type TopicLogFieldFunc func(topic string) zap.Field
+
 // CommonConfig defines common configuration for Kafka consumers, producers,
 // and managers.
 type CommonConfig struct {
@@ -150,6 +152,10 @@ type CommonConfig struct {
 	// - producer.messages.count
 	// - consumer.messages.fetched
 	TopicAttributeFunc TopicAttributeFunc
+
+	// TopicAttributeFunc can be used to create custom dimensions from a Kafka
+	// topic for log messages
+	TopicLogFieldFunc TopicLogFieldFunc
 
 	// MetadataMaxAge is the maximum age of metadata before it is refreshed.
 	// The lower the value the more frequently new topics will be discovered.
