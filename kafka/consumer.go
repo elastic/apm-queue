@@ -183,6 +183,7 @@ func NewConsumer(cfg ConsumerConfig) (*Consumer, error) {
 	namespacePrefix := cfg.namespacePrefix()
 	consumer := &consumer{
 		topicPrefix: namespacePrefix,
+		logFieldFn:  cfg.TopicLogFieldFunc,
 		assignments: make(map[topicPartition]*pc),
 		processor:   cfg.Processor,
 		logger:      cfg.Logger.Named("partition"),
@@ -394,6 +395,7 @@ type consumer struct {
 	processor   apmqueue.Processor
 	logger      *zap.Logger
 	delivery    apmqueue.DeliveryType
+	logFieldFn  TopicLogFieldFunc
 	// ctx contains the graceful cancellation context that is passed to the
 	// partition consumers.
 	ctx context.Context
@@ -412,11 +414,16 @@ func (c *consumer) assigned(_ context.Context, client *kgo.Client, assigned map[
 	for topic, partitions := range assigned {
 		for _, partition := range partitions {
 			t := strings.TrimPrefix(topic, c.topicPrefix)
+			logger := c.logger.With(
+				zap.String("topic", t),
+				zap.Int32("partition", partition),
+			)
+			if c.logFieldFn != nil {
+				logger = logger.With(c.logFieldFn(t))
+			}
+
 			pc := newPartitionConsumer(c.ctx, client, c.processor,
-				c.delivery, t, c.logger.With(
-					zap.String("topic", t),
-					zap.Int32("partition", partition),
-				),
+				c.delivery, t, logger,
 			)
 			c.assignments[topicPartition{topic: topic, partition: partition}] = pc
 		}
@@ -492,12 +499,17 @@ func (c *consumer) processFetch(fetches kgo.Fetches) {
 		// NOTE(marclop) While possible, this is unlikely to happen given the
 		// locking that's in place in the caller.
 		if c.delivery == apmqueue.AtMostOnceDeliveryType {
-			c.logger.Warn(
+			topicName := strings.TrimPrefix(ftp.Topic, c.topicPrefix)
+			logger := c.logger
+			if c.logFieldFn != nil {
+				logger = logger.With(c.logFieldFn(topicName))
+			}
+			logger.Warn(
 				"data loss: failed to send records to process after commit",
 				zap.Error(errors.New(
 					"attempted to process records for revoked partition",
 				)),
-				zap.String("topic", strings.TrimPrefix(ftp.Topic, c.topicPrefix)),
+				zap.String("topic", topicName),
 				zap.Int32("partition", ftp.Partition),
 				zap.Int64("offset", ftp.HighWatermark),
 				zap.Int("records", len(ftp.Records)),
