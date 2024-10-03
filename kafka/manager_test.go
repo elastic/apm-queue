@@ -423,10 +423,10 @@ func TestManagerMetrics(t *testing.T) {
 	assert.Equal(t, "github.com/elastic/apm-queue/kafka", rm.ScopeMetrics[0].Scope.Name)
 
 	metrics := rm.ScopeMetrics[0].Metrics
-	require.Len(t, metrics, 7)
+	require.Len(t, metrics, 8)
 	var lagMetric, assignmentMetric metricdata.Metrics
 	// these are not stable so we just assert for existence
-	var connectsMetric, disconnectsMetric, writeBytesMetric, readBytesMetric, writeLatencyMetric bool
+	var connectsMetric, disconnectsMetric, writeBytesMetric, readBytesMetric, writeLatencyMetric, readLatencyMetric bool
 	for _, metric := range metrics {
 		switch metric.Name {
 		case "consumer_group_lag":
@@ -443,6 +443,8 @@ func TestManagerMetrics(t *testing.T) {
 			readBytesMetric = true
 		case "messaging.kafka.write.latency":
 			writeLatencyMetric = true
+		case "messaging.kafka.read.latency":
+			readLatencyMetric = true
 		}
 	}
 	assert.True(t, writeBytesMetric)
@@ -450,6 +452,7 @@ func TestManagerMetrics(t *testing.T) {
 	assert.True(t, connectsMetric)
 	assert.True(t, disconnectsMetric)
 	assert.True(t, writeLatencyMetric)
+	assert.True(t, readLatencyMetric)
 	metricdatatest.AssertAggregationsEqual(t, metricdata.Gauge[int64]{
 		DataPoints: []metricdata.DataPoint[int64]{{
 			Attributes: attribute.NewSet(
