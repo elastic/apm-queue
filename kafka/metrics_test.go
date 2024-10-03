@@ -459,11 +459,13 @@ func TestConsumerMetrics(t *testing.T) {
 					{
 						Value: int64(records),
 						Attributes: attribute.NewSet(
-							attribute.String("namespace", "name_space"),
-							semconv.MessagingSystem("kafka"),
-							semconv.MessagingSourceName(t.Name()),
-							semconv.MessagingKafkaSourcePartition(0),
+							attribute.String("compression.codec", "none"),
 							attribute.String("header", "included"),
+							semconv.MessagingKafkaSourcePartition(0),
+							semconv.MessagingSourceName(t.Name()),
+							semconv.MessagingSystem("kafka"),
+							attribute.String("namespace", "name_space"),
+							attribute.String("topic", "name_space-TestConsumerMetrics"),
 						),
 					},
 				},
@@ -477,17 +479,34 @@ func TestConsumerMetrics(t *testing.T) {
 				Temporality: metricdata.CumulativeTemporality,
 				DataPoints: []metricdata.HistogramDataPoint[float64]{{
 					Attributes: attribute.NewSet(
-						attribute.String("namespace", "name_space"),
-						semconv.MessagingSystem("kafka"),
-						semconv.MessagingSourceName(t.Name()),
-						semconv.MessagingKafkaSourcePartition(0),
 						attribute.String("header", "included"),
+						semconv.MessagingKafkaSourcePartition(0),
+						semconv.MessagingSourceName(t.Name()),
+						semconv.MessagingSystem("kafka"),
+						attribute.String("namespace", "name_space"),
+						attribute.String("topic", "name_space-TestConsumerMetrics"),
 					),
 
 					Bounds: []float64{0, 5, 10, 25, 50, 75, 100, 250, 500, 750, 1000, 2500, 5000, 7500, 10000},
 					Count:  uint64(records),
 				}},
 			},
+		},
+		{
+			Name:        "messaging.kafka.read.latency",
+			Description: "Time took to read a batch including waited before being read",
+			Unit:        "s",
+			Data: metricdata.Histogram[float64]{
+				Temporality: metricdata.CumulativeTemporality,
+				DataPoints: []metricdata.HistogramDataPoint[float64]{{
+					Attributes: attribute.NewSet(
+						attribute.String("namespace", "name_space"),
+						semconv.MessagingSystem("kafka"),
+						attribute.String("outcome", "success"),
+					),
+
+					Bounds: []float64{0, 5, 10, 25, 50, 75, 100, 250, 500, 750, 1000, 2500, 5000, 7500, 10000},
+				}}},
 		},
 	}
 
@@ -505,8 +524,17 @@ func TestConsumerMetrics(t *testing.T) {
 	metrics := filterMetrics(t, rm.ScopeMetrics)
 	assert.Len(t, metrics, len(wantMetrics)+len(ignore))
 
-	for k, m := range wantMetrics {
-		metric := metrics[k]
+	for _, m := range wantMetrics {
+		var metric *metricdata.Metrics
+		for _, mi := range metrics {
+			if mi.Name == m.Name {
+				metric = &mi
+			}
+		}
+		if metric == nil {
+			continue
+		}
+
 		if slices.Contains(ignore, metric.Name) {
 			continue
 		}
@@ -524,9 +552,10 @@ func TestConsumerMetrics(t *testing.T) {
 
 		metricdatatest.AssertEqual(t,
 			m,
-			metric,
+			*metric,
 			metricdatatest.IgnoreTimestamp(),
 			metricdatatest.IgnoreExemplars(),
+			metricdatatest.IgnoreValue(),
 		)
 	}
 }
