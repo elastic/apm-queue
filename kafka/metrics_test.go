@@ -20,7 +20,6 @@ package kafka
 import (
 	"context"
 	"fmt"
-	"slices"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -46,7 +45,6 @@ func TestProducerMetrics(t *testing.T) {
 		producer apmqueue.Producer,
 		rdr sdkmetric.Reader,
 		want []metricdata.Metrics,
-		ignore ...string,
 	) {
 		topic := apmqueue.Topic("default-topic")
 		producer.Produce(ctx,
@@ -65,22 +63,16 @@ func TestProducerMetrics(t *testing.T) {
 		assert.NoError(t, rdr.Collect(context.Background(), &rm))
 
 		metrics := filterMetrics(t, rm.ScopeMetrics)
-		for i := range metrics {
-			t.Log(metrics[i].Name)
-		}
-		for i := range want {
-			if slices.Contains(ignore, want[i].Name) {
-				continue
-			}
+		for _, m := range want {
 			var actual metricdata.Metrics
-			for _, m := range metrics {
-				if m.Name == want[i].Name {
-					actual = m
+			for _, mi := range metrics {
+				if m.Name == mi.Name {
+					actual = mi
 					break
 				}
 			}
-			assert.NotEmpty(t, actual, fmt.Sprintf("metric %s should exist", want[i].Name))
-			metricdatatest.AssertEqual(t, want[i], actual,
+			assert.NotEmpty(t, actual)
+			metricdatatest.AssertEqual(t, m, actual,
 				metricdatatest.IgnoreTimestamp(),
 				metricdatatest.IgnoreExemplars(),
 				metricdatatest.IgnoreValue(),
@@ -116,12 +108,7 @@ func TestProducerMetrics(t *testing.T) {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 0)
 		defer cancel()
-		test(ctx, t, producer, rdr, want,
-			"messaging.kafka.connects.count",
-			"messaging.kafka.disconnects.count",
-			"messaging.kafka.connect_errors.count",
-			"messaging.kafka.write_errors.count",
-		)
+		test(ctx, t, producer, rdr, want)
 	})
 	t.Run("ContextCanceled", func(t *testing.T) {
 		producer, rdr := setupTestProducer(t, nil)
@@ -151,13 +138,7 @@ func TestProducerMetrics(t *testing.T) {
 		}
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
-		test(ctx, t, producer, rdr, want,
-			"messaging.kafka.connect_errors.count",
-			"messaging.kafka.connects.count",
-			"messaging.kafka.disconnects.count",
-			"messaging.kafka.write_bytes",
-			"messaging.kafka.read_bytes.count",
-		)
+		test(ctx, t, producer, rdr, want)
 	})
 	t.Run("Unknown error reason", func(t *testing.T) {
 		producer, rdr := setupTestProducer(t, nil)
@@ -185,10 +166,7 @@ func TestProducerMetrics(t *testing.T) {
 			},
 		}
 		require.NoError(t, producer.Close())
-		test(context.Background(), t, producer, rdr, []metricdata.Metrics{want},
-			"messaging.kafka.connect_errors.count",
-			"messaging.kafka.connects.count",
-		)
+		test(context.Background(), t, producer, rdr, []metricdata.Metrics{want})
 	})
 	t.Run("Produced", func(t *testing.T) {
 		producer, rdr := setupTestProducer(t, func(topic string) attribute.KeyValue {
@@ -303,14 +281,7 @@ func TestProducerMetrics(t *testing.T) {
 					}},
 			},
 		}
-		test(context.Background(), t, producer, rdr, want,
-			"messaging.kafka.connects.count",
-			"messaging.kafka.disconnects.count",
-			"messaging.kafka.write_bytes",
-			"messaging.kafka.read_bytes.count",
-			"messaging.kafka.produce_bytes.count",
-			"messaging.kafka.produce_records.count",
-		)
+		test(context.Background(), t, producer, rdr, want)
 	})
 	t.Run("ProducedWithHeaders", func(t *testing.T) {
 		producer, rdr := setupTestProducer(t, func(topic string) attribute.KeyValue {
@@ -394,15 +365,7 @@ func TestProducerMetrics(t *testing.T) {
 			"key":      "value",
 			"some key": "some value",
 		})
-		test(ctx, t, producer, rdr, want,
-			"messaging.kafka.connects.count",
-			"messaging.kafka.disconnects.count",
-			"messaging.kafka.write_bytes",
-			"messaging.kafka.read_bytes.count",
-			"messaging.kafka.produce_bytes.count",
-			"messaging.kafka.produce_records.count",
-			"messaging.kafka.write.latency", // header is not attached to this metric. skip check
-		)
+		test(ctx, t, producer, rdr, want)
 	})
 }
 
@@ -510,34 +473,17 @@ func TestConsumerMetrics(t *testing.T) {
 		},
 	}
 
-	ignore := []string{
-		"messaging.kafka.connects.count",
-		"messaging.kafka.write_bytes",
-		"messaging.kafka.read_bytes.count",
-		"messaging.kafka.fetch_bytes.count",
-		"messaging.kafka.fetch_records.count",
-		"consumer.messages.wire.bytes",
-		"consumer.messages.uncompressed.bytes",
-		"messaging.kafka.write.latency",
-	}
-
 	metrics := filterMetrics(t, rm.ScopeMetrics)
-	assert.Len(t, metrics, len(wantMetrics)+len(ignore))
-
 	for _, m := range wantMetrics {
-		var metric *metricdata.Metrics
+		var metric metricdata.Metrics
 		for _, mi := range metrics {
 			if mi.Name == m.Name {
-				metric = &mi
+				metric = mi
+				break
 			}
 		}
-		if metric == nil {
-			continue
-		}
 
-		if slices.Contains(ignore, metric.Name) {
-			continue
-		}
+		assert.NotEmpty(t, metric)
 
 		// Remove time-specific data for histograms
 		if dp, ok := metric.Data.(metricdata.Histogram[float64]); ok {
@@ -552,7 +498,7 @@ func TestConsumerMetrics(t *testing.T) {
 
 		metricdatatest.AssertEqual(t,
 			m,
-			*metric,
+			metric,
 			metricdatatest.IgnoreTimestamp(),
 			metricdatatest.IgnoreExemplars(),
 			metricdatatest.IgnoreValue(),
