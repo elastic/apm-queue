@@ -247,7 +247,7 @@ func TestProducerMetrics(t *testing.T) {
 			},
 			{
 				Name:        "messaging.kafka.write.latency",
-				Description: "Time took to write including waited before being written",
+				Description: "Time it took to write a batch including wait time before writing",
 				Unit:        "s",
 				Data: metricdata.Histogram[float64]{
 					Temporality: metricdata.CumulativeTemporality,
@@ -457,7 +457,7 @@ func TestConsumerMetrics(t *testing.T) {
 		},
 		{
 			Name:        "messaging.kafka.read.latency",
-			Description: "Time took to read a batch including waited before being read",
+			Description: "Time it took to read a batch including wait time before reading",
 			Unit:        "s",
 			Data: metricdata.Histogram[float64]{
 				Temporality: metricdata.CumulativeTemporality,

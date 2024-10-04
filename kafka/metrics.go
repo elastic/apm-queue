@@ -243,7 +243,7 @@ func newKgoHooks(mp metric.MeterProvider, namespace, topicPrefix string,
 	}
 
 	messageWriteLatency, err := m.Float64Histogram(messageWriteLatencyKey,
-		metric.WithDescription("Time took to write including waited before being written"),
+		metric.WithDescription("Time it took to write a batch including wait time before writing"),
 		metric.WithUnit("s"),
 	)
 	if err != nil {
@@ -275,7 +275,7 @@ func newKgoHooks(mp metric.MeterProvider, namespace, topicPrefix string,
 	}
 
 	messageReadLatency, err := m.Float64Histogram(messageReadLatencyKey,
-		metric.WithDescription("Time took to read a batch including waited before being read"),
+		metric.WithDescription("Time it took to read a batch including wait time before reading"),
 		metric.WithUnit("s"),
 	)
 	if err != nil {
