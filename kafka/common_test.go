@@ -47,7 +47,6 @@ func TestCommonConfig(t *testing.T) {
 		t.Helper()
 		err := in.finalize()
 		require.NoError(t, err)
-		assert.NotNil(t, in.TopicLogFieldFunc)
 		in.TopicLogFieldFunc = nil
 		in.hooks = nil
 		assert.Equal(t, expected, in)

@@ -226,7 +226,6 @@ func TestTopicCreatorCreateTopics(t *testing.T) {
 			zap.String("namespace", "name_space"),
 			zap.Int("partition_count", 123),
 			zap.Any("topic_configs", map[string]string{"retention.ms": "123"}),
-			zap.Skip(),
 			zap.String("topic", "topic1"),
 		},
 	}, {
@@ -239,7 +238,6 @@ func TestTopicCreatorCreateTopics(t *testing.T) {
 			zap.String("namespace", "name_space"),
 			zap.Int("partition_count", 123),
 			zap.Any("topic_configs", map[string]string{"retention.ms": "123"}),
-			zap.Skip(),
 			zap.String("topic", "topic4"),
 		},
 	}, {
@@ -252,7 +250,6 @@ func TestTopicCreatorCreateTopics(t *testing.T) {
 			zap.String("namespace", "name_space"),
 			zap.Int("partition_count", 123),
 			zap.Any("topic_configs", map[string]string{"retention.ms": "123"}),
-			zap.Skip(),
 			zap.String("topic", "topic3"),
 		},
 	}, {
@@ -261,7 +258,6 @@ func TestTopicCreatorCreateTopics(t *testing.T) {
 			zap.String("namespace", "name_space"),
 			zap.Int("partition_count", 123),
 			zap.Any("topic_configs", map[string]string{"retention.ms": "123"}),
-			zap.Skip(),
 			zap.String("topic", "topic0"),
 		},
 	}, {
@@ -270,7 +266,6 @@ func TestTopicCreatorCreateTopics(t *testing.T) {
 			zap.String("namespace", "name_space"),
 			zap.Int("partition_count", 123),
 			zap.Any("topic_configs", map[string]string{"retention.ms": "123"}),
-			zap.Skip(),
 			zap.String("topic", "topic0"),
 		},
 	}}, matchingLogs.AllUntimed(), cmpopts.SortSlices(func(a, b observer.LoggedEntry) bool {

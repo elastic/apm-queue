@@ -115,7 +115,6 @@ func TestManagerDeleteTopics(t *testing.T) {
 		Context: []zapcore.Field{
 			zap.String("namespace", "name_space"),
 			zap.String("topic", "topic1"),
-			zap.Skip(),
 		},
 	}, {
 		Entry: zapcore.Entry{
@@ -126,7 +125,6 @@ func TestManagerDeleteTopics(t *testing.T) {
 		Context: []zapcore.Field{
 			zap.String("namespace", "name_space"),
 			zap.String("topic", "topic3"),
-			zap.Skip(),
 		},
 	}}, matchingLogs.AllUntimed())
 
@@ -601,7 +599,6 @@ func TestManagerMetrics(t *testing.T) {
 		},
 		Context: []zapcore.Field{
 			zap.String("namespace", "name_space"),
-			zap.Skip(),
 			zap.String("group", "consumer2"),
 			zap.String("topic", "topic2"),
 			zap.Int32("partition", 4),
