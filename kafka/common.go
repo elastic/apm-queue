@@ -37,11 +37,13 @@ import (
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
 
 // SASLMechanism type alias to sasl.Mechanism
 type SASLMechanism = sasl.Mechanism
 
+// TopicLogFieldFunc is a function that returns a zap.Field for a given topic.
 type TopicLogFieldFunc func(topic string) zap.Field
 
 // CommonConfig defines common configuration for Kafka consumers, producers,
@@ -240,6 +242,11 @@ func (cfg *CommonConfig) finalize() error {
 			}
 		}
 	}
+	// Wrap the cfg.TopicLogFieldFunc to ensure it never returns a field with
+	// an unknown type (like `zap.Field{}`).
+	if cfg.TopicLogFieldFunc != nil {
+		cfg.TopicLogFieldFunc = topicFieldFunc(cfg.TopicLogFieldFunc)
+	}
 	return errors.Join(errs...)
 }
 
@@ -328,4 +335,16 @@ func newAWSMSKIAMSASL() (sasl.Mechanism, error) {
 			SessionToken: creds.SessionToken,
 		}, nil
 	}), nil
+}
+
+func topicFieldFunc(f TopicLogFieldFunc) TopicLogFieldFunc {
+	return func(t string) zap.Field {
+		if f == nil {
+			return zap.Skip()
+		}
+		if field := f(t); field.Type > zapcore.UnknownType {
+			return field
+		}
+		return zap.Skip()
+	}
 }
