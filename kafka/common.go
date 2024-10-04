@@ -37,6 +37,7 @@ import (
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
 
 // SASLMechanism type alias to sasl.Mechanism
@@ -240,6 +241,7 @@ func (cfg *CommonConfig) finalize() error {
 			}
 		}
 	}
+	cfg.TopicLogFieldFunc = topicFieldFunc(cfg.TopicLogFieldFunc)
 	return errors.Join(errs...)
 }
 
@@ -328,4 +330,16 @@ func newAWSMSKIAMSASL() (sasl.Mechanism, error) {
 			SessionToken: creds.SessionToken,
 		}, nil
 	}), nil
+}
+
+func topicFieldFunc(f TopicLogFieldFunc) TopicLogFieldFunc {
+	return func(t string) zap.Field {
+		if f == nil {
+			return zap.Skip()
+		}
+		if field := f(t); field.Type > zapcore.UnknownType {
+			return field
+		}
+		return zap.Skip()
+	}
 }

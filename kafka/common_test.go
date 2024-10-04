@@ -47,6 +47,8 @@ func TestCommonConfig(t *testing.T) {
 		t.Helper()
 		err := in.finalize()
 		require.NoError(t, err)
+		assert.NotNil(t, in.TopicLogFieldFunc)
+		in.TopicLogFieldFunc = nil
 		in.hooks = nil
 		assert.Equal(t, expected, in)
 	}
@@ -73,16 +75,13 @@ func TestCommonConfig(t *testing.T) {
 	})
 
 	t.Run("valid", func(t *testing.T) {
-		cfg := CommonConfig{
-			Brokers: []string{"broker"},
-			Logger:  zap.NewNop(),
-		}
-		err := cfg.finalize()
-		assert.NoError(t, err)
-		assert.Equal(t, CommonConfig{
+		assertValid(t, CommonConfig{
 			Brokers: []string{"broker"},
 			Logger:  zap.NewNop().Named("kafka"),
-		}, cfg)
+		}, CommonConfig{
+			Brokers: []string{"broker"},
+			Logger:  zap.NewNop(),
+		})
 	})
 
 	t.Run("brokers_from_environment", func(t *testing.T) {
@@ -299,4 +298,23 @@ func newClusterWithTopics(t testing.TB, partitions int32, topics ...string) (*kg
 	require.NoError(t, err)
 
 	return client, addrs
+}
+
+func TestTopicFieldFunc(t *testing.T) {
+	t.Run("nil func", func(t *testing.T) {
+		topic := topicFieldFunc(nil)("a")
+		assert.Equal(t, zap.Skip(), topic)
+	})
+	t.Run("empty field", func(t *testing.T) {
+		topic := topicFieldFunc(func(topic string) zap.Field {
+			return zap.Field{}
+		})("b")
+		assert.Equal(t, zap.Skip(), topic)
+	})
+	t.Run("actual topic field", func(t *testing.T) {
+		topic := topicFieldFunc(func(topic string) zap.Field {
+			return zap.String("topic", topic)
+		})("c")
+		assert.Equal(t, zap.String("topic", "c"), topic)
+	})
 }
