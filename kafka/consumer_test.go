@@ -53,7 +53,7 @@ func TestNewConsumer(t *testing.T) {
 			cfg: ConsumerConfig{
 				CommonConfig: CommonConfig{
 					Brokers: []string{"localhost:invalidport"},
-					Logger:  zap.NewNop(),
+					Logger:  zapTest(t),
 				},
 				Topics:    []apmqueue.Topic{"topic"},
 				GroupID:   "groupid",
@@ -65,7 +65,7 @@ func TestNewConsumer(t *testing.T) {
 			cfg: ConsumerConfig{
 				CommonConfig: CommonConfig{
 					Brokers:  []string{"localhost:9092"},
-					Logger:   zap.NewNop(),
+					Logger:   zapTest(t),
 					ClientID: "clientid",
 					Version:  "1.0",
 					TLS:      &tls.Config{},
@@ -117,7 +117,7 @@ func TestConsumerHealth(t *testing.T) {
 			consumer := newConsumer(t, ConsumerConfig{
 				CommonConfig: CommonConfig{
 					Brokers: addrs,
-					Logger:  zap.NewNop(),
+					Logger:  zapTest(t),
 				},
 				Topics:    []apmqueue.Topic{"topic"},
 				GroupID:   "groupid",
@@ -155,7 +155,7 @@ func TestConsumerInstrumentation(t *testing.T) {
 	cfg := ConsumerConfig{
 		CommonConfig: CommonConfig{
 			Brokers:        addrs,
-			Logger:         zap.NewNop(),
+			Logger:         zapTest(t),
 			Namespace:      namespace,
 			TracerProvider: tp,
 		},
@@ -514,7 +514,7 @@ func TestConsumerContextPropagation(t *testing.T) {
 	addrs := newClusterAddrWithTopics(t, 2, "topic")
 	commonCfg := CommonConfig{
 		Brokers: addrs,
-		Logger:  zap.NewNop(),
+		Logger:  zapTest(t),
 	}
 	processed := make(chan struct{})
 	expectedMeta := map[string]string{
@@ -573,7 +573,7 @@ func TestMultipleConsumers(t *testing.T) {
 	cfg := ConsumerConfig{
 		CommonConfig: CommonConfig{
 			Brokers:   addrs,
-			Logger:    zap.NewNop(),
+			Logger:    zapTest(t),
 			Namespace: "name_space",
 		},
 		Topics:  []apmqueue.Topic{"topic"},
@@ -614,7 +614,7 @@ func TestMultipleConsumerGroups(t *testing.T) {
 	cfg := ConsumerConfig{
 		CommonConfig: CommonConfig{
 			Brokers:   addrs,
-			Logger:    zap.NewNop(),
+			Logger:    zapTest(t),
 			Namespace: "name_space",
 		},
 		Topics: []apmqueue.Topic{"topic"},
@@ -708,6 +708,58 @@ func TestConsumerRunError(t *testing.T) {
 		}
 		// Returns an error after the consumer has been run.
 		require.Error(t, consumer.Run(context.Background()))
+	})
+}
+
+func TestConsumerTopicLogFieldFunc(t *testing.T) {
+	t.Run("empty field", func(t *testing.T) {
+		const partitions = 2
+		topic := apmqueue.Topic("topic")
+		event := apmqueue.Record{Topic: topic, Value: []byte("x")}
+		var counter atomic.Int64
+		client, addrs := newClusterWithTopics(t, partitions, string(topic))
+		cfg := ConsumerConfig{
+			CommonConfig: CommonConfig{
+				Brokers: addrs,
+				Logger:  zapTest(t),
+				TopicLogFieldFunc: func(topic string) zapcore.Field {
+					return zap.Field{}
+				},
+			},
+			GroupID: t.Name(),
+			Topics:  []apmqueue.Topic{topic},
+			Processor: apmqueue.ProcessorFunc(func(_ context.Context, r apmqueue.Record) error {
+				counter.Add(1)
+				assert.Equal(t, event.Topic, r.Topic)
+				assert.Equal(t, event.Value, r.Value)
+				// We cannot know which partition the record will be polled from,
+				// but we can assert it's in the range of number of partitions.
+				assert.True(t, event.Partition < partitions-1)
+				return nil
+			}),
+		}
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		consumer := newConsumer(t, cfg)
+		go func() {
+			assert.NoError(t, consumer.Run(ctx))
+		}()
+
+		produceRecords := 100
+		for i := 0; i < produceRecords; i++ {
+			client.Produce(ctx, &kgo.Record{
+				Topic: string(topic),
+				Value: event.Value,
+			}, func(r *kgo.Record, err error) {
+				assert.NoError(t, err)
+				assert.NotNil(t, r)
+			})
+		}
+
+		assert.Eventually(t, func() bool {
+			return counter.Load() == int64(produceRecords)
+		}, time.Second, 50*time.Millisecond)
 	})
 }
 
