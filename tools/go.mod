@@ -5,7 +5,7 @@ go 1.22.1
 require (
 	github.com/elastic/go-licenser v0.4.2
 	go.elastic.co/go-licence-detector v0.7.0
-	golang.org/x/tools v0.25.0
+	golang.org/x/tools v0.26.0
 	honnef.co/go/tools v0.5.1
 )
 
