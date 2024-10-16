@@ -3,7 +3,7 @@ module github.com/elastic/apm-queue/v2
 go 1.22
 
 require (
-	github.com/aws/aws-sdk-go-v2/config v1.27.43
+	github.com/aws/aws-sdk-go-v2/config v1.28.0
 	github.com/google/go-cmp v0.6.0
 	github.com/stretchr/testify v1.9.0
 	github.com/twmb/franz-go v1.17.0
