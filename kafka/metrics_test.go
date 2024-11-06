@@ -568,9 +568,6 @@ func setupTestProducer(t testing.TB, tafunc TopicAttributeFunc) (*Producer, sdkm
 			TopicAttributeFunc: tafunc,
 		},
 		Sync: true,
-		// NOTE(marclop) avoids lengthy retries that could cause the tests
-		// to timeout.
-		UnknownTopicRetries: 0,
 	})
 	return producer, rdr
 }
