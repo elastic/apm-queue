@@ -26,6 +26,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/twmb/franz-go/pkg/kerr"
 	"github.com/twmb/franz-go/pkg/kgo"
 	"go.opentelemetry.io/otel/attribute"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
@@ -44,9 +45,10 @@ func TestProducerMetrics(t *testing.T) {
 		t *testing.T,
 		producer apmqueue.Producer,
 		rdr sdkmetric.Reader,
+		name string,
 		want []metricdata.Metrics,
 	) {
-		topic := apmqueue.Topic("default-topic")
+		topic := apmqueue.Topic(name)
 		producer.Produce(ctx,
 			apmqueue.Record{Topic: topic, Value: []byte("1")},
 			apmqueue.Record{Topic: topic, Value: []byte("2")},
@@ -54,7 +56,7 @@ func TestProducerMetrics(t *testing.T) {
 		)
 
 		// Fixes https://github.com/elastic/apm-queue/issues/464
-		<-time.After(1 * time.Millisecond)
+		<-time.After(time.Millisecond)
 
 		// Close the producer so records are flushed.
 		require.NoError(t, producer.Close())
@@ -108,7 +110,7 @@ func TestProducerMetrics(t *testing.T) {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 0)
 		defer cancel()
-		test(ctx, t, producer, rdr, want)
+		test(ctx, t, producer, rdr, "default-topic", want)
 	})
 	t.Run("ContextCanceled", func(t *testing.T) {
 		producer, rdr := setupTestProducer(t, nil)
@@ -138,11 +140,11 @@ func TestProducerMetrics(t *testing.T) {
 		}
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
-		test(ctx, t, producer, rdr, want)
+		test(ctx, t, producer, rdr, "default-topic", want)
 	})
 	t.Run("Unknown error reason", func(t *testing.T) {
 		producer, rdr := setupTestProducer(t, nil)
-		want := metricdata.Metrics{
+		want := []metricdata.Metrics{{
 			Name:        "producer.messages.count",
 			Description: "The number of messages produced",
 			Unit:        "1",
@@ -164,9 +166,38 @@ func TestProducerMetrics(t *testing.T) {
 					},
 				},
 			},
-		}
+		}}
 		require.NoError(t, producer.Close())
-		test(context.Background(), t, producer, rdr, []metricdata.Metrics{want})
+		test(context.Background(), t, producer, rdr, "default-topic", want)
+	})
+	t.Run("unknown topic", func(t *testing.T) {
+		producer, rdr := setupTestProducer(t, nil)
+		want := []metricdata.Metrics{{
+			Name:        "producer.messages.count",
+			Description: "The number of messages produced",
+			Unit:        "1",
+			Data: metricdata.Sum[int64]{
+				Temporality: metricdata.CumulativeTemporality,
+				IsMonotonic: true,
+				DataPoints: []metricdata.DataPoint[int64]{
+					{
+						Value: 3,
+						Attributes: attribute.NewSet(
+							attribute.String("outcome", "failure"),
+							attribute.String(errorReasonKey,
+								kerr.UnknownTopicOrPartition.Message,
+							),
+							attribute.String("namespace", "name_space"),
+							attribute.String("topic", "name_space-unknown-topic"),
+							semconv.MessagingSystem("kafka"),
+							semconv.MessagingDestinationName("unknown-topic"),
+							semconv.MessagingKafkaDestinationPartition(0),
+						),
+					},
+				},
+			},
+		}}
+		test(context.Background(), t, producer, rdr, "unknown-topic", want)
 	})
 	t.Run("Produced", func(t *testing.T) {
 		producer, rdr := setupTestProducer(t, func(topic string) attribute.KeyValue {
@@ -281,7 +312,7 @@ func TestProducerMetrics(t *testing.T) {
 					}},
 			},
 		}
-		test(context.Background(), t, producer, rdr, want)
+		test(context.Background(), t, producer, rdr, "default-topic", want)
 	})
 	t.Run("ProducedWithHeaders", func(t *testing.T) {
 		producer, rdr := setupTestProducer(t, func(topic string) attribute.KeyValue {
@@ -365,7 +396,7 @@ func TestProducerMetrics(t *testing.T) {
 			"key":      "value",
 			"some key": "some value",
 		})
-		test(ctx, t, producer, rdr, want)
+		test(ctx, t, producer, rdr, "default-topic", want)
 	})
 }
 
