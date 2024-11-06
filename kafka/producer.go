@@ -92,6 +92,14 @@ type ProducerConfig struct {
 	// RecordPartitioner is a function that returns the partition to which
 	// a record should be sent. If nil, the default partitioner is used.
 	RecordPartitioner kgo.Partitioner
+
+	// UnknownTopicRetries specifies the number of times to retry producing
+	// to an unknown topic before giving up. If set to `-1`, it will retry
+	// indefinitely. If set to `-2`, it will never retry. If set to `0`, it
+	// will use the default 4 retries.
+	// NOTE(marclop) This behavior is different than the kgo library, which
+	// uses 0 as the never retry and if not set, it uses a default of 4.
+	UnknownTopicRetries int
 }
 
 // BatchWriteListener specifies a callback function that is invoked after a batch is
@@ -162,7 +170,19 @@ func NewProducer(cfg ProducerConfig) (*Producer, error) {
 	if err := cfg.finalize(); err != nil {
 		return nil, fmt.Errorf("kafka: invalid producer config: %w", err)
 	}
-	var opts []kgo.Opt
+
+	var retries int
+	switch cfg.UnknownTopicRetries {
+	case 0: // Default non-breakng value.
+		retries = 4
+	case -2: // Never retry
+		retries = 0
+	default:
+		retries = cfg.UnknownTopicRetries
+	}
+	opts := []kgo.Opt{
+		kgo.UnknownTopicRetries(retries),
+	}
 	if len(cfg.CompressionCodec) > 0 {
 		opts = append(opts, kgo.ProducerBatchCompression(cfg.CompressionCodec...))
 	}
