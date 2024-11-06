@@ -25,6 +25,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/twmb/franz-go/pkg/kerr"
 	"github.com/twmb/franz-go/pkg/kgo"
 	"github.com/twmb/franz-go/pkg/kmsg"
 	"go.opentelemetry.io/otel/attribute"
@@ -374,7 +375,7 @@ func (h *metricHooks) OnBrokerConnect(meta kgo.BrokerMetadata, _ time.Duration, 
 	)
 }
 
-func (h *metricHooks) OnBrokerDisconnect(meta kgo.BrokerMetadata, _ net.Conn) {
+func (h *metricHooks) OnBrokerDisconnect(kgo.BrokerMetadata, net.Conn) {
 	attrs := make([]attribute.KeyValue, 0, 2)
 	attrs = append(attrs, semconv.MessagingSystem("kafka"))
 	if h.namespace != "" {
@@ -387,7 +388,7 @@ func (h *metricHooks) OnBrokerDisconnect(meta kgo.BrokerMetadata, _ net.Conn) {
 	)
 }
 
-func (h *metricHooks) OnBrokerWrite(meta kgo.BrokerMetadata, key int16, bytesWritten int, writeWait, timeToWrite time.Duration, err error) {
+func (h *metricHooks) OnBrokerWrite(_ kgo.BrokerMetadata, key int16, bytesWritten int, writeWait, timeToWrite time.Duration, err error) {
 	attrs := make([]attribute.KeyValue, 0, 3)
 	attrs = append(attrs,
 		semconv.MessagingSystem("kafka"),
@@ -419,7 +420,7 @@ func (h *metricHooks) OnBrokerWrite(meta kgo.BrokerMetadata, key int16, bytesWri
 	)
 }
 
-func (h *metricHooks) OnBrokerRead(meta kgo.BrokerMetadata, _ int16, bytesRead int, readWait, timeToRead time.Duration, err error) {
+func (h *metricHooks) OnBrokerRead(_ kgo.BrokerMetadata, _ int16, bytesRead int, readWait, timeToRead time.Duration, err error) {
 	attrs := make([]attribute.KeyValue, 0, 3)
 	attrs = append(attrs, semconv.MessagingSystem("kafka"))
 	if h.namespace != "" {
@@ -449,7 +450,7 @@ func (h *metricHooks) OnBrokerRead(meta kgo.BrokerMetadata, _ int16, bytesRead i
 }
 
 // HookProduceBatchWritten is called when a batch has been produced.
-func (h *metricHooks) OnProduceBatchWritten(meta kgo.BrokerMetadata,
+func (h *metricHooks) OnProduceBatchWritten(_ kgo.BrokerMetadata,
 	topic string, partition int32, m kgo.ProduceBatchMetrics,
 ) {
 	attrs := make([]attribute.KeyValue, 0, 7)
@@ -491,7 +492,7 @@ func (h *metricHooks) OnProduceBatchWritten(meta kgo.BrokerMetadata,
 
 // OnFetchBatchRead is called once per batch read from Kafka. Records
 // `consumer.messages.fetched`.
-func (h *metricHooks) OnFetchBatchRead(meta kgo.BrokerMetadata,
+func (h *metricHooks) OnFetchBatchRead(_ kgo.BrokerMetadata,
 	topic string, partition int32, m kgo.FetchBatchMetrics,
 ) {
 	attrs := make([]attribute.KeyValue, 0, 6)
@@ -550,11 +551,15 @@ func (h *metricHooks) OnProduceRecordUnbuffered(r *kgo.Record, err error) {
 		attrs = append(attrs, attribute.String("namespace", h.namespace))
 	}
 
-	if errors.Is(err, context.DeadlineExceeded) {
+	var kgoErr *kerr.Error
+	switch {
+	case errors.Is(err, context.DeadlineExceeded):
 		attrs = append(attrs, attribute.String(errorReasonKey, "timeout"))
-	} else if errors.Is(err, context.Canceled) {
+	case errors.Is(err, context.Canceled):
 		attrs = append(attrs, attribute.String(errorReasonKey, "canceled"))
-	} else {
+	case errors.As(err, &kgoErr):
+		attrs = append(attrs, attribute.String(errorReasonKey, kgoErr.Message))
+	default:
 		attrs = append(attrs, attribute.String(errorReasonKey, "unknown"))
 	}
 
@@ -586,7 +591,7 @@ func (h *metricHooks) OnFetchRecordUnbuffered(r *kgo.Record, polled bool) {
 	)
 }
 
-func (h *metricHooks) OnBrokerThrottle(meta kgo.BrokerMetadata, throttleInterval time.Duration, throttledAfterResponse bool) {
+func (h *metricHooks) OnBrokerThrottle(_ kgo.BrokerMetadata, throttleInterval time.Duration, throttledAfterResponse bool) {
 	attrs := make([]attribute.KeyValue, 0, 2)
 	attrs = append(attrs, semconv.MessagingSystem("kafka"))
 	if h.namespace != "" {
