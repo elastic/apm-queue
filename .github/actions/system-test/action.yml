@@ -8,6 +8,8 @@ runs:
     - uses: hashicorp/setup-terraform@v3
       with:
         terraform_version: 1.4.6
+      # The permissions for this action are set up
+      # at https://github.com/elastic/oblt-infra/blob/main/conf/resources/repos/apm-queue/01-gcp-oidc.tf
     - uses: 'elastic/oblt-actions/google/auth@v1'
     - uses: 'google-github-actions/setup-gcloud@v2'
     - uses: 'google-github-actions/get-gke-credentials@v2'
