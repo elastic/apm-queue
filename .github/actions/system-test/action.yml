@@ -2,11 +2,6 @@ name: system-test
 
 description: Steps to run system test
 
-inputs:
-  workload-identity-provider:
-    description: 'GCP Workload Identity Provider'
-    required: true
-
 runs:
   using: composite
   steps:
