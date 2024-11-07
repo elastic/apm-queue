@@ -13,15 +13,10 @@ runs:
     - uses: hashicorp/setup-terraform@v3
       with:
         terraform_version: 1.4.6
-    - id: gcp-auth
-      uses: 'google-github-actions/auth@v2'
-      with:
-        project_id: 'elastic-observability'
-        workload_identity_provider: '${{ inputs.workload-identity-provider }}'
+    - uses: 'elastic/oblt-actions/google/auth@v1'
     - uses: 'google-github-actions/setup-gcloud@v2'
     - uses: 'google-github-actions/get-gke-credentials@v2'
       with:
-        project_id: ${{ steps.gcp-auth.outputs.project_id }}
         cluster_name: 'autopilot-oblt'
         location: 'us-central1'
     - uses: actions/setup-go@v5
