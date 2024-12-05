@@ -150,6 +150,18 @@ func (cfg *ConsumerConfig) finalize() error {
 	if cfg.FetchMinBytes < 0 {
 		errs = append(errs, errors.New("kafka: fetch min bytes cannot be negative"))
 	}
+	if cfg.MaxPollBytes > 0 {
+		// math.MaxInt32 is 1<<31-1.
+		if cfg.MaxPollBytes > 1<<30 {
+			cfg.MaxPollBytes = 1 << 30
+		}
+		if cfg.BrokerMaxReadBytes == 0 {
+			cfg.BrokerMaxReadBytes = cfg.MaxPollBytes * 2
+		}
+	}
+	if cfg.BrokerMaxReadBytes < 0 || cfg.BrokerMaxReadBytes > 1<<30 {
+		cfg.BrokerMaxReadBytes = 1 << 30
+	}
 	return errors.Join(errs...)
 }
 
