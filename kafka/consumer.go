@@ -21,6 +21,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"sync"
 	"time"
@@ -150,17 +151,23 @@ func (cfg *ConsumerConfig) finalize() error {
 	if cfg.FetchMinBytes < 0 {
 		errs = append(errs, errors.New("kafka: fetch min bytes cannot be negative"))
 	}
+	if cfg.BrokerMaxReadBytes < 0 {
+		errs = append(errs, errors.New("kafka: broker max read bytes cannot be negative"))
+	}
+	if cfg.BrokerMaxReadBytes > 1<<30 {
+		cfg.Logger.Info("kafka: BrokerMaxReadBytes exceeds 1GiB, setting to 1GiB")
+		cfg.BrokerMaxReadBytes = 1 << 30
+	}
 	if cfg.MaxPollBytes > 0 {
 		// math.MaxInt32 is 1<<31-1.
 		if cfg.MaxPollBytes > 1<<30 {
+			cfg.Logger.Info("kafka: MaxPollBytes exceeds 1GiB, setting to 1GiB")
 			cfg.MaxPollBytes = 1 << 30
 		}
 		if cfg.BrokerMaxReadBytes == 0 {
-			cfg.BrokerMaxReadBytes = cfg.MaxPollBytes * 2
+			cfg.Logger.Info("kafka: BrokerMaxReadBytes unset, setting to MaxPollBytes * 2 or 1GiB, whichever is smallest")
+			cfg.BrokerMaxReadBytes = int32(math.Min(float64(cfg.MaxPollBytes)*2, 1<<30))
 		}
-	}
-	if cfg.BrokerMaxReadBytes < 0 || cfg.BrokerMaxReadBytes > 1<<30 {
-		cfg.BrokerMaxReadBytes = 1 << 30
 	}
 	return errors.Join(errs...)
 }
