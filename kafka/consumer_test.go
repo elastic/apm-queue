@@ -763,6 +763,129 @@ func TestConsumerTopicLogFieldFunc(t *testing.T) {
 	})
 }
 
+func TestConsumerConfigFinalizer(t *testing.T) {
+	proc := apmqueue.ProcessorFunc(func(context.Context, apmqueue.Record) error { return nil })
+	ccfg := CommonConfig{
+		Brokers: []string{"localhost:9092"},
+		Logger:  zapTest(t),
+	}
+	t.Run("MaxPollBytes set to 1 << 20", func(t *testing.T) {
+		cfg := ConsumerConfig{
+			CommonConfig: ccfg,
+			Processor:    proc,
+			Topics:       []apmqueue.Topic{"topic"},
+			GroupID:      "groupid",
+			MaxPollBytes: 1 << 20,
+		}
+		err := cfg.finalize()
+		require.NoError(t, err)
+		assert.NotNil(t, cfg.Processor)
+		cfg.Processor = nil
+		assert.NotNil(t, cfg.Logger)
+		cfg.Logger = nil
+
+		assert.Equal(t, ConsumerConfig{
+			CommonConfig:       CommonConfig{Brokers: []string{"localhost:9092"}},
+			Topics:             []apmqueue.Topic{"topic"},
+			GroupID:            "groupid",
+			MaxPollBytes:       1 << 20,
+			BrokerMaxReadBytes: 1 << 21,
+		}, cfg)
+	})
+	t.Run("MaxPollBytes set to 1 << 28", func(t *testing.T) {
+		cfg := ConsumerConfig{
+			CommonConfig: ccfg,
+			Processor:    proc,
+			Topics:       []apmqueue.Topic{"topic"},
+			GroupID:      "groupid",
+			MaxPollBytes: 1 << 28,
+		}
+		err := cfg.finalize()
+		require.NoError(t, err)
+		assert.NotNil(t, cfg.Processor)
+		cfg.Processor = nil
+		assert.NotNil(t, cfg.Logger)
+		cfg.Logger = nil
+
+		assert.Equal(t, ConsumerConfig{
+			CommonConfig:       CommonConfig{Brokers: []string{"localhost:9092"}},
+			Topics:             []apmqueue.Topic{"topic"},
+			GroupID:            "groupid",
+			MaxPollBytes:       1 << 28,
+			BrokerMaxReadBytes: 1 << 29,
+		}, cfg)
+	})
+	t.Run("MaxPollBytes set to 1 << 29", func(t *testing.T) {
+		cfg := ConsumerConfig{
+			CommonConfig: ccfg,
+			Processor:    proc,
+			Topics:       []apmqueue.Topic{"topic"},
+			GroupID:      "groupid",
+			MaxPollBytes: 1 << 29,
+		}
+		err := cfg.finalize()
+		require.NoError(t, err)
+		assert.NotNil(t, cfg.Processor)
+		cfg.Processor = nil
+		assert.NotNil(t, cfg.Logger)
+		cfg.Logger = nil
+
+		assert.Equal(t, ConsumerConfig{
+			CommonConfig:       CommonConfig{Brokers: []string{"localhost:9092"}},
+			Topics:             []apmqueue.Topic{"topic"},
+			GroupID:            "groupid",
+			MaxPollBytes:       1 << 29,
+			BrokerMaxReadBytes: 1 << 30,
+		}, cfg)
+	})
+	t.Run("MaxPollBytes set to 1 << 30", func(t *testing.T) {
+		cfg := ConsumerConfig{
+			CommonConfig: ccfg,
+			Processor:    proc,
+			Topics:       []apmqueue.Topic{"topic"},
+			GroupID:      "groupid",
+			MaxPollBytes: 1 << 30,
+		}
+		err := cfg.finalize()
+		require.NoError(t, err)
+		assert.NotNil(t, cfg.Processor)
+		cfg.Processor = nil
+		assert.NotNil(t, cfg.Logger)
+		cfg.Logger = nil
+
+		assert.Equal(t, ConsumerConfig{
+			CommonConfig:       CommonConfig{Brokers: []string{"localhost:9092"}},
+			Topics:             []apmqueue.Topic{"topic"},
+			GroupID:            "groupid",
+			MaxPollBytes:       1 << 30,
+			BrokerMaxReadBytes: 1 << 30,
+		}, cfg)
+	})
+	t.Run("MaxPollBytes set to 1 << 31-1", func(t *testing.T) {
+		cfg := ConsumerConfig{
+			CommonConfig: ccfg,
+			Processor:    proc,
+			Topics:       []apmqueue.Topic{"topic"},
+			GroupID:      "groupid",
+			MaxPollBytes: 1<<31 - 1,
+		}
+		err := cfg.finalize()
+		require.NoError(t, err)
+		assert.NotNil(t, cfg.Processor)
+		cfg.Processor = nil
+		assert.NotNil(t, cfg.Logger)
+		cfg.Logger = nil
+
+		assert.Equal(t, ConsumerConfig{
+			CommonConfig:       CommonConfig{Brokers: []string{"localhost:9092"}},
+			Topics:             []apmqueue.Topic{"topic"},
+			GroupID:            "groupid",
+			MaxPollBytes:       1 << 30,
+			BrokerMaxReadBytes: 1 << 30,
+		}, cfg)
+	})
+}
+
 func newConsumer(t testing.TB, cfg ConsumerConfig) *Consumer {
 	if cfg.MaxPollWait <= 0 {
 		// Lower MaxPollWait, ShutdownGracePeriod to speed up execution.
