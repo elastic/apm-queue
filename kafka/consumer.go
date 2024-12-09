@@ -154,6 +154,12 @@ func (cfg *ConsumerConfig) finalize() error {
 	if cfg.BrokerMaxReadBytes < 0 {
 		errs = append(errs, errors.New("kafka: broker max read bytes cannot be negative"))
 	}
+	if cfg.MaxPollPartitionBytes > 0 {
+		if cfg.MaxPollPartitionBytes > 1<<30 {
+			cfg.Logger.Info("kafka: MaxPollPartitionBytes exceeds 1GiB, setting to 1GiB")
+			cfg.MaxPollPartitionBytes = 1 << 30
+		}
+	}
 	if cfg.BrokerMaxReadBytes > 1<<30 {
 		cfg.Logger.Info("kafka: BrokerMaxReadBytes exceeds 1GiB, setting to 1GiB")
 		cfg.BrokerMaxReadBytes = 1 << 30
