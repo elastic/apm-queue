@@ -172,6 +172,12 @@ func (cfg *ConsumerConfig) finalize() error {
 			cfg.Logger.Info("kafka: BrokerMaxReadBytes unset, setting to MaxPollBytes * 2 or 1GiB, whichever is smallest")
 			cfg.BrokerMaxReadBytes = int32(math.Min(float64(cfg.MaxPollBytes)*2, 1<<30))
 		}
+		if cfg.BrokerMaxReadBytes > 0 && cfg.BrokerMaxReadBytes < cfg.MaxPollBytes {
+			errs = append(errs, fmt.Errorf(
+				"kafka: BrokerMaxReadBytes (%d) cannot be less than MaxPollBytes (%d)",
+				cfg.BrokerMaxReadBytes, cfg.MaxPollBytes,
+			))
+		}
 	}
 	return errors.Join(errs...)
 }

@@ -894,6 +894,19 @@ func TestConsumerConfigFinalizer(t *testing.T) {
 			BrokerMaxReadBytes:    1 << 30,
 		}, cfg)
 	})
+	t.Run("BrokerMaxReadBytes is less than MaxPollBytes", func(t *testing.T) {
+		cfg := ConsumerConfig{
+			CommonConfig:          ccfg,
+			Processor:             proc,
+			Topics:                []apmqueue.Topic{"topic"},
+			GroupID:               "groupid",
+			BrokerMaxReadBytes:    1,
+			MaxPollBytes:          1<<31 - 1,
+			MaxPollPartitionBytes: 1<<31 - 1,
+		}
+		err := cfg.finalize()
+		assert.EqualError(t, err, "kafka: BrokerMaxReadBytes (1) cannot be less than MaxPollBytes (1073741824)")
+	})
 }
 
 func newConsumer(t testing.TB, cfg ConsumerConfig) *Consumer {
