@@ -20,10 +20,9 @@ package systemtest
 import (
 	"context"
 	"fmt"
-	"math/rand"
+	"math/rand/v2"
 	"strings"
 	"sync"
-	"time"
 
 	apmqueue "github.com/elastic/apm-queue/v2"
 )
@@ -38,7 +37,6 @@ type DestroyInfraFunc func(context.Context) error
 
 var (
 	rngMu sync.Mutex
-	rng   = rand.New(rand.NewSource(time.Now().Unix()))
 )
 
 const letterBytes = "abcdefghijklmnopqrstuvwxyz"
@@ -49,7 +47,7 @@ func RandomSuffix() string {
 	defer rngMu.Unlock()
 	b := make([]byte, 8)
 	for i := range b {
-		b[i] = letterBytes[rng.Int63()%int64(len(letterBytes))]
+		b[i] = byte(rand.IntN(len(letterBytes)))
 	}
 	return string(b)
 }
