@@ -101,6 +101,7 @@ func TestNewProducerBasic(t *testing.T) {
 			topic := apmqueue.Topic("default-topic")
 			namespacedTopic := "name_space-default-topic"
 			partitionCount := 10
+
 			exp := tracetest.NewInMemoryExporter()
 			tp := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exp))
 			defer tp.Shutdown(context.Background())
@@ -124,9 +125,16 @@ func TestNewProducerBasic(t *testing.T) {
 				},
 			})
 
-			ctx := queuecontext.WithMetadata(context.Background(), map[string]string{
-				"a": "b", "c": "d",
-			})
+			ctx, span := tp.Tracer("producer-test-tracer").Start(context.Background(), "test-parent-span")
+			defer span.End()
+
+			// Context contains the parent span
+			ctx = queuecontext.WithMetadata(ctx,
+				map[string]string{
+					"a": "b",
+					"c": "d",
+				},
+			)
 
 			batch := []apmqueue.Record{
 				{Topic: topic, OrderingKey: nil, Value: []byte("1")},
@@ -191,6 +199,7 @@ func TestNewProducerBasic(t *testing.T) {
 				assert.Equal(t, []kgo.RecordHeader{
 					{Key: "a", Value: []byte("b")},
 					{Key: "c", Value: []byte("d")},
+					{Key: "trace_id", Value: []byte(span.SpanContext().TraceID().String())},
 				}, record.Headers)
 			}
 			assert.Empty(t, cmp.Diff(

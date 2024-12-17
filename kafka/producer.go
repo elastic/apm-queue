@@ -25,6 +25,8 @@ import (
 	"strings"
 	"sync"
 
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 
 	"github.com/twmb/franz-go/pkg/kgo"
@@ -231,15 +233,39 @@ func (p *Producer) Produce(ctx context.Context, rs ...apmqueue.Record) error {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 
+	tracer := otel.Tracer("producer")
+	parentSpan := trace.SpanFromContext(ctx)
+
 	var headers []kgo.RecordHeader
 	if m, ok := queuecontext.MetadataFromContext(ctx); ok {
 		headers = make([]kgo.RecordHeader, 0, len(m))
 		for k, v := range m {
-			headers = append(headers, kgo.RecordHeader{
-				Key: k, Value: []byte(v),
-			})
+			headers = append(headers,
+				kgo.RecordHeader{
+					Key:   k,
+					Value: []byte(v),
+				},
+			)
 		}
+		headers = append(headers,
+			kgo.RecordHeader{
+				Key:   "trace_id",
+				Value: []byte(parentSpan.SpanContext().TraceID().String()),
+			},
+		)
 	}
+	ctx, linkedSpan := tracer.Start(ctx, "linked-span",
+		trace.WithLinks(
+			trace.Link{SpanContext: parentSpan.SpanContext()},
+		),
+	)
+	//headers = append(headers,
+	//    kgo.RecordHeader{
+	//        Key: "linkedSpan1",
+	//        Value: []byte(linkedSpan.SpanContext().SpanID().String()),
+	//    },
+	//)
+	linkedSpan.End()
 
 	var wg sync.WaitGroup
 	wg.Add(len(rs))
