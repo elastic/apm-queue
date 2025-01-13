@@ -136,22 +136,30 @@ func (m *Manager) DeleteTopics(ctx context.Context, topics ...apmqueue.Topic) er
 				deleteErrors = append(deleteErrors,
 					fmt.Errorf("failed to delete topic %q: %w", topic, err),
 				)
+				attrs := []attribute.KeyValue{
+					semconv.MessagingSystemKey.String("kafka"),
+					attribute.String("outcome", "failure"),
+					attribute.String("topic", topic),
+				}
+				if kv := m.cfg.TopicAttributeFunc(topic); kv != (attribute.KeyValue{}) {
+					attrs = append(attrs, kv)
+				}
 				m.deleted.Add(context.Background(), 1, metric.WithAttributeSet(
-					attribute.NewSet(
-						semconv.MessagingSystemKey.String("kafka"),
-						attribute.String("outcome", "failure"),
-						attribute.String("topic", topic),
-					),
+					attribute.NewSet(attrs...),
 				))
 			}
 			continue
 		}
+		attrs := []attribute.KeyValue{
+			semconv.MessagingSystemKey.String("kafka"),
+			attribute.String("outcome", "success"),
+			attribute.String("topic", topic),
+		}
+		if kv := m.cfg.TopicAttributeFunc(topic); kv != (attribute.KeyValue{}) {
+			attrs = append(attrs, kv)
+		}
 		m.deleted.Add(context.Background(), 1, metric.WithAttributeSet(
-			attribute.NewSet(
-				semconv.MessagingSystemKey.String("kafka"),
-				attribute.String("outcome", "success"),
-				attribute.String("topic", topic),
-			),
+			attribute.NewSet(attrs...),
 		))
 		logger.Info("deleted kafka topic")
 	}
@@ -284,23 +292,31 @@ func (m *Manager) MonitorConsumerLag(topicConsumers []apmqueue.TopicConsumer) (m
 					count := memberAssignments[key]
 					count++
 					memberAssignments[key] = count
+					attrs := []attribute.KeyValue{
+						attribute.String("group", l.Group),
+						attribute.String("topic", topic),
+						attribute.Int("partition", int(partition)),
+					}
+					if kv := m.cfg.TopicAttributeFunc(topic); kv != (attribute.KeyValue{}) {
+						attrs = append(attrs, kv)
+					}
 					o.ObserveInt64(
 						consumerGroupLagMetric, lag.Lag,
-						metric.WithAttributeSet(attribute.NewSet(
-							attribute.String("group", l.Group),
-							attribute.String("topic", topic),
-							attribute.Int("partition", int(partition)),
-						)),
+						metric.WithAttributeSet(attribute.NewSet(attrs...)),
 					)
 				}
 			}
 			for key, count := range memberAssignments {
+				attrs := []attribute.KeyValue{
+					attribute.String("group", l.Group),
+					attribute.String("topic", key.topic),
+					attribute.String("client_id", key.clientID),
+				}
+				if kv := m.cfg.TopicAttributeFunc(key.topic); kv != (attribute.KeyValue{}) {
+					attrs = append(attrs, kv)
+				}
 				o.ObserveInt64(assignmentMetric, count, metric.WithAttributeSet(
-					attribute.NewSet(
-						attribute.String("group", l.Group),
-						attribute.String("topic", key.topic),
-						attribute.String("client_id", key.clientID),
-					),
+					attribute.NewSet(attrs...),
 				))
 			}
 		})
