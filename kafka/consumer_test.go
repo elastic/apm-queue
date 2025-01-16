@@ -780,10 +780,7 @@ func TestConsumerConfigFinalizer(t *testing.T) {
 		}
 		err := cfg.finalize()
 		require.NoError(t, err)
-		assert.NotNil(t, cfg.Processor)
-		cfg.Processor = nil
-		assert.NotNil(t, cfg.Logger)
-		cfg.Logger = nil
+		assertNotNilOptions(t, &cfg)
 
 		assert.Equal(t, ConsumerConfig{
 			CommonConfig:          CommonConfig{Brokers: []string{"localhost:9092"}},
@@ -805,10 +802,7 @@ func TestConsumerConfigFinalizer(t *testing.T) {
 		}
 		err := cfg.finalize()
 		require.NoError(t, err)
-		assert.NotNil(t, cfg.Processor)
-		cfg.Processor = nil
-		assert.NotNil(t, cfg.Logger)
-		cfg.Logger = nil
+		assertNotNilOptions(t, &cfg)
 
 		assert.Equal(t, ConsumerConfig{
 			CommonConfig:          CommonConfig{Brokers: []string{"localhost:9092"}},
@@ -830,10 +824,7 @@ func TestConsumerConfigFinalizer(t *testing.T) {
 		}
 		err := cfg.finalize()
 		require.NoError(t, err)
-		assert.NotNil(t, cfg.Processor)
-		cfg.Processor = nil
-		assert.NotNil(t, cfg.Logger)
-		cfg.Logger = nil
+		assertNotNilOptions(t, &cfg)
 
 		assert.Equal(t, ConsumerConfig{
 			CommonConfig:          CommonConfig{Brokers: []string{"localhost:9092"}},
@@ -855,10 +846,7 @@ func TestConsumerConfigFinalizer(t *testing.T) {
 		}
 		err := cfg.finalize()
 		require.NoError(t, err)
-		assert.NotNil(t, cfg.Processor)
-		cfg.Processor = nil
-		assert.NotNil(t, cfg.Logger)
-		cfg.Logger = nil
+		assertNotNilOptions(t, &cfg)
 
 		assert.Equal(t, ConsumerConfig{
 			CommonConfig:          CommonConfig{Brokers: []string{"localhost:9092"}},
@@ -880,10 +868,7 @@ func TestConsumerConfigFinalizer(t *testing.T) {
 		}
 		err := cfg.finalize()
 		require.NoError(t, err)
-		assert.NotNil(t, cfg.Processor)
-		cfg.Processor = nil
-		assert.NotNil(t, cfg.Logger)
-		cfg.Logger = nil
+		assertNotNilOptions(t, &cfg)
 
 		assert.Equal(t, ConsumerConfig{
 			CommonConfig:          CommonConfig{Brokers: []string{"localhost:9092"}},
@@ -907,6 +892,17 @@ func TestConsumerConfigFinalizer(t *testing.T) {
 		err := cfg.finalize()
 		assert.EqualError(t, err, "kafka: BrokerMaxReadBytes (1) cannot be less than MaxPollBytes (1073741824)")
 	})
+}
+
+func assertNotNilOptions(t testing.TB, cfg *ConsumerConfig) {
+	t.Helper()
+
+	assert.NotNil(t, cfg.Processor)
+	cfg.Processor = nil
+	assert.NotNil(t, cfg.Logger)
+	cfg.Logger = nil
+	assert.NotNil(t, cfg.TopicAttributeFunc)
+	cfg.TopicAttributeFunc = nil
 }
 
 func newConsumer(t testing.TB, cfg ConsumerConfig) *Consumer {

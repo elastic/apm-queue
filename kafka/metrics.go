@@ -299,12 +299,6 @@ func newKgoHooks(mp metric.MeterProvider, namespace, topicPrefix string,
 		return nil, formatMetricError(throttlingDurationKey, err)
 	}
 
-	if topicAttributeFunc == nil {
-		topicAttributeFunc = func(topic string) attribute.KeyValue {
-			return attribute.KeyValue{}
-		}
-	}
-
 	return &metricHooks{
 		namespace:   namespace,
 		topicPrefix: topicPrefix,
