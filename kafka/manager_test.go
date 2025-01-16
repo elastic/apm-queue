@@ -66,6 +66,7 @@ func TestManagerDeleteTopics(t *testing.T) {
 	commonConfig.Logger = zap.New(core)
 	commonConfig.TracerProvider = tp
 	commonConfig.MeterProvider = mt.MeterProvider
+	commonConfig.TopicAttributeFunc = func(topic string) attribute.KeyValue { return attribute.KeyValue{} }
 	m, err := NewManager(ManagerConfig{CommonConfig: commonConfig})
 	require.NoError(t, err)
 	t.Cleanup(func() { m.Close() })
@@ -180,6 +181,9 @@ func TestManagerMetrics(t *testing.T) {
 	commonConfig.Logger = zap.New(core)
 	commonConfig.TracerProvider = tp
 	commonConfig.MeterProvider = mp
+	commonConfig.TopicAttributeFunc = func(topic string) attribute.KeyValue {
+		return attribute.Bool("foo", true)
+	}
 	m, err := NewManager(ManagerConfig{CommonConfig: commonConfig})
 	require.NoError(t, err)
 	t.Cleanup(func() { m.Close() })
@@ -459,6 +463,7 @@ func TestManagerMetrics(t *testing.T) {
 				attribute.String("group", "consumer1"),
 				attribute.String("topic", "topic1"),
 				attribute.Int("partition", 1),
+				attribute.Bool("foo", true),
 			),
 			Value: 0, // end offset = 1, committed = 1
 		}, {
@@ -466,6 +471,7 @@ func TestManagerMetrics(t *testing.T) {
 				attribute.String("group", "consumer2"),
 				attribute.String("topic", "topic1"),
 				attribute.Int("partition", 2),
+				attribute.Bool("foo", true),
 			),
 			Value: 1, // end offset = 2, committed = 1
 		}, {
@@ -473,6 +479,7 @@ func TestManagerMetrics(t *testing.T) {
 				attribute.String("group", "consumer2"),
 				attribute.String("topic", "topic2"),
 				attribute.Int("partition", 3),
+				attribute.Bool("foo", true),
 			),
 			Value: 2, // end offset = 3, committed = 1
 		}, {
@@ -480,6 +487,7 @@ func TestManagerMetrics(t *testing.T) {
 				attribute.String("group", "consumer3"),
 				attribute.String("topic", "topic3"),
 				attribute.Int("partition", 4),
+				attribute.Bool("foo", true),
 			),
 			Value: 4, // end offset  = 4, nothing committed
 		}, {
@@ -487,6 +495,7 @@ func TestManagerMetrics(t *testing.T) {
 				attribute.String("group", "consumer3"),
 				attribute.String("topic", "mytopic"),
 				attribute.Int("partition", 1),
+				attribute.Bool("foo", true),
 			),
 			Value: 1, // end offset  = 1, nothing committed
 		}},
@@ -498,6 +507,7 @@ func TestManagerMetrics(t *testing.T) {
 				attribute.String("client_id", "client_id"),
 				attribute.String("group", "consumer1"),
 				attribute.String("topic", "topic1"),
+				attribute.Bool("foo", true),
 			),
 			Value: 1,
 		}, {
@@ -505,6 +515,7 @@ func TestManagerMetrics(t *testing.T) {
 				attribute.String("client_id", "client_id"),
 				attribute.String("group", "consumer2"),
 				attribute.String("topic", "topic2"),
+				attribute.Bool("foo", true),
 			),
 			Value: 1,
 		}, {
@@ -512,6 +523,7 @@ func TestManagerMetrics(t *testing.T) {
 				attribute.String("client_id", "client_id"),
 				attribute.String("group", "consumer2"),
 				attribute.String("topic", "topic1"),
+				attribute.Bool("foo", true),
 			),
 			Value: 1,
 		}, {
@@ -519,6 +531,7 @@ func TestManagerMetrics(t *testing.T) {
 				attribute.String("client_id", "client_id"),
 				attribute.String("group", "consumer3"),
 				attribute.String("topic", "topic3"),
+				attribute.Bool("foo", true),
 			),
 			Value: 1,
 		}, {
@@ -526,6 +539,7 @@ func TestManagerMetrics(t *testing.T) {
 				attribute.String("client_id", "client_id"),
 				attribute.String("group", "consumer3"),
 				attribute.String("topic", "mytopic"),
+				attribute.Bool("foo", true),
 			),
 			Value: 1,
 		}},
