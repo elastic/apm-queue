@@ -34,6 +34,7 @@ import (
 	"github.com/twmb/franz-go/pkg/sasl/plain"
 	"github.com/twmb/franz-go/plugin/kzap"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
@@ -247,6 +248,12 @@ func (cfg *CommonConfig) finalize() error {
 	if cfg.TopicLogFieldFunc != nil {
 		cfg.TopicLogFieldFunc = topicFieldFunc(cfg.TopicLogFieldFunc)
 	}
+	if cfg.TopicAttributeFunc == nil {
+		cfg.TopicAttributeFunc = func(topic string) attribute.KeyValue {
+			return attribute.KeyValue{}
+		}
+	}
+
 	return errors.Join(errs...)
 }
 
