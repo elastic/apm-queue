@@ -18,6 +18,8 @@
 package kafka
 
 import (
+	"context"
+	"errors"
 	"net"
 	"time"
 
@@ -35,12 +37,17 @@ type loggerHook struct {
 // OnBrokerConnect implements the kgo.HookBrokerConnect interface.
 func (l *loggerHook) OnBrokerConnect(meta kgo.BrokerMetadata, dialDur time.Duration, _ net.Conn, err error) {
 	if err != nil {
-		l.logger.Error("failed to connect to broker",
+		fields := []zap.Field{
 			zap.Error(err),
-			zap.String("duration", dialDur.String()),
+			zap.Duration("event.duration", dialDur),
 			zap.String("host", meta.Host),
 			zap.Int32("port", meta.Port),
 			zap.Stack("stack"),
-		)
+		}
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			l.logger.Warn("failed to connect to broker", fields...)
+			return
+		}
+		l.logger.Error("failed to connect to broker", fields...)
 	}
 }
