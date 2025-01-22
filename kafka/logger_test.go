@@ -57,10 +57,8 @@ func TestHookLogsFailedDial(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Nanosecond)
 		defer cancel()
 		cfg.Dialer = func(context.Context, string, string) (net.Conn, error) {
-			select {
-			case <-ctx.Done():
-				return nil, ctx.Err()
-			}
+			<-ctx.Done()
+			return nil, ctx.Err()
 		}
 		// Calling newClient triggers the metadata refresh, forcing a connection to the fake cluster
 		// using the broken dialer.
