@@ -20,6 +20,7 @@ package kafka
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"net"
@@ -214,6 +215,20 @@ func (cfg *CommonConfig) finalize() error {
 		cfg.TLS = &tls.Config{}
 		if os.Getenv("KAFKA_TLS_INSECURE") == "true" {
 			cfg.TLS.InsecureSkipVerify = true
+		}
+		if caCertPath := os.Getenv("KAFKA_TLS_CA_CERT_PATH"); caCertPath != "" {
+			caCert, err := os.ReadFile(caCertPath)
+			if err != nil {
+				errs = append(errs, fmt.Errorf("kafka: failed to read CA cert: %w", err))
+			} else {
+				rootCa, err := x509.SystemCertPool()
+				if err != nil {
+					errs = append(errs, fmt.Errorf("kafka: failed to load system cert pool: %w", err))
+				}
+				if !rootCa.AppendCertsFromPEM(caCert) {
+					errs = append(errs, errors.New("kafka: failed to append CA cert"))
+				}
+			}
 		}
 	}
 	if cfg.SASL == nil {

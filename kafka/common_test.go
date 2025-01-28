@@ -19,8 +19,14 @@ package kafka
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
 	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/base64"
 	"fmt"
+	"math/big"
 	"net"
 	"os"
 	"path/filepath"
@@ -316,5 +322,68 @@ func TestTopicFieldFunc(t *testing.T) {
 			return zap.String("topic", topic)
 		})("c")
 		assert.Equal(t, zap.String("topic", "c"), topic)
+	})
+}
+
+// generateValidCACert creates a valid self-signed CA certificate in PEM format.
+func generateValidCACert(t testing.TB) []byte {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+
+	template := x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: "Test CA"},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(time.Hour),
+		KeyUsage:     x509.KeyUsageCertSign | x509.KeyUsageKeyEncipherment,
+		IsCA:         true,
+	}
+	derBytes, err := x509.CreateCertificate(rand.Reader, &template, &template, &key.PublicKey, key)
+	require.NoError(t, err)
+
+	return pemEncodeCert(derBytes)
+}
+
+func pemEncodeCert(certDER []byte) []byte {
+	return []byte(
+		"-----BEGIN CERTIFICATE-----\n" +
+			base64.StdEncoding.EncodeToString(certDER) +
+			"\n-----END CERTIFICATE-----\n",
+	)
+}
+
+func TestTLSCACertPath(t *testing.T) {
+	t.Run("valid cert", func(t *testing.T) {
+		t.Setenv("KAFKA_PLAINTEXT", "") // clear plaintext mode
+
+		tempFile := filepath.Join(t.TempDir(), "ca_cert.pem")
+		err := os.WriteFile(tempFile, generateValidCACert(t), 0644)
+		require.NoError(t, err)
+
+		t.Setenv("KAFKA_TLS_CA_CERT_PATH", tempFile)
+		cfg := CommonConfig{Brokers: []string{"broker"}, Logger: zap.NewNop()}
+		require.NoError(t, cfg.finalize())
+		require.NotNil(t, cfg.TLS)
+	})
+	t.Run("missing file", func(t *testing.T) {
+		t.Setenv("KAFKA_PLAINTEXT", "")
+		tempFile := filepath.Join(t.TempDir(), "nonexistent_cert.pem")
+		t.Setenv("KAFKA_TLS_CA_CERT_PATH", tempFile)
+		cfg := CommonConfig{Brokers: []string{"broker"}, Logger: zap.NewNop()}
+		err := cfg.finalize()
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "failed to read CA cert")
+	})
+	t.Run("invalid cert", func(t *testing.T) {
+		t.Setenv("KAFKA_PLAINTEXT", "")
+		tempFile := filepath.Join(t.TempDir(), "invalid_cert.pem")
+		err := os.WriteFile(tempFile, []byte("invalid pem data"), 0644)
+		require.NoError(t, err)
+
+		t.Setenv("KAFKA_TLS_CA_CERT_PATH", tempFile)
+		cfg := CommonConfig{Brokers: []string{"broker"}, Logger: zap.NewNop()}
+		err = cfg.finalize()
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "failed to append CA cert")
 	})
 }
