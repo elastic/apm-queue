@@ -67,3 +67,19 @@ func Enrich(ctx context.Context, key string, value string) context.Context {
 	meta[key] = value
 	return WithMetadata(ctx, meta)
 }
+
+type ackKey struct{}
+
+func WithAck(ctx context.Context, ack func()) context.Context {
+	return context.WithValue(ctx, ackKey{}, ack)
+}
+
+func AckFromContext(ctx context.Context) func() {
+	if v := ctx.Value(ackKey{}); v != nil {
+		if metadata, ok := v.(func()); ok {
+			return metadata
+		}
+		return func() {}
+	}
+	return func() {}
+}

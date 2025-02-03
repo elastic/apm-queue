@@ -320,13 +320,3 @@ func TestProducerConcurrentClose(t *testing.T) {
 	}
 	wg.Wait()
 }
-
-func newProducer(t testing.TB, cfg ProducerConfig) *Producer {
-	t.Helper()
-	producer, err := NewProducer(cfg)
-	require.NoError(t, err)
-	t.Cleanup(func() {
-		assert.NoError(t, producer.Close())
-	})
-	return producer
-}

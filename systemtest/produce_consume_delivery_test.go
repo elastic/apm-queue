@@ -130,6 +130,7 @@ func TestConsumerDelivery(t *testing.T) {
 				var errored atomic.Int32
 
 				processor := apmqueue.ProcessorFunc(func(ctx context.Context, r apmqueue.Record) error {
+					defer r.Done()
 					select {
 					// Records are marked as processed on receive processRecord.
 					case <-processRecord:

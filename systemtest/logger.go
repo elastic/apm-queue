@@ -48,8 +48,8 @@ var logger = func() *zap.SugaredLogger {
 func TestLogger(t testing.TB) *zap.Logger {
 	writer := newTestingWriter(t)
 	t.Cleanup(func() {
-		defer writer.buf.Reset()
-		if t.Failed() {
+		defer writer.Reset()
+		if t.Failed() || testing.Verbose() {
 			for _, line := range writer.buf.Lines() {
 				// Strip trailing newline because t.Log always adds one.
 				t.Log(strings.TrimRight(line, "\n"))
@@ -62,30 +62,35 @@ func TestLogger(t testing.TB) *zap.Logger {
 			writer,
 			zapcore.InfoLevel,
 		),
-		zap.ErrorOutput(writer.withMarkFailed(true)),
+		zap.ErrorOutput(writer.withMarkFailed(false)),
 	)
 }
 
 // testingWriter is a WriteSyncer that writes to the given testing.TB.
 type testingWriter struct {
+	mu  sync.Mutex
 	t   testing.TB
 	buf *zaptest.Buffer
 	// If true, the test will be marked as failed.
 	markFailed bool
 }
 
-func newTestingWriter(t testing.TB) testingWriter {
-	return testingWriter{t: t, buf: new(zaptest.Buffer)}
+func newTestingWriter(t testing.TB) *testingWriter {
+	return &testingWriter{t: t, buf: new(zaptest.Buffer)}
 }
 
 // withMarkFailed returns a copy of this testingWriter with markFailed set to
 // the provided value.
-func (w testingWriter) withMarkFailed(v bool) testingWriter {
+func (w *testingWriter) withMarkFailed(v bool) *testingWriter {
+	w.mu.Lock()
+	defer w.mu.Unlock()
 	w.markFailed = v
 	return w
 }
 
-func (w testingWriter) Write(p []byte) (int, error) {
+func (w *testingWriter) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
 	w.buf.Write(p)
 	if w.markFailed {
 		w.t.Fail()
@@ -93,4 +98,14 @@ func (w testingWriter) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-func (w testingWriter) Sync() error { return w.buf.Sync() }
+func (w *testingWriter) Sync() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.buf.Sync()
+}
+
+func (w *testingWriter) Reset() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.buf.Reset()
+}

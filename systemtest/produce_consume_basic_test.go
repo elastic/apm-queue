@@ -219,68 +219,72 @@ func sequenceConsumerAssertionProcessor(
 
 func TestShutdown(t *testing.T) {
 	forEachProvider(t, func(t *testing.T, pf providerF) {
-		type stopFunc func(context.CancelFunc, apmqueue.Consumer)
-		for name, stop := range map[string]stopFunc{
-			"ctx":   func(cancel context.CancelFunc, _ apmqueue.Consumer) { cancel() },
-			"close": func(_ context.CancelFunc, c apmqueue.Consumer) { assert.NoError(t, c.Close()) },
-		} {
-			t.Run(name, func(t *testing.T) {
-				received := make(chan struct{})
-				processor := apmqueue.ProcessorFunc(func(context.Context, apmqueue.Record) error {
-					close(received)
-					return nil
-				})
-				topics := SuffixTopics(apmqueue.Topic(t.Name()))
-				producer, consumer := pf(t,
-					withProcessor(processor),
-					withTopicsGenerator(func(t testing.TB) []apmqueue.Topic {
-						return topics
-					}),
-				)
-
-				assert.NoError(t, producer.Produce(context.Background(), apmqueue.Record{
-					Topic: topics[0],
-				}))
-				assert.NoError(t, producer.Close())
-
-				closeCh := make(chan struct{})
-				ctx, cancel := context.WithCancel(context.Background())
-
-				// cleanup
-				defer func() {
-					cancel()
-					consumer.Close()
-				}()
-
-				go func() {
-					// TODO this is failing
-					//assert.Equal(t, expectedErr, consumer.Run(ctx))
-					consumer.Run(ctx)
-					close(closeCh)
-				}()
-				select {
-				case <-received:
-				case <-time.After(defaultConsumerWaitTimeout):
-					t.Error("timed out while waiting to receive an event")
-				}
-
-				stopCh := make(chan struct{})
-				go func() {
-					stop(cancel, consumer)
-					close(stopCh)
-				}()
-				select {
-				case <-stopCh:
-				case <-time.After(10 * time.Second):
-					t.Error("timed out while stopping consumer")
-				}
-
-				select {
-				case <-closeCh:
-				case <-time.After(defaultConsumerExitTimeout):
-					t.Error("timed out while waiting for consumer to exit")
-				}
+		t.Run("Close", func(t *testing.T) {
+			received := make(chan struct{})
+			processor := apmqueue.ProcessorFunc(func(_ context.Context, r apmqueue.Record) error {
+				defer r.Done()
+				close(received)
+				return nil
 			})
-		}
+			topics := SuffixTopics(apmqueue.Topic(t.Name()))
+			producer, consumer := pf(t,
+				withProcessor(processor),
+				withTopicsGenerator(func(t testing.TB) []apmqueue.Topic {
+					return topics
+				}),
+			)
+
+			assert.NoError(t, producer.Produce(context.Background(), apmqueue.Record{
+				Topic: topics[0],
+			}))
+			assert.NoError(t, producer.Close())
+
+			closeCh := make(chan struct{})
+			ctx, cancel := context.WithCancel(context.Background())
+
+			// cleanup
+			t.Cleanup(func() {
+				cancel()
+				consumer.Close()
+			})
+
+			go func() {
+				// TODO this is failing
+				//assert.Equal(t, expectedErr, consumer.Run(ctx))
+				consumer.Run(ctx)
+				close(closeCh)
+			}()
+			select {
+			case <-received:
+			case <-time.After(defaultConsumerWaitTimeout):
+				t.Error("timed out while waiting to receive an event")
+			}
+
+			// cancel the context to stop the consumer from polling new records.
+			// Ensure the consumer hasn't exited yet.
+			cancel()
+			select {
+			case <-closeCh:
+			case <-time.After(time.Second):
+			}
+
+			// Now stop the consumer and ensure it exits.
+			stopCh := make(chan struct{})
+			go func() {
+				consumer.Close()
+				close(stopCh)
+			}()
+			select {
+			case <-stopCh:
+			case <-time.After(10 * time.Second):
+				t.Error("timed out while stopping consumer")
+			}
+
+			select {
+			case <-closeCh:
+			case <-time.After(defaultConsumerExitTimeout):
+				t.Error("timed out while waiting for consumer to exit")
+			}
+		})
 	})
 }

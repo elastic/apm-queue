@@ -326,3 +326,17 @@ func (m *Manager) MonitorConsumerLag(topicConsumers []apmqueue.TopicConsumer) (m
 		assignmentMetric,
 	)
 }
+
+func (m *Manager) CreateACLs(ctx context.Context, acls kadm.ACLBuilder) error {
+	_, err := m.adminClient.CreateACLs(ctx, kadm.NewACLs().
+		Allow("User:*").
+		Topics("mis.events.").
+		AllowHosts("*").
+		Operations(kadm.OpWrite).
+		ResourcePatternType(kadm.ACLPatternPrefixed),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create ACLs: %w", err)
+	}
+	return nil
+}

@@ -112,13 +112,16 @@ func TestProduceConsumeDeliveryGuarantees(t *testing.T) {
 				1*time.Second,              // Poll
 				"expected records (%d) records do not match consumed records (%v)", // ErrMessage
 				1,
-				errRecords,
 			)
+			if t.Failed() {
+				t.Log(errRecords.Load())
+			}
 			cancel()
 			assert.NoError(t, errConsumer.Close())
 
 			var successRecords atomic.Int64
-			successProcessor := apmqueue.ProcessorFunc(func(context.Context, apmqueue.Record) error {
+			successProcessor := apmqueue.ProcessorFunc(func(_ context.Context, r apmqueue.Record) error {
+				defer r.Done()
 				successRecords.Add(1)
 				return nil
 			})
@@ -151,8 +154,10 @@ func TestProduceConsumeDeliveryGuarantees(t *testing.T) {
 				1*time.Second,              // Poll
 				"expected records (%d) records do not match consumed records (%v)", // ErrMessage
 				expectedRecordsCount,
-				successRecords,
 			)
+			if t.Failed() {
+				t.Log(successRecords.Load())
+			}
 		})
 	})
 }

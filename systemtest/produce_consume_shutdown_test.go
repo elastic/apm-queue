@@ -55,7 +55,10 @@ func TestGracefulShutdownProducer(t *testing.T) {
 
 			assert.Eventually(t, func() bool {
 				return processed.Load() == 1
-			}, defaultConsumerWaitTimeout, time.Second, processed)
+			}, defaultConsumerWaitTimeout, time.Second)
+			if t.Failed() {
+				t.Log(processed.Load())
+			}
 		})
 	})
 }

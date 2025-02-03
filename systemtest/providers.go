@@ -107,6 +107,8 @@ func kafkaTypes(t testing.TB, opts ...option) (apmqueue.Producer, apmqueue.Consu
 		GroupID:      t.Name(),
 		Processor:    cfg.processor,
 		Delivery:     cfg.dt,
+		// Shorten the commit interval for the system tests.
+		CommitInterval: 100 * time.Millisecond,
 	})
 	return producer, consumer
 }

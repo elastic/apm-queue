@@ -29,13 +29,13 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/twmb/franz-go/pkg/kadm"
 	"github.com/twmb/franz-go/pkg/kfake"
 	"github.com/twmb/franz-go/pkg/kgo"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
-	"go.uber.org/zap/zaptest"
 
 	apmqueue "github.com/elastic/apm-queue/v2"
 	"github.com/elastic/apm-queue/v2/queuecontext"
@@ -140,6 +140,8 @@ func TestConsumerHealth(t *testing.T) {
 }
 
 func TestConsumerInstrumentation(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 	const partitions = 4
 	exp := tracetest.NewInMemoryExporter()
 	tp := sdktrace.NewTracerProvider(
@@ -164,6 +166,7 @@ func TestConsumerInstrumentation(t *testing.T) {
 		MaxPollRecords: 1, // Consume a single record for this test.
 		Processor: apmqueue.ProcessorFunc(func(_ context.Context, r apmqueue.Record) error {
 			defer close(processed)
+			defer r.Done()
 			assert.Equal(t, event.Topic, r.Topic)
 			assert.Equal(t, event.Value, r.Value)
 			// We cannot know which partition the record will be polled from,
@@ -173,17 +176,21 @@ func TestConsumerInstrumentation(t *testing.T) {
 		}),
 	}
 
-	produceRecord(context.Background(), t, client,
-		&kgo.Record{Topic: "name_space-topic", Value: event.Value},
-	)
+	produceRecord(ctx, t, client, &kgo.Record{
+		Topic: "name_space-topic", Value: event.Value,
+	})
 	consumer := newConsumer(t, cfg)
-	go consumer.Run(context.Background())
+	go consumer.Run(ctx)
 
 	select {
 	case <-processed:
 	case <-time.After(time.Second):
 		t.Fatal("timed out while waiting for record to be processed.")
 	}
+	require.NoError(t, consumer.Close())
+
+	comitted := getComittedOffsets(ctx, t, kadm.NewClient(client), cfg.GroupID)
+	assert.Equal(t, map[string]int64{"name_space-topic": 1}, comitted)
 }
 
 func TestConsumerDelivery(t *testing.T) {
@@ -196,7 +203,10 @@ func TestConsumerDelivery(t *testing.T) {
 	// `initialRecords` are produced, then, the concurrent consumer is
 	// started, and the first receive will always fail to process the first
 	// records in the received poll (`maxPollRecords`).
-	// Next, the context is cancelled and the consumer is stopped.
+	// Next, the context is cancelled and the consumer is stopped. However,
+	// the next poll will likely be issued before the goroutine that does
+	// the record processing starts, causing the next poll to records to
+	// be passed down to the processor.
 	// A new consumer is created which takes over from the last committed
 	// offset.
 	// Depending on the DeliveryType some or none records should be lost.
@@ -248,7 +258,7 @@ func TestConsumerDelivery(t *testing.T) {
 			maxPollRecords: 10,
 			lastRecords:    2,
 
-			processed: 12, // All records are re-processed.
+			processed: 2,  // Initial fetch records are lost (no reprocessing).
 			errored:   10, // The initial batch errors.
 		},
 		"30_produced_2_poll_ALOD": {
@@ -257,7 +267,7 @@ func TestConsumerDelivery(t *testing.T) {
 			maxPollRecords: 2,
 			lastRecords:    10,
 
-			processed: 30, // All records are processed.
+			processed: 28, // All records are processed, except the first two.
 			errored:   2,  // The initial batch errors.
 		},
 		"12_produced_1_poll_ALOD": {
@@ -266,23 +276,23 @@ func TestConsumerDelivery(t *testing.T) {
 			maxPollRecords: 1,
 			lastRecords:    11,
 
-			processed: 12,
+			processed: 11, // The initial record is lost.
 			errored:   1,
 		},
-		"1_produced_1_poll_ALOD": {
+		"2_produced_1_poll_ALOD": {
 			deliveryType:   apmqueue.AtLeastOnceDeliveryType,
 			initialRecords: 1,
 			maxPollRecords: 1,
-			lastRecords:    0,
+			lastRecords:    1,
 
-			processed: 1,
+			processed: 1, // The initial record is lost.
 			errored:   1,
 		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			client, addrs := newClusterWithTopics(t, 2, "name_space-topic")
-			baseLogger := zapTest(t)
+			baseLogger := zapTest(t, withZapLevel(zapcore.DebugLevel))
 
 			var expected atomic.Int32
 			var processed atomic.Int32
@@ -297,10 +307,14 @@ func TestConsumerDelivery(t *testing.T) {
 						return errors.New("extra records are lost")
 					}
 
+					// NOTE(marclop): Read the ConsumerConfig.Delivery field to determine
+					// the expected behavior of the consumer.
+					defer r.Done()
 					defer fn()
 					select {
 					// Records are marked as processed on receive processRecord.
 					case <-processRecord:
+						// Mark the record as processed.
 						processed.Add(1)
 					// Records are marked as failed on receive failRecord.
 					case <-failRecord:
@@ -322,6 +336,7 @@ func TestConsumerDelivery(t *testing.T) {
 					Namespace: "name_space",
 				},
 				Delivery:             tc.deliveryType,
+				CommitInterval:       50 * time.Millisecond,
 				Topics:               []apmqueue.Topic{"topic"},
 				GroupID:              "groupid",
 				MaxPollRecords:       tc.maxPollRecords,
@@ -352,6 +367,14 @@ func TestConsumerDelivery(t *testing.T) {
 				}
 			}()
 
+			defer func() {
+				if !t.Failed() {
+					return
+				}
+				t.Logf("got: %d events errored, %d processed, want: %d errored, %d processed",
+					errored.Load(), processed.Load(), tc.errored, tc.processed,
+				)
+			}()
 			// Wait until the processor function is called.
 			// The first event is processed and after the context is canceled,
 			// the partition consumers are also stopped. Fetching and record
@@ -359,13 +382,21 @@ func TestConsumerDelivery(t *testing.T) {
 			// records while waiting for `failRecord`.
 			// For AMOD, the offsets are committed after being fetched, which
 			// means that records may be lost before they reach the Processor.
+			var err error
+			closed := make(chan struct{})
 			select {
 			case failRecord <- struct{}{}:
+				started := make(chan struct{})
+				go func() {
+					defer close(closed)
+					started <- struct{}{}
+					err = consumer.Close()
+				}()
+				<-started
 				close(failRecord)
 			case <-time.After(time.Second):
 				t.Fatal("timed out waiting for consumer to process event")
 			}
-			require.NoError(t, consumer.Close())
 
 			select {
 			case <-consumerDone:
@@ -373,12 +404,17 @@ func TestConsumerDelivery(t *testing.T) {
 				t.Fatal("timed out waiting for consumer to close")
 			}
 
+			select {
+			case <-closed:
+			case <-time.After(time.Second):
+				t.Fatal("timed out waiting for consumer to close")
+			}
+			// Ensure consumer.Close() didn't return an error.
+			require.NoError(t, err)
+
 			assert.Eventually(t, func() bool {
 				return processed.Load() == 0 && errored.Load() == tc.errored
 			}, time.Second, time.Millisecond)
-			t.Logf("got: %d events errored, %d processed, want: %d errored, %d processed",
-				errored.Load(), processed.Load(), tc.errored, tc.processed,
-			)
 
 			// Start a new consumer in the background and then produce
 			ctx, cancel = context.WithCancel(context.Background())
@@ -424,9 +460,16 @@ func TestConsumerDelivery(t *testing.T) {
 				// didn't affect the record count.
 				return processed.Load() == tc.processed && errored.Load() == tc.errored
 			}, 2*time.Second, time.Millisecond)
-			t.Logf("got: %d events errored, %d processed, want: %d errored, %d processed",
-				errored.Load(), processed.Load(), tc.errored, tc.processed,
-			)
+
+			require.NoError(t, consumer.Close())
+
+			ctx, cancel = context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
+			assert.Equal(t, map[string]int64{
+				"name_space-topic": int64(tc.initialRecords) + int64(tc.lastRecords),
+			}, getComittedOffsets(
+				ctx, t, kadm.NewClient(client), cfg.GroupID,
+			))
 		})
 	}
 }
@@ -457,11 +500,14 @@ func TestConsumerGracefulShutdown(t *testing.T) {
 			MaxPollRecords: records,
 			Delivery:       dt,
 			Processor: apmqueue.ProcessorFunc(func(ctx context.Context, r apmqueue.Record) error {
+				t.Log("processed record")
+				defer r.Done()
 				select {
 				case <-ctx.Done():
 					errored.Add(1)
 					return ctx.Err()
 				case <-process:
+					r.Done()
 					processed.Add(1)
 					processedRecord <- struct{}{}
 				}
@@ -480,6 +526,7 @@ func TestConsumerGracefulShutdown(t *testing.T) {
 		for i := 0; i < records; i++ {
 			produceRecord(ctx, t, client, &kgo.Record{Topic: "topic", Value: []byte("content")})
 		}
+		t.Log("waiting for records to be consumed")
 		for i := 0; i < records; i++ {
 			select {
 			case process <- struct{}{}:
@@ -490,6 +537,7 @@ func TestConsumerGracefulShutdown(t *testing.T) {
 		}
 		assert.NoError(t, consumer.Close())
 
+		t.Log("waiting for consumer to finish")
 		select {
 		case <-consumerDone:
 		case <-time.After(time.Second):
@@ -789,6 +837,7 @@ func TestConsumerConfigFinalizer(t *testing.T) {
 			MaxPollBytes:          1 << 20,
 			MaxPollPartitionBytes: 1 << 20,
 			BrokerMaxReadBytes:    1 << 21,
+			CommitInterval:        time.Second,
 		}, cfg)
 	})
 	t.Run("MaxPollBytes set to 1 << 28", func(t *testing.T) {
@@ -811,6 +860,7 @@ func TestConsumerConfigFinalizer(t *testing.T) {
 			MaxPollBytes:          1 << 28,
 			MaxPollPartitionBytes: 1 << 28,
 			BrokerMaxReadBytes:    1 << 29,
+			CommitInterval:        time.Second,
 		}, cfg)
 	})
 	t.Run("MaxPollBytes set to 1 << 29", func(t *testing.T) {
@@ -833,6 +883,7 @@ func TestConsumerConfigFinalizer(t *testing.T) {
 			MaxPollBytes:          1 << 29,
 			MaxPollPartitionBytes: 1 << 29,
 			BrokerMaxReadBytes:    1 << 30,
+			CommitInterval:        time.Second,
 		}, cfg)
 	})
 	t.Run("MaxPollBytes set to 1 << 30", func(t *testing.T) {
@@ -855,6 +906,7 @@ func TestConsumerConfigFinalizer(t *testing.T) {
 			MaxPollBytes:          1 << 30,
 			MaxPollPartitionBytes: 1 << 30,
 			BrokerMaxReadBytes:    1 << 30,
+			CommitInterval:        time.Second,
 		}, cfg)
 	})
 	t.Run("MaxPollBytes set to 1 << 31-1", func(t *testing.T) {
@@ -877,6 +929,7 @@ func TestConsumerConfigFinalizer(t *testing.T) {
 			MaxPollBytes:          1 << 30,
 			MaxPollPartitionBytes: 1 << 30,
 			BrokerMaxReadBytes:    1 << 30,
+			CommitInterval:        time.Second,
 		}, cfg)
 	})
 	t.Run("BrokerMaxReadBytes is less than MaxPollBytes", func(t *testing.T) {
@@ -892,42 +945,4 @@ func TestConsumerConfigFinalizer(t *testing.T) {
 		err := cfg.finalize()
 		assert.EqualError(t, err, "kafka: BrokerMaxReadBytes (1) cannot be less than MaxPollBytes (1073741824)")
 	})
-}
-
-func assertNotNilOptions(t testing.TB, cfg *ConsumerConfig) {
-	t.Helper()
-
-	assert.NotNil(t, cfg.Processor)
-	cfg.Processor = nil
-	assert.NotNil(t, cfg.Logger)
-	cfg.Logger = nil
-	assert.NotNil(t, cfg.TopicAttributeFunc)
-	cfg.TopicAttributeFunc = nil
-}
-
-func newConsumer(t testing.TB, cfg ConsumerConfig) *Consumer {
-	if cfg.MaxPollWait <= 0 {
-		// Lower MaxPollWait, ShutdownGracePeriod to speed up execution.
-		cfg.MaxPollWait = 50 * time.Millisecond
-		cfg.ShutdownGracePeriod = time.Second
-	}
-	consumer, err := NewConsumer(cfg)
-	require.NoError(t, err)
-	t.Cleanup(func() {
-		assert.NoError(t, consumer.Close())
-	})
-	return consumer
-}
-
-func produceRecord(ctx context.Context, t testing.TB, c *kgo.Client, r *kgo.Record) {
-	t.Helper()
-	results := c.ProduceSync(ctx, r)
-	assert.NoError(t, results.FirstErr())
-	r, err := results.First()
-	assert.NoError(t, err)
-	assert.NotNil(t, r)
-}
-
-func zapTest(t testing.TB) *zap.Logger {
-	return zaptest.NewLogger(t, zaptest.Level(zapcore.InfoLevel))
 }

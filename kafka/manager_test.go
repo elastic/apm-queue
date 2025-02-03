@@ -28,7 +28,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/twmb/franz-go/pkg/kerr"
-	"github.com/twmb/franz-go/pkg/kfake"
 	"github.com/twmb/franz-go/pkg/kmsg"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -626,18 +625,4 @@ func TestManagerMetrics(t *testing.T) {
 	spans := exp.GetSpans()
 	require.Len(t, spans, 1)
 	assert.Equal(t, "GatherMetrics", spans[0].Name)
-}
-
-func newFakeCluster(t testing.TB) (*kfake.Cluster, CommonConfig) {
-	cluster, err := kfake.NewCluster(
-		// Just one broker to simplify dealing with sharded requests.
-		kfake.NumBrokers(1),
-	)
-	require.NoError(t, err)
-	t.Cleanup(cluster.Close)
-	return cluster, CommonConfig{
-		Brokers:   cluster.ListenAddrs(),
-		Logger:    zap.NewNop(),
-		Namespace: "name_space",
-	}
 }
