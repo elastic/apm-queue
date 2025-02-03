@@ -12,12 +12,6 @@ spec:
       labels:
         app.kubernetes.io/name: loadgen
     spec:
-      volumes:
-        # Optionally mount gcp-credentials for non-cloud producers.
-        - name: gcp-credentials
-          secret:
-            secretName: gcp-dev-credentials
-            optional: true
       containers:
         - image: loadgen
           name: loadgen
@@ -28,11 +22,6 @@ spec:
             requests:
               cpu: 200m
               memory: 200Mi
-          volumeMounts:
-            - name: gcp-credentials
-              mountPath: /secrets/key.json
-              subPath: key.json
-              readOnly: true
           env:
             - name: REPLAY
               value: "{{.Values.replay_count | default "10000" }}"
@@ -48,9 +37,3 @@ spec:
               value: "{{.Values.topic_prefix}}"
             - name: OUTPUT_ADDRESS
               value: "{{(.Values.kafka).brokers}}"
-            - name: GCLOUD_PROJECT_ID
-              value: "{{(.Values.gcp).project_id}}"
-            - name: GCLOUD_REGION
-              value: "{{(.Values.gcp).region}}"
-            - name: GOOGLE_APPLICATION_CREDENTIALS
-              value: /secrets/key.json

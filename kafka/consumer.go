@@ -452,7 +452,7 @@ func (c *consumer) assigned(_ context.Context, client *kgo.Client, assigned map[
 			}
 
 			pc := newPartitionConsumer(c.ctx, client, c.processor,
-				c.delivery, t, logger,
+				c.delivery, t, partition, logger,
 			)
 			c.assignments[topicPartition{topic: topic, partition: partition}] = pc
 		}
@@ -555,6 +555,7 @@ func (c *consumer) OnFetchRecordBuffered(r *kgo.Record) {
 	}
 }
 
+// partitionConsumer now manages offsets with offsetTracker for asynchronous commits.
 type pc struct {
 	topic     apmqueue.Topic
 	g         errgroup.Group
@@ -563,6 +564,8 @@ type pc struct {
 	processor apmqueue.Processor
 	client    *kgo.Client
 	ctx       context.Context
+	tracker   *apmqueue.OffsetTracker[kgo.EpochOffset]
+	partition int32
 }
 
 func newPartitionConsumer(ctx context.Context,
@@ -570,6 +573,7 @@ func newPartitionConsumer(ctx context.Context,
 	processor apmqueue.Processor,
 	delivery apmqueue.DeliveryType,
 	topic string,
+	partition int32,
 	logger *zap.Logger,
 ) *pc {
 	c := pc{
@@ -579,20 +583,25 @@ func newPartitionConsumer(ctx context.Context,
 		processor: processor,
 		delivery:  delivery,
 		logger:    logger,
+		tracker:   apmqueue.NewOffsetTracker[kgo.EpochOffset](), // track offsets
 	}
 	// Only allow calls to processor.Process to happen serially.
 	c.g.SetLimit(1)
 	return &c
 }
 
-// consumeTopicPartition processes the records for a topic and partition. The
-// records will be processed asynchronously.
+// consumeRecords registers offsets in offsetTracker, passes "ack" callbacks,
+// and commits the highest contiguous offset whenever an offset finishes.
 func (c *pc) consumeRecords(ftp kgo.FetchTopicPartition) {
 	c.g.Go(func() error {
-		// Stores the last processed record. Default to -1 for cases where
-		// only the first record is received.
-		last := -1
-		for i, msg := range ftp.Records {
+		for _, msg := range ftp.Records {
+			c.tracker.RegisterOffset(apmqueue.OffsetStatus[kgo.EpochOffset]{
+				T: kgo.EpochOffset{
+					Offset: msg.Offset,
+					Epoch:  msg.LeaderEpoch,
+				},
+				Offset: msg.Offset,
+			})
 			meta := make(map[string]string, len(msg.Headers))
 			for _, h := range msg.Headers {
 				meta[h.Key] = string(h.Value)
@@ -604,9 +613,9 @@ func (c *pc) consumeRecords(ftp kgo.FetchTopicPartition) {
 				Partition:   msg.Partition,
 				OrderingKey: msg.Key,
 				Value:       msg.Value,
+				Offset:      msg.Offset,
+				Tracker:     c.tracker,
 			}
-			// If a record can't be processed, no retries are attempted and it
-			// may be lost. https://github.com/elastic/apm-queue/issues/118.
 			if err := c.processor.Process(processCtx, record); err != nil {
 				c.logger.Error("data loss: unable to process event",
 					zap.Error(err),
@@ -618,25 +627,24 @@ func (c *pc) consumeRecords(ftp kgo.FetchTopicPartition) {
 					continue
 				}
 			}
-			last = i
-		}
-		// Commit the last record offset when one or more records are processed
-		// and the delivery guarantee is set to AtLeastOnceDeliveryType.
-		if c.delivery == apmqueue.AtLeastOnceDeliveryType && last >= 0 {
-			lastRecord := ftp.Records[last]
-			if err := c.client.CommitRecords(c.ctx, lastRecord); err != nil {
-				c.logger.Error("unable to commit records",
-					zap.Error(err),
-					zap.Int64("offset", lastRecord.Offset),
-				)
-			} else if len(ftp.Records) > 0 {
-				c.logger.Info("committed",
-					zap.Int64("offset", lastRecord.Offset),
-				)
-			}
+			c.commitOffset(msg)
 		}
 		return nil
 	})
+}
+
+// After the processor calls MarkDone, commit offsets if needed.
+func (c *pc) commitOffset(record *kgo.Record) {
+	if offset := record.Offset; offset <= c.tracker.SafeOffset() {
+		if err := c.client.CommitRecords(c.ctx, record); err != nil {
+			c.logger.Error("unable to commit record",
+				zap.Error(err),
+				zap.Int64("offset", offset),
+			)
+		} else {
+			c.logger.Info("committed", zap.Int64("offset", offset))
+		}
+	}
 }
 
 // wait blocks until all the records have been processed.

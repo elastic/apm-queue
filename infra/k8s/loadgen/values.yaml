@@ -9,7 +9,3 @@ topic_prefix: "prefix"
 
 kafka:
   brokers: ""
-
-gcp:
-  project_id: ""
-  region: ""
