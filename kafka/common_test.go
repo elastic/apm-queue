@@ -24,7 +24,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
-	"encoding/base64"
+	"encoding/pem"
 	"fmt"
 	"math/big"
 	"net"
@@ -341,15 +341,7 @@ func generateValidCACert(t testing.TB) []byte {
 	derBytes, err := x509.CreateCertificate(rand.Reader, &template, &template, &key.PublicKey, key)
 	require.NoError(t, err)
 
-	return pemEncodeCert(derBytes)
-}
-
-func pemEncodeCert(certDER []byte) []byte {
-	return []byte(
-		"-----BEGIN CERTIFICATE-----\n" +
-			base64.StdEncoding.EncodeToString(certDER) +
-			"\n-----END CERTIFICATE-----\n",
-	)
+	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: derBytes})
 }
 
 func TestTLSCACertPath(t *testing.T) {
