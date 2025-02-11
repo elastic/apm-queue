@@ -356,6 +356,7 @@ func TestTLSCACertPath(t *testing.T) {
 		cfg := CommonConfig{Brokers: []string{"broker"}, Logger: zap.NewNop()}
 		require.NoError(t, cfg.finalize())
 		require.NotNil(t, cfg.TLS)
+		require.NotNil(t, cfg.TLS.RootCAs)
 	})
 	t.Run("missing file", func(t *testing.T) {
 		t.Setenv("KAFKA_PLAINTEXT", "")
