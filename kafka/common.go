@@ -228,6 +228,7 @@ func (cfg *CommonConfig) finalize() error {
 				if !rootCa.AppendCertsFromPEM(caCert) {
 					errs = append(errs, errors.New("kafka: failed to append CA cert"))
 				}
+				cfg.TLS.RootCAs = rootCa
 			}
 		}
 	}
