@@ -20,11 +20,14 @@ package kafka
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"net"
 	"os"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
@@ -212,8 +215,27 @@ func (cfg *CommonConfig) finalize() error {
 	case cfg.TLS == nil && cfg.Dialer == nil && os.Getenv("KAFKA_PLAINTEXT") != "true":
 		// Auto-configure TLS from environment variables.
 		cfg.TLS = &tls.Config{}
-		if os.Getenv("KAFKA_TLS_INSECURE") == "true" {
+		tlsInsecure := os.Getenv("KAFKA_TLS_INSECURE") == "true"
+		caCertPath := os.Getenv("KAFKA_TLS_CA_CERT_PATH")
+		if tlsInsecure && caCertPath != "" {
+			errs = append(errs, errors.New(
+				"kafka: cannot set both KAFKA_TLS_INSECURE and KAFKA_TLS_CA_CERT_PATH",
+			))
+			break
+		}
+		if tlsInsecure {
 			cfg.TLS.InsecureSkipVerify = true
+		}
+		if caCertPath != "" {
+			// Auto-configure a dialer that reloads the CA cert when the file
+			// changes.
+			dialFn, err := newCertReloadingDialer(caCertPath, cfg.TLS)
+			if err != nil {
+				errs = append(errs, fmt.Errorf("kafka: error creating dialer with CA cert: %w", err))
+				break
+			}
+			cfg.Dialer = dialFn
+			cfg.TLS = nil
 		}
 	}
 	if cfg.SASL == nil {
@@ -354,4 +376,75 @@ func topicFieldFunc(f TopicLogFieldFunc) TopicLogFieldFunc {
 		}
 		return zap.Skip()
 	}
+}
+
+// newCertReloadingDialer returns a dialer that reloads the CA cert when the
+// file mod time changes.
+func newCertReloadingDialer(caPath string, tlsCfg *tls.Config) (func(ctx context.Context, network, address string) (net.Conn, error), error) {
+	p, err := os.Stat(caPath)
+	if err != nil {
+		return nil, err
+	}
+	dialer := &net.Dialer{Timeout: 10 * time.Second} // default dialer timeout in kgo.
+	cfg := tlsCfg.Clone()
+	caCert, err := os.ReadFile(caPath)
+	if err != nil {
+		return nil, fmt.Errorf("kafka: failed to read CA cert: %w", err)
+	}
+	cfg.RootCAs = x509.NewCertPool()
+	if !cfg.RootCAs.AppendCertsFromPEM(caCert) {
+		return nil, errors.New("kafka: failed to append CA cert")
+	}
+	var certModTS atomic.Int64
+	certModTS.Store(p.ModTime().UnixNano())
+	var mu sync.RWMutex // guards cfg.RootCAs and certModTS
+	return func(ctx context.Context, network, host string) (net.Conn, error) {
+		if p, err := os.Stat(caPath); err == nil {
+			if modTS := certModTS.Load(); p.ModTime().UnixNano() != modTS {
+				if err := func() error { // anonymous function to defer unlock.
+					mu.Lock()
+					defer mu.Unlock()
+					currentModTS := p.ModTime().UnixNano()
+					if modTS := certModTS.Load(); currentModTS != modTS {
+						caCert, err := os.ReadFile(caPath)
+						if err != nil {
+							return fmt.Errorf(
+								"failed to read CA cert on reload: %w", err,
+							)
+						}
+						if len(caCert) == 0 {
+							// Nothing is written to the file yet, it may be in
+							// the process of being written. Return early, since
+							// we cannot reload the cert yet.
+							return nil
+						}
+						cfg.RootCAs = x509.NewCertPool()
+						if !cfg.RootCAs.AppendCertsFromPEM(caCert) {
+							return errors.New("failed to append CA cert on reload")
+						}
+						certModTS.Store(currentModTS)
+					}
+					return nil
+				}(); err != nil {
+					return nil, fmt.Errorf("kafka: %w", err)
+				}
+			}
+		}
+		mu.RLock()
+		c := cfg.Clone()
+		mu.RUnlock()
+		// Copied this pattern from franz-go client.go.
+		// https://github.com/twmb/franz-go/blob/f30c518d6b727b9169a90b8c10e2127301822a3a/pkg/kgo/client.go#L440-L453
+		if c.ServerName == "" {
+			server, _, err := net.SplitHostPort(host)
+			if err != nil {
+				return nil, fmt.Errorf("dialer: unable to split host:port for dialing: %w", err)
+			}
+			c.ServerName = server
+		}
+		return (&tls.Dialer{
+			NetDialer: dialer,
+			Config:    c,
+		}).DialContext(ctx, network, host)
+	}, nil
 }
