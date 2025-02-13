@@ -30,6 +30,8 @@ import (
 	"io"
 	"math/big"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -72,6 +74,17 @@ func TestCommonConfig(t *testing.T) {
 		assertErrors(t, CommonConfig{},
 			"kafka: logger must be set",
 			"kafka: at least one broker must be set",
+		)
+	})
+	t.Run("invalid KAFKA_TLS_INSECURE and KAFKA_TLS_CA_CERT_PATH", func(t *testing.T) {
+		t.Setenv("KAFKA_TLS_INSECURE", "true")
+		t.Setenv("KAFKA_TLS_CA_CERT_PATH", "ca_cert.pem")
+		t.Setenv("KAFKA_PLAINTEXT", "")
+		assertErrors(t, CommonConfig{
+			Brokers: []string{"broker"},
+			Logger:  zap.NewNop(),
+		},
+			"kafka: cannot set both KAFKA_TLS_INSECURE and KAFKA_TLS_CA_CERT_PATH",
 		)
 	})
 
@@ -330,7 +343,7 @@ func TestTopicFieldFunc(t *testing.T) {
 }
 
 // generateValidCACert creates a valid self-signed CA certificate in PEM format.
-func generateValidCACert(t testing.TB) ([]byte, *x509.Certificate, *rsa.PrivateKey) {
+func generateValidCACert(t testing.TB) []byte {
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	require.NoError(t, err)
 
@@ -347,7 +360,7 @@ func generateValidCACert(t testing.TB) ([]byte, *x509.Certificate, *rsa.PrivateK
 	derBytes, err := x509.CreateCertificate(rand.Reader, &template, &template, &key.PublicKey, key)
 	require.NoError(t, err)
 
-	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: derBytes}), &template, key
+	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: derBytes})
 }
 
 func TestTLSCACertPath(t *testing.T) {
@@ -355,7 +368,7 @@ func TestTLSCACertPath(t *testing.T) {
 		t.Setenv("KAFKA_PLAINTEXT", "") // clear plaintext mode
 
 		tempFile := filepath.Join(t.TempDir(), "ca_cert.pem")
-		validCert, _, _ := generateValidCACert(t)
+		validCert := generateValidCACert(t)
 		err := os.WriteFile(tempFile, validCert, 0644)
 		require.NoError(t, err)
 
@@ -390,59 +403,23 @@ func TestTLSCACertPath(t *testing.T) {
 }
 
 func TestTLSHotReload(t *testing.T) {
-	tempFile := filepath.Join(t.TempDir(), fmt.Sprintf("%s.pem", rand.Text()))
-	caCertBytes, ca, key := generateValidCACert(t)
-	err := os.WriteFile(tempFile, caCertBytes, 0644)
-	require.NoError(t, err)
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(srv.Close)
+
+	// Get the certificate from the test server and encode it in PEM format.
+	certPEM := pem.EncodeToMemory(&pem.Block{
+		Type: "CERTIFICATE", Bytes: srv.TLS.Certificates[0].Certificate[0],
+	})
+	tempFile := filepath.Join(t.TempDir(), "cert.pem")
+	require.NoError(t, os.WriteFile(tempFile, certPEM, 0644))
 
 	dialFunc, err := newCertReloadingDialer(tempFile, &tls.Config{})
 	require.NoError(t, err)
-	require.NotNil(t, dialFunc)
-
-	tmpl := x509.Certificate{
-		SerialNumber: big.NewInt(2),
-		Subject:      pkix.Name{CommonName: "localhost"},
-		NotBefore:    time.Now().Add(-time.Hour),
-		NotAfter:     time.Now().Add(time.Hour),
-		KeyUsage:     x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
-		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-		IPAddresses:  []net.IP{net.ParseIP("127.0.0.1")},
-	}
-
-	derBytes, err := x509.CreateCertificate(rand.Reader, &tmpl, ca, &key.PublicKey, key)
-	require.NoError(t, err)
-
-	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: derBytes})
-	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})
-
-	tlsCert, err := tls.X509KeyPair(certPEM, keyPEM)
-	require.NoError(t, err)
-
-	// Spawn a TLS TCP server using the generated certificate.
-	ln, err := tls.Listen("tcp", "localhost:0", &tls.Config{Certificates: []tls.Certificate{tlsCert}})
-	addr := ln.Addr()
-	require.NoError(t, err)
-	timeout := time.After(time.Second)
-	go func() {
-		defer ln.Close()
-		for {
-			select {
-			case <-timeout:
-				return
-			default:
-			}
-			conn, err := ln.Accept()
-			if err != nil {
-				return
-			}
-			if _, err := conn.Read(make([]byte, 5)); err != nil {
-				continue
-			}
-			conn.Close()
-		}
-	}()
 
 	var wg sync.WaitGroup
+	addr := srv.Listener.Addr()
 	ctx, cancel := context.WithCancel(context.Background())
 	for i := 0; i < runtime.GOMAXPROCS(0)*4; i++ {
 		wg.Add(1)
@@ -454,20 +431,18 @@ func TestTLSHotReload(t *testing.T) {
 					return
 				case <-time.After(time.Millisecond):
 					conn, err := dialFunc(ctx, addr.Network(), addr.String())
-					if !errors.Is(err, io.EOF) {
+					if err != nil && !errors.Is(err, io.EOF) {
 						select {
 						case <-ctx.Done():
-							continue
+							return
 						default:
 						}
 						// Ensure no TLS errors occur.
 						require.NoError(t, err)
 					}
 					if conn != nil {
-						_, err := conn.Write([]byte("hello"))
-						require.NoError(t, err)
+						conn.Close()
 					}
-					conn.Close()
 				}
 			}
 		}()
@@ -477,8 +452,7 @@ func TestTLSHotReload(t *testing.T) {
 
 	for i := 0; i < runtime.GOMAXPROCS(0); i++ {
 		// Update the file, so that the CA cert is reloaded when dialer is called again.
-		err = os.WriteFile(tempFile, caCertBytes, 0644)
-		require.NoError(t, err)
+		require.NoError(t, os.WriteFile(tempFile, certPEM, 0644))
 		<-time.After(50 * time.Millisecond)
 	}
 

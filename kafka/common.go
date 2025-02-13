@@ -215,15 +215,24 @@ func (cfg *CommonConfig) finalize() error {
 	case cfg.TLS == nil && cfg.Dialer == nil && os.Getenv("KAFKA_PLAINTEXT") != "true":
 		// Auto-configure TLS from environment variables.
 		cfg.TLS = &tls.Config{}
-		if os.Getenv("KAFKA_TLS_INSECURE") == "true" {
+		tlsInsecure := os.Getenv("KAFKA_TLS_INSECURE") == "true"
+		caCertPath := os.Getenv("KAFKA_TLS_CA_CERT_PATH")
+		if tlsInsecure && caCertPath != "" {
+			errs = append(errs, errors.New(
+				"kafka: cannot set both KAFKA_TLS_INSECURE and KAFKA_TLS_CA_CERT_PATH",
+			))
+			break
+		}
+		if tlsInsecure {
 			cfg.TLS.InsecureSkipVerify = true
 		}
-		if caCertPath := os.Getenv("KAFKA_TLS_CA_CERT_PATH"); caCertPath != "" {
+		if caCertPath != "" {
 			// Auto-configure a dialer that reloads the CA cert when the file
 			// changes.
 			dialFn, err := newCertReloadingDialer(caCertPath, cfg.TLS)
 			if err != nil {
 				errs = append(errs, fmt.Errorf("kafka: error creating dialer with CA cert: %w", err))
+				break
 			}
 			cfg.Dialer = dialFn
 			cfg.TLS = nil
@@ -376,7 +385,7 @@ func newCertReloadingDialer(caPath string, tlsCfg *tls.Config) (func(ctx context
 	if err != nil {
 		return nil, err
 	}
-	dialer := &net.Dialer{Timeout: 10 * time.Second}
+	dialer := &net.Dialer{Timeout: 10 * time.Second} // default dialer timeout in kgo.
 	cfg := tlsCfg.Clone()
 	caCert, err := os.ReadFile(caPath)
 	if err != nil {
@@ -396,12 +405,18 @@ func newCertReloadingDialer(caPath string, tlsCfg *tls.Config) (func(ctx context
 					mu.Lock()
 					defer mu.Unlock()
 					currentModTS := p.ModTime().UnixNano()
-					if modTs := certModTS.Load(); currentModTS != modTs {
+					if modTS := certModTS.Load(); currentModTS != modTS {
 						caCert, err := os.ReadFile(caPath)
 						if err != nil {
 							return fmt.Errorf(
 								"failed to read CA cert on reload: %w", err,
 							)
+						}
+						if len(caCert) == 0 {
+							// Nothing is written to the file yet, it may be in
+							// the process of being written. Return early, since
+							// we cannot reload the cert yet.
+							return nil
 						}
 						cfg.RootCAs = x509.NewCertPool()
 						if !cfg.RootCAs.AppendCertsFromPEM(caCert) {
