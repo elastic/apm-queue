@@ -19,12 +19,24 @@ package kafka
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
 	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
+	"errors"
 	"fmt"
+	"io"
+	"math/big"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -62,6 +74,17 @@ func TestCommonConfig(t *testing.T) {
 		assertErrors(t, CommonConfig{},
 			"kafka: logger must be set",
 			"kafka: at least one broker must be set",
+		)
+	})
+	t.Run("invalid KAFKA_TLS_INSECURE and KAFKA_TLS_CA_CERT_PATH", func(t *testing.T) {
+		t.Setenv("KAFKA_TLS_INSECURE", "true")
+		t.Setenv("KAFKA_TLS_CA_CERT_PATH", "ca_cert.pem")
+		t.Setenv("KAFKA_PLAINTEXT", "")
+		assertErrors(t, CommonConfig{
+			Brokers: []string{"broker"},
+			Logger:  zap.NewNop(),
+		},
+			"kafka: cannot set both KAFKA_TLS_INSECURE and KAFKA_TLS_CA_CERT_PATH",
 		)
 	})
 
@@ -317,4 +340,122 @@ func TestTopicFieldFunc(t *testing.T) {
 		})("c")
 		assert.Equal(t, zap.String("topic", "c"), topic)
 	})
+}
+
+// generateValidCACert creates a valid self-signed CA certificate in PEM format.
+func generateValidCACert(t testing.TB) []byte {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+
+	template := x509.Certificate{
+		SerialNumber:          big.NewInt(int64(time.Now().Year())),
+		Subject:               pkix.Name{CommonName: "Test CA"},
+		NotBefore:             time.Now().Add(-time.Hour),
+		NotAfter:              time.Now().Add(time.Hour),
+		IsCA:                  true,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageServerAuth},
+		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
+		BasicConstraintsValid: true,
+	}
+	derBytes, err := x509.CreateCertificate(rand.Reader, &template, &template, &key.PublicKey, key)
+	require.NoError(t, err)
+
+	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: derBytes})
+}
+
+func TestTLSCACertPath(t *testing.T) {
+	t.Run("valid cert", func(t *testing.T) {
+		t.Setenv("KAFKA_PLAINTEXT", "") // clear plaintext mode
+
+		tempFile := filepath.Join(t.TempDir(), "ca_cert.pem")
+		validCert := generateValidCACert(t)
+		err := os.WriteFile(tempFile, validCert, 0644)
+		require.NoError(t, err)
+
+		t.Setenv("KAFKA_TLS_CA_CERT_PATH", tempFile)
+		cfg := CommonConfig{Brokers: []string{"broker"}, Logger: zap.NewNop()}
+		require.NoError(t, cfg.finalize())
+		require.NotNil(t, cfg.Dialer)
+		require.Nil(t, cfg.TLS)
+	})
+	t.Run("missing file", func(t *testing.T) {
+		t.Setenv("KAFKA_PLAINTEXT", "")
+		tempFile := filepath.Join(t.TempDir(), "nonexistent_cert.pem")
+		t.Setenv("KAFKA_TLS_CA_CERT_PATH", tempFile)
+		cfg := CommonConfig{Brokers: []string{"broker"}, Logger: zap.NewNop()}
+		err := cfg.finalize()
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "kafka: error creating dialer with CA cert")
+		require.Contains(t, err.Error(), "no such file or directory")
+	})
+	t.Run("invalid cert", func(t *testing.T) {
+		t.Setenv("KAFKA_PLAINTEXT", "")
+		tempFile := filepath.Join(t.TempDir(), "invalid_cert.pem")
+		err := os.WriteFile(tempFile, []byte("invalid pem data"), 0644)
+		require.NoError(t, err)
+
+		t.Setenv("KAFKA_TLS_CA_CERT_PATH", tempFile)
+		cfg := CommonConfig{Brokers: []string{"broker"}, Logger: zap.NewNop()}
+		err = cfg.finalize()
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "kafka: error creating dialer with CA cert")
+	})
+}
+
+func TestTLSHotReload(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(srv.Close)
+
+	// Get the certificate from the test server and encode it in PEM format.
+	certPEM := pem.EncodeToMemory(&pem.Block{
+		Type: "CERTIFICATE", Bytes: srv.TLS.Certificates[0].Certificate[0],
+	})
+	tempFile := filepath.Join(t.TempDir(), "cert.pem")
+	require.NoError(t, os.WriteFile(tempFile, certPEM, 0644))
+
+	dialFunc, err := newCertReloadingDialer(tempFile, &tls.Config{})
+	require.NoError(t, err)
+
+	var wg sync.WaitGroup
+	addr := srv.Listener.Addr()
+	ctx, cancel := context.WithCancel(context.Background())
+	for i := 0; i < runtime.GOMAXPROCS(0)*4; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(time.Millisecond):
+					conn, err := dialFunc(ctx, addr.Network(), addr.String())
+					if err != nil && !errors.Is(err, io.EOF) {
+						select {
+						case <-ctx.Done():
+							return
+						default:
+						}
+						// Ensure no TLS errors occur.
+						require.NoError(t, err)
+					}
+					if conn != nil {
+						conn.Close()
+					}
+				}
+			}
+		}()
+	}
+
+	<-time.After(200 * time.Millisecond)
+
+	for i := 0; i < runtime.GOMAXPROCS(0); i++ {
+		// Update the file, so that the CA cert is reloaded when dialer is called again.
+		require.NoError(t, os.WriteFile(tempFile, certPEM, 0644))
+		<-time.After(50 * time.Millisecond)
+	}
+
+	cancel()  // allow go routines to exit
+	wg.Wait() // wait for all go routines to finish
 }
