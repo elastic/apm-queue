@@ -665,7 +665,7 @@ func TestCertificateHotReloadErrors(t *testing.T) {
 	defer srv.Close()
 
 	// Create dialer with client certificate hot reloading
-	dialFunc, err := newCertReloadingDialer(caFile, certFile, keyFile, time.Millisecond*50, &tls.Config{})
+	dialFunc, err := newCertReloadingDialer(caFile, certFile, keyFile, time.Millisecond*10, &tls.Config{})
 	require.NoError(t, err)
 
 	// First connection should succeed
@@ -691,7 +691,6 @@ func TestCertificateHotReloadErrors(t *testing.T) {
 
 		// Restore valid certificate
 		require.NoError(t, os.WriteFile(certFile, clientCertPEM, 0644))
-		time.Sleep(100 * time.Millisecond)
 	})
 
 	t.Run("key_cert_mismatch", func(t *testing.T) {
@@ -710,7 +709,6 @@ func TestCertificateHotReloadErrors(t *testing.T) {
 
 		// Restore matching key and certificate
 		require.NoError(t, os.WriteFile(certFile, clientCertPEM, 0644))
-		time.Sleep(100 * time.Millisecond)
 	})
 }
 
