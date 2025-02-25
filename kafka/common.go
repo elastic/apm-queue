@@ -218,6 +218,10 @@ func (cfg *CommonConfig) finalize() error {
 		cfg.TLS = &tls.Config{}
 		tlsInsecure := os.Getenv("KAFKA_TLS_INSECURE") == "true"
 		caCertPath := os.Getenv("KAFKA_TLS_CA_CERT_PATH")
+		if overriddenServerName, exists := os.LookupEnv("KAFKA_TLS_SERVER_NAME"); exists {
+			cfg.Logger.Debug("overriding TLS server name", zap.String("server_name", overriddenServerName))
+			cfg.TLS.ServerName = overriddenServerName
+		}
 		if tlsInsecure && (caCertPath != "" || certPath != "" || keyPath != "") {
 			errs = append(errs, errors.New(
 				"kafka: cannot set KAFKA_TLS_INSECURE when either of KAFKA_TLS_CA_CERT_PATH, KAFKA_TLS_CERT_PATH, or KAFKA_TLS_KEY_PATH are set",
@@ -240,6 +244,8 @@ func (cfg *CommonConfig) finalize() error {
 			cfg.TLS = nil
 		}
 	}
+	// Only configure SASL if it is not already set and when there is no
+	// intention to configure mTLS.
 	if cfg.SASL == nil && certPath == "" && keyPath == "" {
 		saslConfig := saslConfigProperties{
 			Mechanism: os.Getenv("KAFKA_SASL_MECHANISM"),

@@ -203,6 +203,18 @@ aws_session_token=IQoJb3JpZ2luX2IQoJb3JpZ2luX2IQoJb3JpZ2luX2IQoJb3JpZ2luX2IQoJb3
 				Logger:  zap.NewNop(),
 			})
 		})
+
+		t.Run("tls_override_server_name", func(t *testing.T) {
+			t.Setenv("KAFKA_TLS_SERVER_NAME", "overriden.server.name")
+			assertValid(t, CommonConfig{
+				Brokers: []string{"broker"},
+				Logger:  zap.NewNop().Named("kafka"),
+				TLS:     &tls.Config{ServerName: "overriden.server.name"},
+			}, CommonConfig{
+				Brokers: []string{"broker"},
+				Logger:  zap.NewNop(),
+			})
+		})
 	})
 
 	t.Run("configfile_from_env", func(t *testing.T) {
