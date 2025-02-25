@@ -27,6 +27,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/twmb/franz-go/pkg/kadm"
 	"github.com/twmb/franz-go/pkg/kerr"
 	"github.com/twmb/franz-go/pkg/kfake"
 	"github.com/twmb/franz-go/pkg/kmsg"
@@ -626,6 +627,80 @@ func TestManagerMetrics(t *testing.T) {
 	spans := exp.GetSpans()
 	require.Len(t, spans, 1)
 	assert.Equal(t, "GatherMetrics", spans[0].Name)
+}
+
+func TestManagerCreateACLs(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		cluster, commonConfig := newFakeCluster(t)
+		// Test successful ACL creation
+		cluster.ControlKey(kmsg.CreateACLs.Int16(), func(req kmsg.Request) (kmsg.Response, error, bool) {
+			return &kmsg.CreateACLsResponse{
+				Version: req.GetVersion(),
+				Results: []kmsg.CreateACLsResponseResult{
+					{}, {}, // Empty result means success
+				},
+			}, nil, true
+		})
+		m, err := NewManager(ManagerConfig{CommonConfig: commonConfig})
+		require.NoError(t, err)
+		t.Cleanup(func() { m.Close() })
+
+		acls := kadm.NewACLs().
+			Allow("User:*").
+			Topics("topic").
+			Operations(kadm.OpRead, kadm.OpWrite). // More specific operations instead of OpAll
+			ResourcePatternType(kadm.ACLPatternPrefixed)
+
+		// `kfake` does not support the ApiVersions API, so we need to
+		// manually add the CreateACLs API to the ApiVersions response.
+		cluster.ControlKey(kmsg.ApiVersions.Int16(), func(req kmsg.Request) (kmsg.Response, error, bool) {
+			return &kmsg.ApiVersionsResponse{
+				Version: req.GetVersion(),
+				ApiKeys: []kmsg.ApiVersionsResponseApiKey{
+					{ApiKey: kmsg.CreateACLs.Int16(), MaxVersion: 3},
+				},
+			}, nil, true
+		})
+
+		err = m.CreateACLs(context.Background(), acls)
+		assert.NoError(t, err)
+	})
+	t.Run("Partial Failure", func(t *testing.T) {
+		cluster, commonConfig := newFakeCluster(t)
+		respErr := kerr.InvalidPrincipalType
+		// Test unsuccessful ACL creation
+		cluster.ControlKey(kmsg.CreateACLs.Int16(), func(req kmsg.Request) (kmsg.Response, error, bool) {
+			return &kmsg.CreateACLsResponse{
+				Version: req.GetVersion(),
+				Results: []kmsg.CreateACLsResponseResult{
+					{ErrorCode: respErr.Code, ErrorMessage: &respErr.Message},
+				},
+			}, nil, true
+		})
+		m, err := NewManager(ManagerConfig{CommonConfig: commonConfig})
+		require.NoError(t, err)
+		t.Cleanup(func() { m.Close() })
+
+		acls := kadm.NewACLs().
+			Allow("User:*").
+			Topics("topic").
+			Operations(kadm.OpWrite). // More specific operations instead of OpAll
+			ResourcePatternType(kadm.ACLPatternPrefixed)
+
+		// `kfake` does not support the ApiVersions API, so we need to
+		// manually add the CreateACLs API to the ApiVersions response.
+		cluster.ControlKey(kmsg.ApiVersions.Int16(), func(req kmsg.Request) (kmsg.Response, error, bool) {
+			return &kmsg.ApiVersionsResponse{
+				Version: req.GetVersion(),
+				ApiKeys: []kmsg.ApiVersionsResponseApiKey{
+					{ApiKey: kmsg.CreateACLs.Int16(), MaxVersion: 3},
+				},
+			}, nil, true
+		})
+
+		err = m.CreateACLs(context.Background(), acls)
+		assert.EqualError(t, err, respErr.Error())
+	})
 }
 
 func newFakeCluster(t testing.TB) (*kfake.Cluster, CommonConfig) {
