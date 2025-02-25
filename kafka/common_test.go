@@ -84,7 +84,7 @@ func TestCommonConfig(t *testing.T) {
 			Brokers: []string{"broker"},
 			Logger:  zap.NewNop(),
 		},
-			"kafka: cannot set both KAFKA_TLS_INSECURE and KAFKA_TLS_CA_CERT_PATH, KAFKA_TLS_CERT_PATH, or KAFKA_TLS_KEY_PATH",
+			"kafka: cannot set KAFKA_TLS_INSECURE when either of KAFKA_TLS_CA_CERT_PATH, KAFKA_TLS_CERT_PATH, or KAFKA_TLS_KEY_PATH are set",
 		)
 	})
 
