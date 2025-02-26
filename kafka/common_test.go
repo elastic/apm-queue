@@ -84,7 +84,7 @@ func TestCommonConfig(t *testing.T) {
 			Brokers: []string{"broker"},
 			Logger:  zap.NewNop(),
 		},
-			"kafka: cannot set both KAFKA_TLS_INSECURE and KAFKA_TLS_CA_CERT_PATH",
+			"kafka: cannot set KAFKA_TLS_INSECURE when either of KAFKA_TLS_CA_CERT_PATH, KAFKA_TLS_CERT_PATH, or KAFKA_TLS_KEY_PATH are set",
 		)
 	})
 
@@ -198,6 +198,18 @@ aws_session_token=IQoJb3JpZ2luX2IQoJb3JpZ2luX2IQoJb3JpZ2luX2IQoJb3JpZ2luX2IQoJb3
 				Brokers: []string{"broker"},
 				Logger:  zap.NewNop().Named("kafka"),
 				TLS:     &tls.Config{InsecureSkipVerify: true},
+			}, CommonConfig{
+				Brokers: []string{"broker"},
+				Logger:  zap.NewNop(),
+			})
+		})
+
+		t.Run("tls_override_server_name", func(t *testing.T) {
+			t.Setenv("KAFKA_TLS_SERVER_NAME", "overriden.server.name")
+			assertValid(t, CommonConfig{
+				Brokers: []string{"broker"},
+				Logger:  zap.NewNop().Named("kafka"),
+				TLS:     &tls.Config{ServerName: "overriden.server.name"},
 			}, CommonConfig{
 				Brokers: []string{"broker"},
 				Logger:  zap.NewNop(),
@@ -347,16 +359,7 @@ func generateValidCACert(t testing.TB) []byte {
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	require.NoError(t, err)
 
-	template := x509.Certificate{
-		SerialNumber:          big.NewInt(int64(time.Now().Year())),
-		Subject:               pkix.Name{CommonName: "Test CA"},
-		NotBefore:             time.Now().Add(-time.Hour),
-		NotAfter:              time.Now().Add(time.Hour),
-		IsCA:                  true,
-		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageServerAuth},
-		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
-		BasicConstraintsValid: true,
-	}
+	template := newCATemplate()
 	derBytes, err := x509.CreateCertificate(rand.Reader, &template, &template, &key.PublicKey, key)
 	require.NoError(t, err)
 
@@ -402,7 +405,7 @@ func TestTLSCACertPath(t *testing.T) {
 	})
 }
 
-func TestTLSHotReload(t *testing.T) {
+func TestTLSCAHotReload(t *testing.T) {
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -415,7 +418,7 @@ func TestTLSHotReload(t *testing.T) {
 	tempFile := filepath.Join(t.TempDir(), "cert.pem")
 	require.NoError(t, os.WriteFile(tempFile, certPEM, 0644))
 
-	dialFunc, err := newCertReloadingDialer(tempFile, &tls.Config{})
+	dialFunc, err := newCertReloadingDialer(tempFile, "", "", time.Millisecond, &tls.Config{})
 	require.NoError(t, err)
 
 	var wg sync.WaitGroup
@@ -458,4 +461,371 @@ func TestTLSHotReload(t *testing.T) {
 
 	cancel()  // allow go routines to exit
 	wg.Wait() // wait for all go routines to finish
+}
+
+func TestTLSClientCertHotReload(t *testing.T) {
+	// Generate a proper CA certificate
+	caKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+	caTemplate := newCATemplate()
+	caCertDER, err := x509.CreateCertificate(rand.Reader, &caTemplate, &caTemplate, &caKey.PublicKey, caKey)
+	require.NoError(t, err)
+	caCert, err := x509.ParseCertificate(caCertDER)
+	require.NoError(t, err)
+	caCertPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: caCertDER})
+
+	// Generate a server certificate signed by the CA
+	serverKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+	serverTemplate := newLocalMTLSServerTemplate()
+	serverCertDER, err := x509.CreateCertificate(rand.Reader, &serverTemplate, caCert, &serverKey.PublicKey, caKey)
+	require.NoError(t, err)
+	serverCertPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: serverCertDER})
+	serverKeyPEM := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(serverKey)})
+
+	// Generate a client certificate signed by the CA
+	clientKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+	clientTemplate := newClientCert("Initial Cert")
+	clientCertDER, err := x509.CreateCertificate(rand.Reader, &clientTemplate, caCert, &clientKey.PublicKey, caKey)
+	require.NoError(t, err)
+	clientCertPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: clientCertDER})
+	clientKeyPEM := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(clientKey)})
+
+	// Write PEM files for hot reload testing
+	certFile := filepath.Join(t.TempDir(), "client-cert.pem")
+	keyFile := filepath.Join(t.TempDir(), "client-key.pem")
+	caFile := filepath.Join(t.TempDir(), "ca-cert.pem")
+
+	require.NoError(t, os.WriteFile(certFile, clientCertPEM, 0644))
+	require.NoError(t, os.WriteFile(keyFile, clientKeyPEM, 0644))
+	require.NoError(t, os.WriteFile(caFile, caCertPEM, 0644))
+
+	// Create test server with proper TLS configuration
+	serverCert, err := tls.X509KeyPair(serverCertPEM, serverKeyPEM)
+	require.NoError(t, err)
+
+	certPool := x509.NewCertPool()
+	certPool.AppendCertsFromPEM(caCertPEM)
+
+	// Setup the server that requires client certificates
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	// Configure server to require client certificates
+	var clientCertMap = map[string]struct{}{}
+	var mu sync.Mutex
+	srv.TLS = &tls.Config{
+		Certificates: []tls.Certificate{serverCert},
+		ClientCAs:    certPool,
+		ClientAuth:   tls.RequireAndVerifyClientCert,
+		// Verify different client certificates are used.
+		VerifyConnection: func(cs tls.ConnectionState) error {
+			mu.Lock()
+			for _, cert := range cs.PeerCertificates {
+				clientCertMap[cert.Subject.CommonName] = struct{}{}
+			}
+			mu.Unlock()
+			return nil
+		},
+	}
+
+	srv.StartTLS()
+	t.Cleanup(srv.Close)
+
+	// Create dialer with client certificate hot reloading
+	dialFunc, err := newCertReloadingDialer(caFile, certFile, keyFile, time.Millisecond*50, &tls.Config{})
+	require.NoError(t, err)
+
+	// Test the dialer with multiple concurrent connections
+	var wg sync.WaitGroup
+	ctx, cancel := context.WithCancel(context.Background())
+	addr := srv.Listener.Addr()
+	for i := 0; i < runtime.GOMAXPROCS(0)*2; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(time.Millisecond):
+					conn, err := dialFunc(ctx, addr.Network(), addr.String())
+					if err != nil && !errors.Is(err, io.EOF) {
+						select {
+						case <-ctx.Done():
+							return
+						default:
+						}
+						// Ensure no TLS errors occur.
+						require.NoError(t, err)
+					}
+					if conn != nil {
+						conn.Close()
+					}
+				}
+			}
+		}()
+	}
+
+	// Allow some time for connections to be made
+	<-time.After(200 * time.Millisecond)
+
+	// Update client certificate multiple times to test hot reloading
+	for i := 0; i < 3; i++ {
+		// Create new client cert with same key
+		newClientTemplate := newClientCert(fmt.Sprintf("Test Client %d", i+1))
+
+		newClientCertDER, err := x509.CreateCertificate(rand.Reader, &newClientTemplate, caCert, &clientKey.PublicKey, caKey)
+		require.NoError(t, err)
+		newClientCertPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: newClientCertDER})
+
+		// Update cert file
+		require.NoError(t, os.WriteFile(certFile, newClientCertPEM, 0644))
+		<-time.After(200 * time.Millisecond)
+	}
+
+	cancel()  // allow goroutines to exit
+	wg.Wait() // wait for all goroutines to finish
+
+	mu.Lock()
+	assert.Equal(t, 4, len(clientCertMap))
+	assert.Equal(t, clientCertMap, map[string]struct{}{
+		clientTemplate.Subject.CommonName: {},
+		"Test Client 1":                   {},
+		"Test Client 2":                   {},
+		"Test Client 3":                   {},
+	})
+	mu.Unlock()
+}
+
+func TestCertificateExpired(t *testing.T) {
+	// Generate a CA cert
+	caKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+
+	caTemplate := newCATemplate()
+	caCertDER, err := x509.CreateCertificate(rand.Reader, &caTemplate, &caTemplate, &caKey.PublicKey, caKey)
+	require.NoError(t, err)
+	caCert, err := x509.ParseCertificate(caCertDER)
+	require.NoError(t, err)
+
+	// Create an expired client certificate
+	clientKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+	clientTemplate := newClientCert("Client")
+	clientCertDER, err := x509.CreateCertificate(rand.Reader, &clientTemplate, caCert, &clientKey.PublicKey, caKey)
+	require.NoError(t, err)
+
+	// Create PEM files
+	tempDir := t.TempDir()
+	caCertPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: caCertDER})
+	clientCertPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: clientCertDER})
+	clientKeyPEM := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(clientKey)})
+
+	caFile := filepath.Join(tempDir, "ca.pem")
+	certFile := filepath.Join(tempDir, "client.pem")
+	keyFile := filepath.Join(tempDir, "key.pem")
+
+	require.NoError(t, os.WriteFile(caFile, caCertPEM, 0644))
+	require.NoError(t, os.WriteFile(certFile, clientCertPEM, 0644))
+	require.NoError(t, os.WriteFile(keyFile, clientKeyPEM, 0644))
+
+	// This should succeed since we're just loading files
+	dialFunc, err := newCertReloadingDialer(caFile, certFile, keyFile, time.Millisecond*10, &tls.Config{})
+	require.NoError(t, err)
+
+	// But when we use it to connect to a server, it should fail due to expired cert
+	// Create a simple test server
+	srvTpl := newLocalMTLSServerTemplate()
+	srvTpl.NotAfter = time.Now().Add(-time.Minute)
+	serverCert, serverKey, err := generateServerCert(caCert, caKey, srvTpl)
+	require.NoError(t, err)
+	srv := createTLSServer(t, caCertPEM, serverCert, serverKey, tls.RequireAndVerifyClientCert)
+	defer srv.Close()
+
+	// Try to connect - should fail with expired certificate
+	ctx := context.Background()
+	addr := srv.Listener.Addr()
+	_, err = dialFunc(ctx, addr.Network(), addr.String())
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "certificate has expired")
+}
+
+// Test that missing or corrupted files are handled properly during hot reload
+func TestCertificateHotReloadErrors(t *testing.T) {
+	// Generate a valid CA and client certificate
+	caKey, caCert, caCertPEM := generateCA(t)
+	clientKey, _, clientCertPEM := generateClientCert(t, caCert, caKey)
+	clientKeyPEM := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(clientKey)})
+
+	tempDir := t.TempDir()
+	caFile := filepath.Join(tempDir, "ca.pem")
+	certFile := filepath.Join(tempDir, "client.pem")
+	keyFile := filepath.Join(tempDir, "key.pem")
+
+	// Write initial valid files
+	require.NoError(t, os.WriteFile(caFile, caCertPEM, 0644))
+	require.NoError(t, os.WriteFile(certFile, clientCertPEM, 0644))
+	require.NoError(t, os.WriteFile(keyFile, clientKeyPEM, 0644))
+
+	// Create test server that requires client auth
+	serverCert, serverKey, err := generateServerCert(caCert, caKey, newLocalMTLSServerTemplate())
+	require.NoError(t, err)
+	srv := createTLSServer(t, caCertPEM, serverCert, serverKey, tls.RequireAndVerifyClientCert)
+	defer srv.Close()
+
+	// Create dialer with client certificate hot reloading
+	dialFunc, err := newCertReloadingDialer(caFile, certFile, keyFile, time.Millisecond*10, &tls.Config{})
+	require.NoError(t, err)
+
+	// First connection should succeed
+	ctx := context.Background()
+	addr := srv.Listener.Addr()
+	conn, err := dialFunc(ctx, addr.Network(), addr.String())
+	require.NoError(t, err)
+	conn.Close()
+
+	t.Run("corrupt_cert_file", func(t *testing.T) {
+		// Corrupt the certificate file
+		require.NoError(t, os.WriteFile(certFile, []byte("invalid cert data"), 0644))
+
+		// Give time for the hot reload to detect the change
+		time.Sleep(100 * time.Millisecond)
+
+		// Next connection should still work using cached cert
+		conn, err := dialFunc(ctx, addr.Network(), addr.String())
+		require.Error(t, err, "failed to load new certificate: tls: failed to find any PEM data in certificate input")
+		if conn != nil {
+			conn.Close()
+		}
+
+		// Restore valid certificate
+		require.NoError(t, os.WriteFile(certFile, clientCertPEM, 0644))
+	})
+
+	t.Run("key_cert_mismatch", func(t *testing.T) {
+		// Generate a different key pair
+		_, _, newClientCertPEM := generateClientCert(t, caCert, caKey)
+
+		// Update cert but not key - creating a mismatch
+		require.NoError(t, os.WriteFile(certFile, newClientCertPEM, 0644))
+
+		// Give time for the hot reload to detect the change
+		time.Sleep(100 * time.Millisecond)
+
+		// Connection should fail due to key mismatch
+		_, err := dialFunc(ctx, addr.Network(), addr.String())
+		require.Error(t, err)
+
+		// Restore matching key and certificate
+		require.NoError(t, os.WriteFile(certFile, clientCertPEM, 0644))
+	})
+}
+
+// Helper functions for certificate generation
+func generateCA(t testing.TB) (*rsa.PrivateKey, *x509.Certificate, []byte) {
+	caKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+
+	caTemplate := newCATemplate()
+	caCertDER, err := x509.CreateCertificate(rand.Reader, &caTemplate, &caTemplate, &caKey.PublicKey, caKey)
+	require.NoError(t, err)
+	caCert, err := x509.ParseCertificate(caCertDER)
+	require.NoError(t, err)
+
+	caCertPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: caCertDER})
+	return caKey, caCert, caCertPEM
+}
+
+func generateClientCert(t testing.TB, caCert *x509.Certificate, caKey *rsa.PrivateKey) (*rsa.PrivateKey, *x509.Certificate, []byte) {
+	clientKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+
+	clientTemplate := newClientCert("Test Client")
+	clientCertDER, err := x509.CreateCertificate(rand.Reader, &clientTemplate, caCert, &clientKey.PublicKey, caKey)
+	require.NoError(t, err)
+	clientCert, err := x509.ParseCertificate(clientCertDER)
+	require.NoError(t, err)
+
+	clientCertPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: clientCertDER})
+	return clientKey, clientCert, clientCertPEM
+}
+
+func generateServerCert(caCert *x509.Certificate, caKey *rsa.PrivateKey, serverTemplate x509.Certificate) ([]byte, []byte, error) {
+	serverKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	serverCertDER, err := x509.CreateCertificate(rand.Reader, &serverTemplate, caCert, &serverKey.PublicKey, caKey)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	serverCertPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: serverCertDER})
+	serverKeyPEM := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(serverKey)})
+
+	return serverCertPEM, serverKeyPEM, nil
+}
+
+func createTLSServer(t testing.TB,
+	caCertPEM, serverCertPEM, serverKeyPEM []byte,
+	clientAuth tls.ClientAuthType,
+) *httptest.Server {
+	serverCert, err := tls.X509KeyPair(serverCertPEM, serverKeyPEM)
+	require.NoError(t, err)
+
+	certPool := x509.NewCertPool()
+	certPool.AppendCertsFromPEM(caCertPEM)
+
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(srv.Close)
+	srv.TLS = &tls.Config{
+		Certificates: []tls.Certificate{serverCert},
+		ClientCAs:    certPool,
+		ClientAuth:   clientAuth,
+	}
+
+	srv.StartTLS()
+	return srv
+}
+
+func newCATemplate() x509.Certificate {
+	return x509.Certificate{
+		SerialNumber:          big.NewInt(1),
+		Subject:               pkix.Name{CommonName: "Test CA"},
+		NotBefore:             time.Now().Add(-time.Hour),
+		NotAfter:              time.Now().Add(time.Hour),
+		IsCA:                  true,
+		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
+		BasicConstraintsValid: true,
+	}
+}
+
+func newLocalMTLSServerTemplate() x509.Certificate {
+	return x509.Certificate{
+		SerialNumber: big.NewInt(2),
+		Subject:      pkix.Name{CommonName: "localhost"},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(time.Hour),
+		DNSNames:     []string{"localhost"},
+		IPAddresses:  []net.IP{net.IPv4(127, 0, 0, 1), net.IPv6loopback},
+		KeyUsage:     x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+	}
+}
+
+func newClientCert(name string) x509.Certificate {
+	return x509.Certificate{
+		SerialNumber: big.NewInt(3),
+		Subject:      pkix.Name{CommonName: name},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+	}
 }

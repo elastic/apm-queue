@@ -27,7 +27,6 @@ import (
 	"os"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
@@ -209,6 +208,8 @@ func (cfg *CommonConfig) finalize() error {
 			errs = append(errs, errors.New("kafka: at least one broker must be set"))
 		}
 	}
+	certPath := os.Getenv("KAFKA_TLS_CERT_PATH")
+	keyPath := os.Getenv("KAFKA_TLS_KEY_PATH")
 	switch {
 	case cfg.TLS != nil && cfg.Dialer != nil:
 		errs = append(errs, errors.New("kafka: only one of TLS or Dialer can be set"))
@@ -217,9 +218,13 @@ func (cfg *CommonConfig) finalize() error {
 		cfg.TLS = &tls.Config{}
 		tlsInsecure := os.Getenv("KAFKA_TLS_INSECURE") == "true"
 		caCertPath := os.Getenv("KAFKA_TLS_CA_CERT_PATH")
-		if tlsInsecure && caCertPath != "" {
+		if overriddenServerName, exists := os.LookupEnv("KAFKA_TLS_SERVER_NAME"); exists {
+			cfg.Logger.Debug("overriding TLS server name", zap.String("server_name", overriddenServerName))
+			cfg.TLS.ServerName = overriddenServerName
+		}
+		if tlsInsecure && (caCertPath != "" || certPath != "" || keyPath != "") {
 			errs = append(errs, errors.New(
-				"kafka: cannot set both KAFKA_TLS_INSECURE and KAFKA_TLS_CA_CERT_PATH",
+				"kafka: cannot set KAFKA_TLS_INSECURE when either of KAFKA_TLS_CA_CERT_PATH, KAFKA_TLS_CERT_PATH, or KAFKA_TLS_KEY_PATH are set",
 			))
 			break
 		}
@@ -227,9 +232,10 @@ func (cfg *CommonConfig) finalize() error {
 			cfg.TLS.InsecureSkipVerify = true
 		}
 		if caCertPath != "" {
-			// Auto-configure a dialer that reloads the CA cert when the file
-			// changes.
-			dialFn, err := newCertReloadingDialer(caCertPath, cfg.TLS)
+			// Set a dialer that reloads the CA cert when the file changes.
+			dialFn, err := newCertReloadingDialer(
+				caCertPath, certPath, keyPath, 30*time.Second, cfg.TLS,
+			)
 			if err != nil {
 				errs = append(errs, fmt.Errorf("kafka: error creating dialer with CA cert: %w", err))
 				break
@@ -238,7 +244,9 @@ func (cfg *CommonConfig) finalize() error {
 			cfg.TLS = nil
 		}
 	}
-	if cfg.SASL == nil {
+	// Only configure SASL if it is not already set and when there is no
+	// intention to configure mTLS.
+	if cfg.SASL == nil && certPath == "" && keyPath == "" {
 		saslConfig := saslConfigProperties{
 			Mechanism: os.Getenv("KAFKA_SASL_MECHANISM"),
 			Username:  os.Getenv("KAFKA_USERNAME"),
@@ -380,59 +388,30 @@ func topicFieldFunc(f TopicLogFieldFunc) TopicLogFieldFunc {
 
 // newCertReloadingDialer returns a dialer that reloads the CA cert when the
 // file mod time changes.
-func newCertReloadingDialer(caPath string, tlsCfg *tls.Config) (func(ctx context.Context, network, address string) (net.Conn, error), error) {
-	p, err := os.Stat(caPath)
-	if err != nil {
+func newCertReloadingDialer(caPath, certPath, keyPath string,
+	poll time.Duration,
+	tlsCfg *tls.Config,
+) (func(ctx context.Context, network, address string) (net.Conn, error), error) {
+	dialer := &net.Dialer{Timeout: 10 * time.Second} // default dialer timeout in kgo.
+	kp := &keyPair{
+		caPath:   caPath,
+		certPath: certPath,
+		keyPath:  keyPath,
+		config:   tlsCfg.Clone(),
+	}
+	if err := kp.reloadIfChanged(); err != nil {
 		return nil, err
 	}
-	dialer := &net.Dialer{Timeout: 10 * time.Second} // default dialer timeout in kgo.
-	cfg := tlsCfg.Clone()
-	caCert, err := os.ReadFile(caPath)
-	if err != nil {
-		return nil, fmt.Errorf("kafka: failed to read CA cert: %w", err)
-	}
-	cfg.RootCAs = x509.NewCertPool()
-	if !cfg.RootCAs.AppendCertsFromPEM(caCert) {
-		return nil, errors.New("kafka: failed to append CA cert")
-	}
-	var certModTS atomic.Int64
-	certModTS.Store(p.ModTime().UnixNano())
-	var mu sync.RWMutex // guards cfg.RootCAs and certModTS
+	ticker := time.NewTicker(poll)
 	return func(ctx context.Context, network, host string) (net.Conn, error) {
-		if p, err := os.Stat(caPath); err == nil {
-			if modTS := certModTS.Load(); p.ModTime().UnixNano() != modTS {
-				if err := func() error { // anonymous function to defer unlock.
-					mu.Lock()
-					defer mu.Unlock()
-					currentModTS := p.ModTime().UnixNano()
-					if modTS := certModTS.Load(); currentModTS != modTS {
-						caCert, err := os.ReadFile(caPath)
-						if err != nil {
-							return fmt.Errorf(
-								"failed to read CA cert on reload: %w", err,
-							)
-						}
-						if len(caCert) == 0 {
-							// Nothing is written to the file yet, it may be in
-							// the process of being written. Return early, since
-							// we cannot reload the cert yet.
-							return nil
-						}
-						cfg.RootCAs = x509.NewCertPool()
-						if !cfg.RootCAs.AppendCertsFromPEM(caCert) {
-							return errors.New("failed to append CA cert on reload")
-						}
-						certModTS.Store(currentModTS)
-					}
-					return nil
-				}(); err != nil {
-					return nil, fmt.Errorf("kafka: %w", err)
-				}
+		select {
+		case <-ticker.C:
+			if err := kp.reloadIfChanged(); err != nil {
+				return nil, err
 			}
+		default:
 		}
-		mu.RLock()
-		c := cfg.Clone()
-		mu.RUnlock()
+		c := kp.clone()
 		// Copied this pattern from franz-go client.go.
 		// https://github.com/twmb/franz-go/blob/f30c518d6b727b9169a90b8c10e2127301822a3a/pkg/kgo/client.go#L440-L453
 		if c.ServerName == "" {
@@ -447,4 +426,69 @@ func newCertReloadingDialer(caPath string, tlsCfg *tls.Config) (func(ctx context
 			Config:    c,
 		}).DialContext(ctx, network, host)
 	}, nil
+}
+
+// keyPair is a struct that holds a certificate and private key.
+type keyPair struct {
+	caPath   string
+	certPath string
+	keyPath  string
+	config   *tls.Config // Local copy.
+
+	certModTS time.Time
+	caModTS   time.Time
+
+	mu sync.RWMutex
+}
+
+// loadIfModified loads the certificate and private key if the mod time has
+// changed. Use locking
+func (kp *keyPair) reloadIfChanged() error {
+	kp.mu.Lock()
+	defer kp.mu.Unlock()
+
+	if kp.certPath != "" && kp.keyPath != "" {
+		certInfo, err := os.Stat(kp.certPath)
+		if err != nil {
+			return fmt.Errorf("unable to stat certificate file: %w", err)
+		}
+		if kp.certModTS.Before(certInfo.ModTime()) {
+			if certInfo.Size() < 1 {
+				return nil
+			}
+			cert, err := tls.LoadX509KeyPair(kp.certPath, kp.keyPath)
+			if err != nil {
+				return fmt.Errorf("failed to load new certificate: %w", err)
+			}
+			kp.config.Certificates = []tls.Certificate{cert}
+			kp.certModTS = certInfo.ModTime()
+		}
+	}
+
+	caInfo, err := os.Stat(kp.caPath)
+	if err != nil {
+		return fmt.Errorf("unable to stat CA certificate file: %w", err)
+	}
+	if kp.caModTS.Before(caInfo.ModTime()) {
+		caCert, err := os.ReadFile(kp.caPath)
+		if err != nil {
+			return fmt.Errorf("failed to read CA certificate: %w", err)
+		}
+		if len(caCert) == 0 {
+			return nil
+		}
+		kp.config.RootCAs = x509.NewCertPool()
+		if !kp.config.RootCAs.AppendCertsFromPEM(caCert) {
+			return fmt.Errorf("failed to append CA cert: %w", err)
+		}
+		kp.caModTS = caInfo.ModTime()
+	}
+
+	return nil
+}
+
+func (kp *keyPair) clone() *tls.Config {
+	kp.mu.RLock()
+	defer kp.mu.RUnlock()
+	return kp.config.Clone()
 }
