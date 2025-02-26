@@ -326,3 +326,18 @@ func (m *Manager) MonitorConsumerLag(topicConsumers []apmqueue.TopicConsumer) (m
 		assignmentMetric,
 	)
 }
+
+// CreateACLs creates the specified ACLs in the Kafka cluster.
+func (m *Manager) CreateACLs(ctx context.Context, acls *kadm.ACLBuilder) error {
+	res, err := m.adminClient.CreateACLs(ctx, acls)
+	if err != nil {
+		return fmt.Errorf("failed to create ACLs: %w", err)
+	}
+	var errs []error
+	for _, r := range res {
+		if r.Err != nil {
+			errs = append(errs, r.Err)
+		}
+	}
+	return errors.Join(errs...)
+}
