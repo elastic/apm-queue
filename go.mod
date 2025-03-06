@@ -1,6 +1,6 @@
 module github.com/elastic/apm-queue/v2
 
-go 1.22
+go 1.23
 
 require (
 	github.com/aws/aws-sdk-go-v2/config v1.29.7
