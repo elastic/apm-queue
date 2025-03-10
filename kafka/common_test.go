@@ -275,6 +275,56 @@ sasl:
 		require.NoError(t, err)
 		assert.Equal(t, []byte("\x00new_kafka_username\x00new_kafka_password"), message)
 	})
+	t.Run("configfile_with_sasl.mechanism.empty", func(t *testing.T) {
+		configFilePath := writeConfigFile(t, `
+bootstrap:
+  servers: from_file
+sasl:
+  mechanism: `)
+
+		cfg := CommonConfig{
+			ConfigFile: configFilePath,
+			Logger:     zap.NewNop(),
+		}
+		require.NoError(t, cfg.finalize())
+		assert.Empty(t, cfg.SASL)
+	})
+	t.Run("configfile_with_sasl.mechanism but with mTLS env vars set", func(t *testing.T) {
+		t.Setenv("KAFKA_PLAINTEXT", "false")
+		// Generate a valid CA and client certificate
+		caKey, caCert, caCertPEM := generateCA(t)
+		clientKey, _, clientCertPEM := generateClientCert(t, caCert, caKey)
+		clientKeyPEM := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(clientKey)})
+
+		tempDir := t.TempDir()
+		caFile := filepath.Join(tempDir, "ca.pem")
+		certFile := filepath.Join(tempDir, "client.pem")
+		keyFile := filepath.Join(tempDir, "key.pem")
+
+		// Write initial valid files
+		require.NoError(t, os.WriteFile(caFile, caCertPEM, 0644))
+		require.NoError(t, os.WriteFile(certFile, clientCertPEM, 0644))
+		require.NoError(t, os.WriteFile(keyFile, clientKeyPEM, 0644))
+
+		t.Setenv("KAFKA_TLS_CA_CERT_PATH", caFile)
+		t.Setenv("KAFKA_TLS_CERT_PATH", certFile)
+		t.Setenv("KAFKA_TLS_KEY_PATH", keyFile)
+		configFilePath := writeConfigFile(t, `
+bootstrap:
+  servers: abc
+sasl:
+  mechanism: `)
+
+		cfg := CommonConfig{
+			ConfigFile: configFilePath,
+			Logger:     zap.NewNop(),
+		}
+		require.NoError(t, cfg.finalize())
+		// Ensure SASL is not set because we are using mTLS.
+		assert.Empty(t, cfg.SASL)
+		assert.NotNil(t, cfg.Dialer)
+		assert.Equal(t, "abc", cfg.Brokers[0])
+	})
 }
 
 func TestCommonConfigFileHook(t *testing.T) {

@@ -187,6 +187,8 @@ func (cfg *CommonConfig) finalize() error {
 	if cfg.ConfigFile == "" {
 		cfg.ConfigFile = os.Getenv("KAFKA_CONFIG_FILE")
 	}
+	certPath := os.Getenv("KAFKA_TLS_CERT_PATH")
+	keyPath := os.Getenv("KAFKA_TLS_KEY_PATH")
 	if cfg.ConfigFile != "" {
 		configFileHook, brokers, saslMechanism, err := newConfigFileHook(cfg.ConfigFile, cfg.Logger)
 		if err != nil {
@@ -196,7 +198,8 @@ func (cfg *CommonConfig) finalize() error {
 			if len(brokers) != 0 {
 				cfg.Brokers = brokers
 			}
-			if saslMechanism != nil {
+			if saslMechanism != nil && certPath == "" && keyPath == "" {
+				// Only set SASL when there is no intention to configure mTLS.
 				cfg.SASL = saslMechanism
 			}
 		}
@@ -208,8 +211,6 @@ func (cfg *CommonConfig) finalize() error {
 			errs = append(errs, errors.New("kafka: at least one broker must be set"))
 		}
 	}
-	certPath := os.Getenv("KAFKA_TLS_CERT_PATH")
-	keyPath := os.Getenv("KAFKA_TLS_KEY_PATH")
 	switch {
 	case cfg.TLS != nil && cfg.Dialer != nil:
 		errs = append(errs, errors.New("kafka: only one of TLS or Dialer can be set"))
@@ -231,7 +232,7 @@ func (cfg *CommonConfig) finalize() error {
 		if tlsInsecure {
 			cfg.TLS.InsecureSkipVerify = true
 		}
-		if caCertPath != "" {
+		if caCertPath != "" || certPath != "" || keyPath != "" {
 			// Set a dialer that reloads the CA cert when the file changes.
 			dialFn, err := newCertReloadingDialer(
 				caCertPath, certPath, keyPath, 30*time.Second, cfg.TLS,
