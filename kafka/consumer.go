@@ -378,6 +378,8 @@ func (c *Consumer) fetch(ctx context.Context) error {
 	case apmqueue.AtMostOnceDeliveryType:
 		// Commit the fetched record offsets as soon as we've polled them.
 		if err := c.client.CommitUncommittedOffsets(ctx); err != nil {
+			logger := c.cfg.Logger
+			logger.Error("consumer commit offsets returned error", zap.Error(err))
 			// NOTE(marclop): If the commit fails with an unrecoverable error,
 			// return it and terminate the consumer. This will avoid potentially
 			// processing records twice, and it's up to the consumer to re-start
