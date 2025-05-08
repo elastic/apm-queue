@@ -2,8 +2,6 @@ module github.com/elastic/apm-queue/v2
 
 go 1.23.8
 
-toolchain go1.24.1
-
 require (
 	github.com/aws/aws-sdk-go-v2/config v1.29.14
 	github.com/google/go-cmp v0.7.0
