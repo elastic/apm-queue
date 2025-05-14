@@ -393,7 +393,10 @@ func (c *Consumer) fetch(ctx context.Context) error {
 	fetches.EachError(func(t string, p int32, err error) {
 		topicName := strings.TrimPrefix(t, c.consumer.topicPrefix)
 		logger := c.cfg.Logger
-		if c.cfg.TopicLogFieldFunc != nil {
+		// franz-go can inject fake fetches in case of errors.
+		// the fake fetch can have an empty topic so we need to
+		// account for that
+		if c.cfg.TopicLogFieldFunc != nil && topicName != "" {
 			logger = logger.With(c.cfg.TopicLogFieldFunc(topicName))
 		}
 
