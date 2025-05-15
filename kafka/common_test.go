@@ -382,6 +382,8 @@ func newClusterWithTopics(t testing.TB, partitions int32, topics ...string) (*kg
 	)
 	require.NoError(t, err)
 
+	require.NoError(t, client.Ping(context.Background()))
+
 	return client, addrs
 }
 
