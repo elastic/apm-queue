@@ -326,7 +326,7 @@ func TestConsumerDelivery(t *testing.T) {
 				GroupID:              "groupid",
 				MaxPollRecords:       tc.maxPollRecords,
 				MaxConcurrentFetches: 1,
-				Processor:            newProcessor(nil, failRecord, cancel),
+				Processor:            newProcessor(nil, failRecord, func() {}),
 			}
 
 			record := &kgo.Record{
