@@ -16,7 +16,7 @@ lint: tools/go.mod
 
 .PHONY: test
 test: go.mod
-	go test -race -v -count=$(GO_TEST_COUNT) -timeout=$(GO_TEST_TIMEOUT) ./...
+	go test -race -count=$(GO_TEST_COUNT) -timeout=$(GO_TEST_TIMEOUT) ./...
 
 MODULE_DEPS=$(sort $(shell go list -deps -tags=darwin,linux,windows -f "{{with .Module}}{{if not .Main}}{{.Path}}{{end}}{{end}}"))
 
