@@ -229,7 +229,7 @@ func (m *Manager) MonitorConsumerLag(topicConsumers []apmqueue.TopicConsumer) (m
 		for consumer := range consumerSet {
 			consumers = append(consumers, consumer)
 		}
-		m.cfg.Logger.Debug("reporting consumer lag", zap.Strings("consumers", consumers))
+		m.cfg.Logger.Debug("reporting consumer lag v2", zap.Strings("consumers", consumers))
 
 		lag, err := m.adminClient.Lag(ctx, consumers...)
 		if err != nil {
@@ -237,6 +237,11 @@ func (m *Manager) MonitorConsumerLag(topicConsumers []apmqueue.TopicConsumer) (m
 			span.SetStatus(codes.Error, err.Error())
 			return fmt.Errorf("failed to calculate consumer lag: %w", err)
 		}
+		m.cfg.Logger.Debug(
+			"lag response",
+			zap.Int("len", len(lag)),
+			zap.Error(err),
+		)
 		lag.Each(func(l kadm.DescribedGroupLag) {
 			if err := l.Error(); err != nil {
 				m.cfg.Logger.Warn("error calculating consumer lag",
@@ -245,6 +250,11 @@ func (m *Manager) MonitorConsumerLag(topicConsumers []apmqueue.TopicConsumer) (m
 				)
 				return
 			}
+			m.cfg.Logger.Debug(
+				"lag response for each",
+				zap.Int64("lag", l.Lag.Total()),
+				zap.String("group", l.Group),
+			)
 			// Map Consumer group member assignments.
 			memberAssignments := make(map[memberTopic]int64)
 			for topic, partitions := range l.Lag {
