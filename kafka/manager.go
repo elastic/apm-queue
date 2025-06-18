@@ -254,6 +254,7 @@ func (m *Manager) MonitorConsumerLag(topicConsumers []apmqueue.TopicConsumer) (m
 				"lag response for each",
 				zap.Int64("lag", l.Lag.Total()),
 				zap.String("group", l.Group),
+				zap.Int("lag length", len(l.Lag)),
 			)
 			// Map Consumer group member assignments.
 			memberAssignments := make(map[memberTopic]int64)
@@ -329,6 +330,10 @@ func (m *Manager) MonitorConsumerLag(topicConsumers []apmqueue.TopicConsumer) (m
 					)
 				}
 			}
+			m.cfg.Logger.Info(
+				"lag response member assignments",
+				zap.Int("len", len(memberAssignments)),
+			)
 			for key, count := range memberAssignments {
 				attrs := []attribute.KeyValue{
 					attribute.String("group", l.Group),
