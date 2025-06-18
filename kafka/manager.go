@@ -34,7 +34,6 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.4.0"
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
-	"gorm.io/gorm/logger"
 
 	apmqueue "github.com/elastic/apm-queue/v2"
 )
@@ -339,7 +338,7 @@ func (m *Manager) MonitorConsumerLag(topicConsumers []apmqueue.TopicConsumer) (m
 				if kv := m.cfg.TopicAttributeFunc(key.topic); kv != (attribute.KeyValue{}) {
 					attrs = append(attrs, kv)
 				}
-				logger.Info(
+				m.cfg.Logger.Info(
 					"lag response final",
 					zap.String("group", l.Group),
 					zap.String("topic", key.topic),
