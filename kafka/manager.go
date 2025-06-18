@@ -304,6 +304,13 @@ func (m *Manager) MonitorConsumerLag(topicConsumers []apmqueue.TopicConsumer) (m
 						consumerGroupLagMetric, lag.Lag,
 						metric.WithAttributeSet(attribute.NewSet(attrs...)),
 					)
+					logger.Info(
+						"lag metrics",
+						zap.String("group", l.Group),
+						zap.String("topic", topic),
+						zap.Int32("partition", partition),
+						zap.Int64("lag", lag.Lag),
+					)
 				}
 			}
 			for key, count := range memberAssignments {
