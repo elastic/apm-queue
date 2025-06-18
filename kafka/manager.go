@@ -34,6 +34,7 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.4.0"
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
+	"gorm.io/gorm/logger"
 
 	apmqueue "github.com/elastic/apm-queue/v2"
 )
@@ -258,6 +259,11 @@ func (m *Manager) MonitorConsumerLag(topicConsumers []apmqueue.TopicConsumer) (m
 			// Map Consumer group member assignments.
 			memberAssignments := make(map[memberTopic]int64)
 			for topic, partitions := range l.Lag {
+				m.cfg.Logger.Debug(
+					"topic assignment debug lag response",
+					zap.String("namespacePrefix", namespacePrefix),
+					zap.String("topic", topic),
+				)
 				if !strings.HasPrefix(topic, namespacePrefix) {
 					// Ignore topics outside the namespace.
 					continue
@@ -311,15 +317,16 @@ func (m *Manager) MonitorConsumerLag(topicConsumers []apmqueue.TopicConsumer) (m
 						attrs = append(attrs, kv)
 					}
 					o.ObserveInt64(
-						consumerGroupLagMetric, lag.Lag,
+						consumerGroupLagMetric, lag.Lag+1,
 						metric.WithAttributeSet(attribute.NewSet(attrs...)),
 					)
 					logger.Info(
-						"lag metrics",
+						"lag response metrics partitions",
 						zap.String("group", l.Group),
 						zap.String("topic", topic),
 						zap.Int32("partition", partition),
 						zap.Int64("lag", lag.Lag),
+						zap.Error(lag.Err),
 					)
 				}
 			}
@@ -332,6 +339,13 @@ func (m *Manager) MonitorConsumerLag(topicConsumers []apmqueue.TopicConsumer) (m
 				if kv := m.cfg.TopicAttributeFunc(key.topic); kv != (attribute.KeyValue{}) {
 					attrs = append(attrs, kv)
 				}
+				logger.Info(
+					"lag response final",
+					zap.String("group", l.Group),
+					zap.String("topic", key.topic),
+					zap.String("client_id", key.clientID),
+					zap.Int64("count", count),
+				)
 				o.ObserveInt64(assignmentMetric, count, metric.WithAttributeSet(
 					attribute.NewSet(attrs...),
 				))
