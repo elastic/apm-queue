@@ -11,11 +11,11 @@ require (
 	github.com/twmb/franz-go/pkg/kfake v0.0.0-20240122000745-a2d69ce07790
 	github.com/twmb/franz-go/pkg/kmsg v1.8.0
 	github.com/twmb/franz-go/plugin/kzap v1.1.2
-	go.opentelemetry.io/otel v1.36.0
-	go.opentelemetry.io/otel/metric v1.36.0
-	go.opentelemetry.io/otel/sdk v1.36.0
-	go.opentelemetry.io/otel/sdk/metric v1.36.0
-	go.opentelemetry.io/otel/trace v1.36.0
+	go.opentelemetry.io/otel v1.37.0
+	go.opentelemetry.io/otel/metric v1.37.0
+	go.opentelemetry.io/otel/sdk v1.37.0
+	go.opentelemetry.io/otel/sdk/metric v1.37.0
+	go.opentelemetry.io/otel/trace v1.37.0
 	go.uber.org/zap v1.27.0
 	golang.org/x/sync v0.15.0
 	gopkg.in/yaml.v3 v3.0.1
@@ -35,7 +35,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sts v1.34.0 // indirect
 	github.com/aws/smithy-go v1.22.4 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
-	github.com/go-logr/logr v1.4.2 // indirect
+	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/klauspost/compress v1.17.8 // indirect
