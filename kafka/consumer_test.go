@@ -329,13 +329,13 @@ func TestConsumerDelivery(t *testing.T) {
 				Processor:            newProcessor(nil, failRecord, cancel),
 			}
 
-			record := &kgo.Record{
+			r1 := &kgo.Record{
 				Topic: "name_space-topic",
 				Value: []byte("content"),
 			}
 
 			for i := 0; i < int(tc.initialRecords); i++ {
-				produceRecord(ctx, t, client, record)
+				produceRecord(ctx, t, client, r1)
 			}
 
 			// expect up to tc.maxPollRecords
@@ -383,9 +383,15 @@ func TestConsumerDelivery(t *testing.T) {
 			// Start a new consumer in the background and then produce
 			ctx, cancel = context.WithCancel(context.Background())
 			defer cancel()
+
+			r2 := &kgo.Record{
+				Topic: "name_space-topic",
+				Value: []byte("content"),
+			}
+
 			// Produce tc.lastRecords.
 			for i := 0; i < tc.lastRecords; i++ {
-				produceRecord(ctx, t, client, record)
+				produceRecord(ctx, t, client, r2)
 			}
 			cfg.MaxPollRecords = tc.lastRecords
 			cfg.Logger = baseLogger.Named("2")
