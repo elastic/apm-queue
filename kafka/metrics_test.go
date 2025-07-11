@@ -56,7 +56,7 @@ func TestProducerMetrics(t *testing.T) {
 		)
 
 		// Fixes https://github.com/elastic/apm-queue/issues/464
-		<-time.After(time.Millisecond)
+		<-time.After(10 * time.Millisecond)
 
 		// Close the producer so records are flushed.
 		require.NoError(t, producer.Close())
