@@ -33,6 +33,33 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+type fileConfig struct {
+	hooks   []kgo.Hook
+	brokers []string
+	sasl    sasl.Mechanism
+}
+
+// Environment config contains the file and mTLS setup.
+func loadFileConfig(logger *zap.Logger, envCfg *envConfig) (*fileConfig, error) {
+	cfg := &fileConfig{}
+	if envCfg.configFile != "" {
+		configFileHook, brokers, saslMechanism, err := newConfigFileHook(envCfg.configFile, logger)
+		if err != nil {
+			return cfg, fmt.Errorf("kafka: error loading config file: %w", err)
+		} else {
+			cfg.hooks = append(cfg.hooks, configFileHook)
+			if len(brokers) > 0 {
+				cfg.brokers = brokers
+			}
+			// Only set SASL when there is no intention to configure mTLS.
+			if !envCfg.tls.isMutual() && saslMechanism != nil {
+				cfg.sasl = saslMechanism
+			}
+		}
+	}
+	return cfg, nil
+}
+
 type configFileHook struct {
 	filepath string
 	logger   *zap.Logger
@@ -45,7 +72,7 @@ type configFileHook struct {
 // newConfigFileHook returns a configFileHook, along with a list of seed brokers and
 // possibly a sasl.Mechanism if `sasl.mechanism` is defined in the file.
 func newConfigFileHook(filepath string, logger *zap.Logger) (_ *configFileHook, brokers []string, _ sasl.Mechanism, _ error) {
-	config, err := loadConfigFile(filepath)
+	config, err := readConfigFile(filepath)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -58,7 +85,7 @@ func newConfigFileHook(filepath string, logger *zap.Logger) (_ *configFileHook, 
 		var lastPlainAuthMu sync.Mutex
 		var lastPlainAuth plain.Auth
 		saslMechanism = plain.Plain(func(context.Context) (plain.Auth, error) {
-			config, err := loadConfigFile(filepath)
+			config, err := readConfigFile(filepath)
 			if err != nil {
 				return plain.Auth{}, fmt.Errorf("failed to reload kafka config: %w", err)
 			}
@@ -103,7 +130,7 @@ func (h *configFileHook) OnBrokerConnect(_ kgo.BrokerMetadata, _ time.Duration, 
 	// Failed to connect, reload config in case the bootstrap servers have changed.
 	h.logger.Debug("kafka broker connection failed, reloading kafka config")
 
-	newConfig, err := loadConfigFile(h.filepath)
+	newConfig, err := readConfigFile(h.filepath)
 	if err != nil {
 		h.logger.Warn("failed to reload kafka config", zap.Error(err))
 		return
@@ -156,7 +183,7 @@ func (s *saslConfigProperties) finalize() error {
 	return nil
 }
 
-func loadConfigFile(filepath string) (configProperties, error) {
+func readConfigFile(filepath string) (configProperties, error) {
 	var config configProperties
 	data, err := os.ReadFile(filepath)
 	if err != nil {
