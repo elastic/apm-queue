@@ -232,7 +232,6 @@ func (cfg *CommonConfig) flatten(envCfg *envConfig, fileCfg *fileConfig) error {
 			cfg.TLS = nil
 		} else if envCfg.tls.Config != nil {
 			cfg.TLS = envCfg.tls.Config
-			cfg.Dialer = nil
 		}
 	}
 
