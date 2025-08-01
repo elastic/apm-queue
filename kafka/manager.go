@@ -343,8 +343,8 @@ func (m *Manager) CreateACLs(ctx context.Context, acls *kadm.ACLBuilder) error {
 	return errors.Join(errs...)
 }
 
-// ListTopics returns all topics in lexicographical order from the Kafka broker.
-func (m *Manager) ListTopics(ctx context.Context) ([]string, error) {
+// ListTopics returns all topics that begin with prefix in lexicographical order from the Kafka broker.
+func (m *Manager) ListTopics(ctx context.Context, prefix string) ([]string, error) {
 	details, err := m.adminClient.ListTopics(ctx)
 	if err != nil {
 		return nil, err
@@ -352,6 +352,9 @@ func (m *Manager) ListTopics(ctx context.Context) ([]string, error) {
 	topics := make([]string, 0, len(details))
 	var errs []error
 	for _, t := range details {
+		if !strings.HasPrefix(t.Topic, prefix) {
+			continue
+		}
 		if t.Err != nil {
 			errs = append(errs, fmt.Errorf("%s %w", t.Topic, t.Err))
 			continue

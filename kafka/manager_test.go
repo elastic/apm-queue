@@ -723,17 +723,20 @@ func TestListTopics(t *testing.T) {
 			}, {
 				Topic:      kmsg.StringPtr("name_space-topic2"),
 				Partitions: []kmsg.MetadataResponseTopicPartition{{Partition: 3}},
-				ErrorCode:  3, // UNKNOWN_TOPIC_OR_PARTITION
+				ErrorCode:  kerr.UnknownTopicOrPartition.Code,
 			}, {
 				Topic:      kmsg.StringPtr("name_space-topic3"),
 				Partitions: []kmsg.MetadataResponseTopicPartition{{Partition: 4}},
 			}, {
 				Topic:      kmsg.StringPtr("name_space-mytopic"),
 				Partitions: []kmsg.MetadataResponseTopicPartition{{Partition: 1}},
+			}, {
+				Topic:      kmsg.StringPtr("rnd-topic"),
+				Partitions: []kmsg.MetadataResponseTopicPartition{{Partition: 4}},
 			}},
 		}, nil, true
 	})
-	topics, err := m.ListTopics(context.Background())
+	topics, err := m.ListTopics(context.Background(), "name_space")
 	assert.EqualError(t, err, "name_space-topic2 UNKNOWN_TOPIC_OR_PARTITION: This server does not host this topic-partition.")
 	assert.Equal(t, []string{"name_space-mytopic", "name_space-topic1", "name_space-topic3"}, topics)
 }
