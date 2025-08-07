@@ -705,6 +705,42 @@ func TestManagerCreateACLs(t *testing.T) {
 	})
 }
 
+func TestListTopics(t *testing.T) {
+	cluster, commonConfig := newFakeCluster(t)
+	m, err := NewManager(ManagerConfig{CommonConfig: commonConfig})
+	require.NoError(t, err)
+	t.Cleanup(func() { m.Close() })
+	var metadataRequest *kmsg.MetadataRequest
+	cluster.ControlKey(kmsg.Metadata.Int16(), func(req kmsg.Request) (kmsg.Response, error, bool) {
+		metadataRequest = req.(*kmsg.MetadataRequest)
+		cluster.KeepControl()
+		return &kmsg.MetadataResponse{
+			Version: metadataRequest.Version,
+			Brokers: []kmsg.MetadataResponseBroker{},
+			Topics: []kmsg.MetadataResponseTopic{{
+				Topic:      kmsg.StringPtr("name_space-topic1"),
+				Partitions: []kmsg.MetadataResponseTopicPartition{{Partition: 1}, {Partition: 2}},
+			}, {
+				Topic:      kmsg.StringPtr("name_space-topic2"),
+				Partitions: []kmsg.MetadataResponseTopicPartition{{Partition: 3}},
+				ErrorCode:  kerr.UnknownTopicOrPartition.Code,
+			}, {
+				Topic:      kmsg.StringPtr("name_space-topic3"),
+				Partitions: []kmsg.MetadataResponseTopicPartition{{Partition: 4}},
+			}, {
+				Topic:      kmsg.StringPtr("name_space-mytopic"),
+				Partitions: []kmsg.MetadataResponseTopicPartition{{Partition: 1}},
+			}, {
+				Topic:      kmsg.StringPtr("rnd-topic"),
+				Partitions: []kmsg.MetadataResponseTopicPartition{{Partition: 4}},
+			}},
+		}, nil, true
+	})
+	topics, err := m.ListTopics(context.Background(), "name_space")
+	assert.EqualError(t, err, "name_space-topic2 UNKNOWN_TOPIC_OR_PARTITION: This server does not host this topic-partition.")
+	assert.Equal(t, []string{"name_space-mytopic", "name_space-topic1", "name_space-topic3"}, topics)
+}
+
 func newFakeCluster(t testing.TB) (*kfake.Cluster, CommonConfig) {
 	cluster, err := kfake.NewCluster(
 		// Just one broker to simplify dealing with sharded requests.
