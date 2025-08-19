@@ -247,6 +247,8 @@ func (p *Producer) Produce(ctx context.Context, rs ...apmqueue.Record) error {
 		ctx = queuecontext.DetachedContext(ctx)
 	}
 	namespacePrefix := p.cfg.namespacePrefix()
+
+	var errs []error
 	for _, record := range rs {
 		kgoRecord := &kgo.Record{
 			Headers: headers,
@@ -259,6 +261,9 @@ func (p *Producer) Produce(ctx context.Context, rs ...apmqueue.Record) error {
 			// kotel already marks spans as errors. No need to handle it here.
 			if err != nil {
 				topicName := strings.TrimPrefix(r.Topic, namespacePrefix)
+
+				errs = append(errs, fmt.Errorf("failed to produce message: %v", err))
+
 				logger := p.cfg.Logger
 				if p.cfg.TopicLogFieldFunc != nil {
 					logger = logger.With(p.cfg.TopicLogFieldFunc(topicName))
@@ -279,6 +284,9 @@ func (p *Producer) Produce(ctx context.Context, rs ...apmqueue.Record) error {
 	}
 	if p.cfg.Sync {
 		wg.Wait()
+		if len(errs) > 0 {
+			return errors.Join(errs...)
+		}
 	}
 	return nil
 }

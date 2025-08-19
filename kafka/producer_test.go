@@ -32,6 +32,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/twmb/franz-go/pkg/kerr"
 	"github.com/twmb/franz-go/pkg/kgo"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
@@ -220,6 +221,55 @@ func TestNewProducerBasic(t *testing.T) {
 	}
 	test(t, true)
 	test(t, false)
+}
+
+func TestProduceSyncFailed(t *testing.T) {
+	test := func(t *testing.T, ns, topic string) {
+		t.Run(ns+topic, func(t *testing.T) {
+			correctNamespace := "name_space"
+			correctTopic := "default-topic"
+			namespacedTopic := correctNamespace + "-" + correctTopic
+
+			_, brokers := newClusterWithTopics(t, int32(1), namespacedTopic)
+			producer := newProducer(t, ProducerConfig{
+				CommonConfig: CommonConfig{
+					Brokers:   brokers,
+					Logger:    zap.NewNop(),
+					Namespace: ns,
+				},
+				Sync:               true,
+				MaxBufferedRecords: 0,
+			})
+
+			batch := []apmqueue.Record{
+				{
+					Topic:       apmqueue.Topic(topic),
+					OrderingKey: []byte("key"),
+					Value:       []byte("value"),
+				},
+			}
+
+			ctx := context.Background()
+
+			// Cancel the context before calling Produce
+			if ns == correctNamespace && topic == correctTopic {
+				ctxCancelled, cancelProduce := context.WithCancel(ctx)
+				cancelProduce()
+				err := producer.Produce(ctxCancelled, batch...)
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), "context canceled")
+			}
+
+			if ns != correctNamespace || topic != correctTopic {
+				err := producer.Produce(ctx, batch...)
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), kerr.UnknownTopicOrPartition.Message)
+			}
+		})
+	}
+	test(t, "name_space", "default-topic")
+	test(t, "incorrect-namespace", "default-topic")
+	test(t, "name_space", "incorrect-topic")
 }
 
 func testVerboseLogger(t testing.TB) *zap.Logger {
