@@ -224,18 +224,41 @@ func TestNewProducerBasic(t *testing.T) {
 }
 
 func TestProduceSyncFailed(t *testing.T) {
-	test := func(t *testing.T, ns, topic string) {
-		t.Run(ns+topic, func(t *testing.T) {
-			correctNamespace := "name_space"
-			correctTopic := "default-topic"
-			namespacedTopic := correctNamespace + "-" + correctTopic
+	correctNamespace := "name_space"
+	correctTopic := "default-topic"
 
-			_, brokers := newClusterWithTopics(t, int32(1), namespacedTopic)
+	testCases := []struct {
+		desc      string
+		namespace string
+		topic     string
+	}{
+		{
+			desc:      "correct namespace and topic",
+			namespace: correctNamespace,
+			topic:     correctTopic,
+		},
+		{
+			desc:      "incorrect namespace",
+			namespace: "incorrect",
+			topic:     correctTopic,
+		},
+		{
+			desc:      "incorrect topic",
+			namespace: correctNamespace,
+			topic:     "incorrect",
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.desc, func(t *testing.T) {
+			_, brokers := newClusterWithTopics(t,
+				int32(1),
+				correctNamespace+"-"+correctTopic,
+			)
 			producer := newProducer(t, ProducerConfig{
 				CommonConfig: CommonConfig{
 					Brokers:   brokers,
 					Logger:    zap.NewNop(),
-					Namespace: ns,
+					Namespace: tc.namespace,
 				},
 				Sync:               true,
 				MaxBufferedRecords: 0,
@@ -243,7 +266,7 @@ func TestProduceSyncFailed(t *testing.T) {
 
 			batch := []apmqueue.Record{
 				{
-					Topic:       apmqueue.Topic(topic),
+					Topic:       apmqueue.Topic(tc.topic),
 					OrderingKey: []byte("key"),
 					Value:       []byte("value"),
 				},
@@ -252,7 +275,7 @@ func TestProduceSyncFailed(t *testing.T) {
 			ctx := context.Background()
 
 			// Cancel the context before calling Produce
-			if ns == correctNamespace && topic == correctTopic {
+			if tc.namespace == correctNamespace && tc.topic == correctTopic {
 				ctxCancelled, cancelProduce := context.WithCancel(ctx)
 				cancelProduce()
 				err := producer.Produce(ctxCancelled, batch...)
@@ -260,16 +283,13 @@ func TestProduceSyncFailed(t *testing.T) {
 				assert.Contains(t, err.Error(), "context canceled")
 			}
 
-			if ns != correctNamespace || topic != correctTopic {
+			if tc.namespace != correctNamespace || tc.topic != correctTopic {
 				err := producer.Produce(ctx, batch...)
 				assert.Error(t, err)
 				assert.Contains(t, err.Error(), kerr.UnknownTopicOrPartition.Message)
 			}
 		})
 	}
-	test(t, "name_space", "default-topic")
-	test(t, "incorrect-namespace", "default-topic")
-	test(t, "name_space", "incorrect-topic")
 }
 
 func testVerboseLogger(t testing.TB) *zap.Logger {
@@ -361,7 +381,7 @@ func TestProducerConcurrentClose(t *testing.T) {
 	})
 
 	var wg sync.WaitGroup
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()

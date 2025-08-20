@@ -249,6 +249,8 @@ func (p *Producer) Produce(ctx context.Context, rs ...apmqueue.Record) error {
 	namespacePrefix := p.cfg.namespacePrefix()
 
 	var errs []error
+	var mu sync.Mutex
+
 	for _, record := range rs {
 		kgoRecord := &kgo.Record{
 			Headers: headers,
@@ -262,7 +264,9 @@ func (p *Producer) Produce(ctx context.Context, rs ...apmqueue.Record) error {
 			if err != nil {
 				topicName := strings.TrimPrefix(r.Topic, namespacePrefix)
 
-				errs = append(errs, fmt.Errorf("failed to produce message: %v", err))
+				mu.Lock()
+				errs = append(errs, fmt.Errorf("failed to produce message: %w", err))
+				mu.Unlock()
 
 				logger := p.cfg.Logger
 				if p.cfg.TopicLogFieldFunc != nil {
