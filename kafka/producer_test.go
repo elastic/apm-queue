@@ -238,14 +238,14 @@ func TestProduceSyncFailed(t *testing.T) {
 			topic:     correctTopic,
 		},
 		{
-			desc:      "incorrect namespace",
-			namespace: "incorrect",
+			desc:      "unknown namespace",
+			namespace: "unknown",
 			topic:     correctTopic,
 		},
 		{
-			desc:      "incorrect topic",
+			desc:      "unknown topic",
 			namespace: correctNamespace,
-			topic:     "incorrect",
+			topic:     "unknown",
 		},
 	}
 	for _, tc := range testCases {
