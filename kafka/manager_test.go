@@ -387,6 +387,7 @@ func TestManagerMetrics(t *testing.T) {
 
 	var listOffsetsRequest *kmsg.ListOffsetsRequest
 	cluster.ControlKey(kmsg.ListOffsets.Int16(), func(req kmsg.Request) (kmsg.Response, error, bool) {
+		cluster.KeepControl()
 		listOffsetsRequest = req.(*kmsg.ListOffsetsRequest)
 		return &kmsg.ListOffsetsResponse{
 			Version: listOffsetsRequest.Version,
@@ -490,7 +491,7 @@ func TestManagerMetrics(t *testing.T) {
 				attribute.Int("partition", 4),
 				attribute.Bool("foo", true),
 			),
-			Value: 4, // end offset  = 4, nothing committed
+			Value: 0, // end offset  = 4, nothing committed
 		}, {
 			Attributes: attribute.NewSet(
 				attribute.String("group", "consumer3"),
@@ -546,13 +547,14 @@ func TestManagerMetrics(t *testing.T) {
 		}},
 	}, assignmentMetric.Data, metricdatatest.IgnoreTimestamp())
 
-	assert.Equal(t, int16(5), describeGroupsRequest.Version)
+	assert.Equal(t, int16(6), describeGroupsRequest.Version)
 	assert.ElementsMatch(t, []string{"connect", "consumer1", "consumer2", "consumer3"}, describeGroupsRequest.Groups)
 	assert.ElementsMatch(t, []kmsg.OffsetFetchRequestGroup{
 		{Group: "connect", MemberEpoch: -1},
 		{Group: "consumer1", MemberEpoch: -1},
 		{Group: "consumer2", MemberEpoch: -1},
 		{Group: "consumer3", MemberEpoch: -1},
+		{Group: "consumer4", MemberEpoch: -1},
 	}, offsetFetchRequest.Groups)
 	assert.ElementsMatch(t, []kmsg.MetadataRequestTopic{
 		{Topic: kmsg.StringPtr("name_space-topic1")},
@@ -701,6 +703,42 @@ func TestManagerCreateACLs(t *testing.T) {
 		err = m.CreateACLs(context.Background(), acls)
 		assert.EqualError(t, err, respErr.Error())
 	})
+}
+
+func TestListTopics(t *testing.T) {
+	cluster, commonConfig := newFakeCluster(t)
+	m, err := NewManager(ManagerConfig{CommonConfig: commonConfig})
+	require.NoError(t, err)
+	t.Cleanup(func() { m.Close() })
+	var metadataRequest *kmsg.MetadataRequest
+	cluster.ControlKey(kmsg.Metadata.Int16(), func(req kmsg.Request) (kmsg.Response, error, bool) {
+		metadataRequest = req.(*kmsg.MetadataRequest)
+		cluster.KeepControl()
+		return &kmsg.MetadataResponse{
+			Version: metadataRequest.Version,
+			Brokers: []kmsg.MetadataResponseBroker{},
+			Topics: []kmsg.MetadataResponseTopic{{
+				Topic:      kmsg.StringPtr("name_space-topic1"),
+				Partitions: []kmsg.MetadataResponseTopicPartition{{Partition: 1}, {Partition: 2}},
+			}, {
+				Topic:      kmsg.StringPtr("name_space-topic2"),
+				Partitions: []kmsg.MetadataResponseTopicPartition{{Partition: 3}},
+				ErrorCode:  kerr.UnknownTopicOrPartition.Code,
+			}, {
+				Topic:      kmsg.StringPtr("name_space-topic3"),
+				Partitions: []kmsg.MetadataResponseTopicPartition{{Partition: 4}},
+			}, {
+				Topic:      kmsg.StringPtr("name_space-mytopic"),
+				Partitions: []kmsg.MetadataResponseTopicPartition{{Partition: 1}},
+			}, {
+				Topic:      kmsg.StringPtr("rnd-topic"),
+				Partitions: []kmsg.MetadataResponseTopicPartition{{Partition: 4}},
+			}},
+		}, nil, true
+	})
+	topics, err := m.ListTopics(context.Background(), "name_space")
+	assert.EqualError(t, err, "name_space-topic2 UNKNOWN_TOPIC_OR_PARTITION: This server does not host this topic-partition.")
+	assert.Equal(t, []string{"name_space-mytopic", "name_space-topic1", "name_space-topic3"}, topics)
 }
 
 func newFakeCluster(t testing.TB) (*kfake.Cluster, CommonConfig) {

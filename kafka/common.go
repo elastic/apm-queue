@@ -25,7 +25,6 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"strings"
 	"sync"
 	"time"
 
@@ -33,7 +32,6 @@ import (
 	"github.com/twmb/franz-go/pkg/kgo"
 	"github.com/twmb/franz-go/pkg/sasl"
 	"github.com/twmb/franz-go/pkg/sasl/aws"
-	"github.com/twmb/franz-go/pkg/sasl/plain"
 	"github.com/twmb/franz-go/plugin/kzap"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -184,96 +182,22 @@ func (cfg *CommonConfig) finalize() error {
 	if cfg.Namespace != "" {
 		cfg.Logger = cfg.Logger.With(zap.String("namespace", cfg.Namespace))
 	}
-	if cfg.ConfigFile == "" {
-		cfg.ConfigFile = os.Getenv("KAFKA_CONFIG_FILE")
+
+	envCfg, err := loadEnvConfig(cfg.Logger, cfg.ConfigFile)
+	if err != nil {
+		errs = append(errs, err)
 	}
-	certPath := os.Getenv("KAFKA_TLS_CERT_PATH")
-	keyPath := os.Getenv("KAFKA_TLS_KEY_PATH")
-	if cfg.ConfigFile != "" {
-		configFileHook, brokers, saslMechanism, err := newConfigFileHook(cfg.ConfigFile, cfg.Logger)
-		if err != nil {
-			errs = append(errs, fmt.Errorf("kafka: error loading config file: %w", err))
-		} else {
-			cfg.hooks = append(cfg.hooks, configFileHook)
-			if len(brokers) != 0 {
-				cfg.Brokers = brokers
-			}
-			if saslMechanism != nil && certPath == "" && keyPath == "" {
-				// Only set SASL when there is no intention to configure mTLS.
-				cfg.SASL = saslMechanism
-			}
-		}
+
+	fileCfg, err := loadFileConfig(cfg.Logger, envCfg)
+	if err != nil {
+		errs = append(errs, err)
 	}
-	if len(cfg.Brokers) == 0 {
-		if v := os.Getenv("KAFKA_BROKERS"); v != "" {
-			cfg.Brokers = strings.Split(v, ",")
-		} else {
-			errs = append(errs, errors.New("kafka: at least one broker must be set"))
-		}
+
+	err = cfg.flatten(envCfg, fileCfg)
+	if err != nil {
+		errs = append(errs, err)
 	}
-	switch {
-	case cfg.TLS != nil && cfg.Dialer != nil:
-		errs = append(errs, errors.New("kafka: only one of TLS or Dialer can be set"))
-	case cfg.TLS == nil && cfg.Dialer == nil && os.Getenv("KAFKA_PLAINTEXT") != "true":
-		// Auto-configure TLS from environment variables.
-		cfg.TLS = &tls.Config{}
-		tlsInsecure := os.Getenv("KAFKA_TLS_INSECURE") == "true"
-		caCertPath := os.Getenv("KAFKA_TLS_CA_CERT_PATH")
-		if overriddenServerName, exists := os.LookupEnv("KAFKA_TLS_SERVER_NAME"); exists {
-			cfg.Logger.Debug("overriding TLS server name", zap.String("server_name", overriddenServerName))
-			cfg.TLS.ServerName = overriddenServerName
-		}
-		if tlsInsecure && (caCertPath != "" || certPath != "" || keyPath != "") {
-			errs = append(errs, errors.New(
-				"kafka: cannot set KAFKA_TLS_INSECURE when either of KAFKA_TLS_CA_CERT_PATH, KAFKA_TLS_CERT_PATH, or KAFKA_TLS_KEY_PATH are set",
-			))
-			break
-		}
-		if tlsInsecure {
-			cfg.TLS.InsecureSkipVerify = true
-		}
-		if caCertPath != "" || certPath != "" || keyPath != "" {
-			// Set a dialer that reloads the CA cert when the file changes.
-			dialFn, err := newCertReloadingDialer(
-				caCertPath, certPath, keyPath, 30*time.Second, cfg.TLS,
-			)
-			if err != nil {
-				errs = append(errs, fmt.Errorf("kafka: error creating dialer with CA cert: %w", err))
-				break
-			}
-			cfg.Dialer = dialFn
-			cfg.TLS = nil
-		}
-	}
-	// Only configure SASL if it is not already set and when there is no
-	// intention to configure mTLS.
-	if cfg.SASL == nil && certPath == "" && keyPath == "" {
-		saslConfig := saslConfigProperties{
-			Mechanism: os.Getenv("KAFKA_SASL_MECHANISM"),
-			Username:  os.Getenv("KAFKA_USERNAME"),
-			Password:  os.Getenv("KAFKA_PASSWORD"),
-		}
-		if err := saslConfig.finalize(); err != nil {
-			errs = append(errs, fmt.Errorf("kafka: error configuring SASL: %w", err))
-		} else {
-			switch saslConfig.Mechanism {
-			case "PLAIN":
-				plainAuth := plain.Auth{
-					User: saslConfig.Username,
-					Pass: saslConfig.Password,
-				}
-				if plainAuth != (plain.Auth{}) {
-					cfg.SASL = plainAuth.AsMechanism()
-				}
-			case "AWS_MSK_IAM":
-				var err error
-				cfg.SASL, err = newAWSMSKIAMSASL()
-				if err != nil {
-					errs = append(errs, fmt.Errorf("kafka: error configuring SASL/AWS_MSK_IAM: %w", err))
-				}
-			}
-		}
-	}
+
 	// Wrap the cfg.TopicLogFieldFunc to ensure it never returns a field with
 	// an unknown type (like `zap.Field{}`).
 	if cfg.TopicLogFieldFunc != nil {
@@ -286,6 +210,54 @@ func (cfg *CommonConfig) finalize() error {
 	}
 
 	return errors.Join(errs...)
+}
+
+// Merge the configs generated from env vars and/or files.
+func (cfg *CommonConfig) flatten(envCfg *envConfig, fileCfg *fileConfig) error {
+
+	// Config file was set with env vars.
+	if cfg.ConfigFile == "" {
+		cfg.ConfigFile = envCfg.configFile
+	}
+
+	// Check TLS vs Dialer conflict
+	if cfg.TLS != nil && cfg.Dialer != nil {
+		return fmt.Errorf("kafka: only one of TLS or Dialer can be set")
+	}
+
+	// Auto-configure TLS from environment variables.
+	if envCfg.tls != nil {
+		if envCfg.tls.Dialer != nil {
+			cfg.Dialer = envCfg.tls.Dialer
+			cfg.TLS = nil
+		} else if envCfg.tls.Config != nil {
+			cfg.TLS = envCfg.tls.Config
+		}
+	}
+
+	// Config file brokers has precedence over env config.
+	if len(envCfg.brokers) > 0 {
+		cfg.Brokers = envCfg.brokers
+	}
+	if len(fileCfg.brokers) > 0 {
+		cfg.Brokers = fileCfg.brokers
+	}
+	if len(cfg.Brokers) == 0 {
+		return fmt.Errorf("kafka: at least one broker must be set")
+	}
+
+	// File config takes precedence.
+	if envCfg.sasl != nil {
+		cfg.SASL = envCfg.sasl
+	}
+	if fileCfg.sasl != nil {
+		cfg.SASL = fileCfg.sasl
+	}
+
+	// Add file hook to listen to file updates.
+	cfg.hooks = fileCfg.hooks
+
+	return nil
 }
 
 func (cfg *CommonConfig) namespacePrefix() string {

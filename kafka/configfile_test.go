@@ -31,21 +31,21 @@ func TestLoadConfigFile(t *testing.T) {
 		// create a temp dir, but don't create any file inside
 		tempdir := t.TempDir()
 		configFilePath := filepath.Join(tempdir, "config.yaml")
-		_, err := loadConfigFile(configFilePath)
+		_, err := readConfigFile(configFilePath)
 		require.Error(t, err)
 		assert.ErrorIs(t, err, os.ErrNotExist)
 	})
 
 	t.Run("file contents are invalid", func(t *testing.T) {
 		configFilePath := writeConfigFile(t, "invalid!")
-		_, err := loadConfigFile(configFilePath)
+		_, err := readConfigFile(configFilePath)
 		require.Error(t, err)
 		assert.Regexp(t, "error parsing kafka config file .*", err.Error())
 	})
 
 	t.Run("file contents are empty", func(t *testing.T) {
 		configFilePath := writeConfigFile(t, "")
-		config, err := loadConfigFile(configFilePath)
+		config, err := readConfigFile(configFilePath)
 		require.NoError(t, err)
 		assert.Zero(t, config)
 	})
@@ -57,7 +57,7 @@ bootstrap:
 sasl:
   username: "user_name" # another password
   password: "pass_word"`)
-		config, err := loadConfigFile(configFilePath)
+		config, err := readConfigFile(configFilePath)
 		require.NoError(t, err)
 		assert.Equal(t, "a,b,c", config.Bootstrap.Servers)
 		assert.Equal(t, "user_name", config.SASL.Username)

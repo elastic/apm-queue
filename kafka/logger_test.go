@@ -20,6 +20,7 @@ package kafka
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"testing"
 	"time"
@@ -44,6 +45,7 @@ func TestHookLogsFailedDial(t *testing.T) {
 			"expected one or two log lines, got %#v", observedLogs,
 		)
 		// The error message should contain the error message from the dialer.
+		expectedErr = fmt.Sprintf("unable to dial: %s", expectedErr)
 		assert.EqualValues(t, observedLogs[0].ContextMap()["error"], expectedErr)
 		assert.Contains(t, observedLogs[0].ContextMap(), "event.duration")
 		assert.Equal(t, observedLogs[0].Level, expectedLevel)
