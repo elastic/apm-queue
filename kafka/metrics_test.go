@@ -200,8 +200,8 @@ func TestProducerMetrics(t *testing.T) {
 		test(context.Background(), t, producer, rdr, "unknown-topic", want)
 	})
 	t.Run("Produced", func(t *testing.T) {
-		producer, rdr := setupTestProducer(t, func(topic string) attribute.KeyValue {
-			return attribute.String("test", "test")
+		producer, rdr := setupTestProducer(t, func(topic string) []attribute.KeyValue {
+			return []attribute.KeyValue{attribute.String("test", "test")}
 		})
 		want := []metricdata.Metrics{
 			{
@@ -315,8 +315,8 @@ func TestProducerMetrics(t *testing.T) {
 		test(context.Background(), t, producer, rdr, "default-topic", want)
 	})
 	t.Run("ProducedWithHeaders", func(t *testing.T) {
-		producer, rdr := setupTestProducer(t, func(topic string) attribute.KeyValue {
-			return attribute.String("some key", "some value")
+		producer, rdr := setupTestProducer(t, func(topic string) []attribute.KeyValue {
+			return []attribute.KeyValue{attribute.String("some key", "some value")}
 		})
 		want := []metricdata.Metrics{
 			{
@@ -412,8 +412,8 @@ func TestConsumerMetrics(t *testing.T) {
 		}
 		return nil
 	})
-	tc := setupTestConsumer(t, proc, func(topic string) attribute.KeyValue {
-		return attribute.String("header", "included")
+	tc := setupTestConsumer(t, proc, func(topic string) []attribute.KeyValue {
+		return []attribute.KeyValue{attribute.String("header", "included")}
 	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)

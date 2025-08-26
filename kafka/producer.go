@@ -270,7 +270,7 @@ func (p *Producer) Produce(ctx context.Context, rs ...apmqueue.Record) error {
 
 				logger := p.cfg.Logger
 				if p.cfg.TopicLogFieldFunc != nil {
-					logger = logger.With(p.cfg.TopicLogFieldFunc(topicName))
+					logger = logger.With(p.cfg.TopicLogFieldFunc(topicName)...)
 				}
 
 				logger.Error("failed producing message",

@@ -66,9 +66,9 @@ var (
 
 // TopicAttributeFunc run on `kgo.HookProduceBatchWritten` and
 // `kgo.HookFetchBatchRead` for each topic/partition. It can be
-// used include additionaly dimensions for `consumer.messages.fetched`
+// used to include additional dimensions for `consumer.messages.fetched`
 // and `producer.messages.count` metrics.
-type TopicAttributeFunc func(topic string) attribute.KeyValue
+type TopicAttributeFunc func(topic string) []attribute.KeyValue
 
 type metricHooks struct {
 	namespace   string
@@ -455,9 +455,8 @@ func (h *metricHooks) OnProduceBatchWritten(_ kgo.BrokerMetadata,
 		attribute.String("outcome", "success"),
 		attribute.String("compression.codec", compressionFromCodec(m.CompressionType)),
 	)
-	if kv := h.topicAttributeFunc(topic); kv != (attribute.KeyValue{}) {
-		attrs = append(attrs, kv)
-	}
+	kvl := h.topicAttributeFunc(topic)
+	attrs = append(attrs, kvl...)
 	if h.namespace != "" {
 		attrs = append(attrs, attribute.String("namespace", h.namespace))
 	}
@@ -496,9 +495,8 @@ func (h *metricHooks) OnFetchBatchRead(_ kgo.BrokerMetadata,
 		semconv.MessagingKafkaSourcePartition(int(partition)),
 		attribute.String("compression.codec", compressionFromCodec(m.CompressionType)),
 	)
-	if kv := h.topicAttributeFunc(topic); kv != (attribute.KeyValue{}) {
-		attrs = append(attrs, kv)
-	}
+	kvl := h.topicAttributeFunc(topic)
+	attrs = append(attrs, kvl...)
 	if h.namespace != "" {
 		attrs = append(attrs, attribute.String("namespace", h.namespace))
 	}
@@ -538,9 +536,8 @@ func (h *metricHooks) OnProduceRecordUnbuffered(r *kgo.Record, err error) {
 		semconv.MessagingKafkaDestinationPartition(int(r.Partition)),
 		attribute.String("outcome", "failure"),
 	)
-	if kv := h.topicAttributeFunc(r.Topic); kv != (attribute.KeyValue{}) {
-		attrs = append(attrs, kv)
-	}
+	kvl := h.topicAttributeFunc(r.Topic)
+	attrs = append(attrs, kvl...)
 	if h.namespace != "" {
 		attrs = append(attrs, attribute.String("namespace", h.namespace))
 	}
@@ -573,9 +570,8 @@ func (h *metricHooks) OnFetchRecordUnbuffered(r *kgo.Record, polled bool) {
 		semconv.MessagingSourceName(strings.TrimPrefix(r.Topic, h.topicPrefix)),
 		semconv.MessagingKafkaSourcePartition(int(r.Partition)),
 	)
-	if kv := h.topicAttributeFunc(r.Topic); kv != (attribute.KeyValue{}) {
-		attrs = append(attrs, kv)
-	}
+	kvl := h.topicAttributeFunc(r.Topic)
+	attrs = append(attrs, kvl...)
 	if h.namespace != "" {
 		attrs = append(attrs, attribute.String("namespace", h.namespace))
 	}

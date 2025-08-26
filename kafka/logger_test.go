@@ -64,7 +64,7 @@ func TestHookLogsFailedDial(t *testing.T) {
 		}
 		// Calling newClient triggers the metadata refresh, forcing a connection to the fake cluster
 		// using the broken dialer.
-		c, err := cfg.newClient(func(string) attribute.KeyValue { return attribute.String("k", "v") })
+		c, err := cfg.newClient(func(string) []attribute.KeyValue { return []attribute.KeyValue{attribute.String("k", "v")} })
 		require.NoError(t, err)
 
 		<-time.After(time.Millisecond)
@@ -88,7 +88,7 @@ func TestHookLogsFailedDial(t *testing.T) {
 
 		// Calling newClient triggers the metadata refresh, forcing a connection to the fake cluster
 		// using the broken dialer.
-		c, err := cfg.newClient(func(string) attribute.KeyValue { return attribute.String("k", "v") })
+		c, err := cfg.newClient(func(string) []attribute.KeyValue { return []attribute.KeyValue{attribute.String("k", "v")} })
 		require.NoError(t, err)
 		assert.Error(t, c.Ping(context.Background()))
 

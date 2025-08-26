@@ -45,7 +45,7 @@ import (
 type SASLMechanism = sasl.Mechanism
 
 // TopicLogFieldFunc is a function that returns a zap.Field for a given topic.
-type TopicLogFieldFunc func(topic string) zap.Field
+type TopicLogFieldFunc func(topic string) []zap.Field
 
 // CommonConfig defines common configuration for Kafka consumers, producers,
 // and managers.
@@ -204,8 +204,8 @@ func (cfg *CommonConfig) finalize() error {
 		cfg.TopicLogFieldFunc = topicFieldFunc(cfg.TopicLogFieldFunc)
 	}
 	if cfg.TopicAttributeFunc == nil {
-		cfg.TopicAttributeFunc = func(topic string) attribute.KeyValue {
-			return attribute.KeyValue{}
+		cfg.TopicAttributeFunc = func(topic string) []attribute.KeyValue {
+			return nil
 		}
 	}
 
@@ -348,14 +348,18 @@ func newAWSMSKIAMSASL() (sasl.Mechanism, error) {
 }
 
 func topicFieldFunc(f TopicLogFieldFunc) TopicLogFieldFunc {
-	return func(t string) zap.Field {
+	return func(t string) []zap.Field {
 		if f == nil {
-			return zap.Skip()
+			return nil
 		}
-		if field := f(t); field.Type > zapcore.UnknownType {
-			return field
+		fields := f(t)
+		var result []zap.Field
+		for _, field := range fields {
+			if field.Type > zapcore.UnknownType {
+				result = append(result, field)
+			}
 		}
-		return zap.Skip()
+		return result
 	}
 }
 

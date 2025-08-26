@@ -169,7 +169,7 @@ func (c *TopicCreator) CreateTopics(ctx context.Context, topics ...apmqueue.Topi
 		topicName := strings.TrimPrefix(response.Topic, namespacePrefix)
 		logger := c.m.cfg.Logger.With(loggerFields...)
 		if c.m.cfg.TopicLogFieldFunc != nil {
-			logger = logger.With(c.m.cfg.TopicLogFieldFunc(topicName))
+			logger = logger.With(c.m.cfg.TopicLogFieldFunc(topicName)...)
 		}
 		if err := response.Err; err != nil {
 			if errors.Is(err, kerr.TopicAlreadyExists) {
@@ -224,7 +224,7 @@ func (c *TopicCreator) CreateTopics(ctx context.Context, topics ...apmqueue.Topi
 			topicName := strings.TrimPrefix(response.Topic, namespacePrefix)
 			logger := c.m.cfg.Logger.With(loggerFields...)
 			if c.m.cfg.TopicLogFieldFunc != nil {
-				logger = logger.With(c.m.cfg.TopicLogFieldFunc(topicName))
+				logger = logger.With(c.m.cfg.TopicLogFieldFunc(topicName)...)
 			}
 
 			if errors.Is(response.Err, kerr.InvalidRequest) {
@@ -267,7 +267,7 @@ func (c *TopicCreator) CreateTopics(ctx context.Context, topics ...apmqueue.Topi
 			topicName := strings.TrimPrefix(response.Name, namespacePrefix)
 			logger := c.m.cfg.Logger.With(loggerFields...)
 			if c.m.cfg.TopicLogFieldFunc != nil {
-				logger = logger.With(c.m.cfg.TopicLogFieldFunc(topicName))
+				logger = logger.With(c.m.cfg.TopicLogFieldFunc(topicName)...)
 			}
 
 			if err := response.Err; err != nil {

@@ -67,7 +67,7 @@ func TestManagerDeleteTopics(t *testing.T) {
 	commonConfig.Logger = zap.New(core)
 	commonConfig.TracerProvider = tp
 	commonConfig.MeterProvider = mt.MeterProvider
-	commonConfig.TopicAttributeFunc = func(topic string) attribute.KeyValue { return attribute.KeyValue{} }
+	commonConfig.TopicAttributeFunc = func(topic string) []attribute.KeyValue { return nil }
 	m, err := NewManager(ManagerConfig{CommonConfig: commonConfig})
 	require.NoError(t, err)
 	t.Cleanup(func() { m.Close() })
@@ -182,8 +182,8 @@ func TestManagerMetrics(t *testing.T) {
 	commonConfig.Logger = zap.New(core)
 	commonConfig.TracerProvider = tp
 	commonConfig.MeterProvider = mp
-	commonConfig.TopicAttributeFunc = func(topic string) attribute.KeyValue {
-		return attribute.Bool("foo", true)
+	commonConfig.TopicAttributeFunc = func(topic string) []attribute.KeyValue {
+		return []attribute.KeyValue{attribute.Bool("foo", true)}
 	}
 	m, err := NewManager(ManagerConfig{CommonConfig: commonConfig})
 	require.NoError(t, err)

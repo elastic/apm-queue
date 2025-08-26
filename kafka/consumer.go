@@ -397,7 +397,7 @@ func (c *Consumer) fetch(ctx context.Context) error {
 		// the fake fetch can have an empty topic so we need to
 		// account for that
 		if c.cfg.TopicLogFieldFunc != nil && topicName != "" {
-			logger = logger.With(c.cfg.TopicLogFieldFunc(topicName))
+			logger = logger.With(c.cfg.TopicLogFieldFunc(topicName)...)
 		}
 
 		logger.Error(
@@ -453,7 +453,7 @@ func (c *consumer) assigned(_ context.Context, client *kgo.Client, assigned map[
 				zap.Int32("partition", partition),
 			)
 			if c.logFieldFn != nil {
-				logger = logger.With(c.logFieldFn(t))
+				logger = logger.With(c.logFieldFn(t)...)
 			}
 
 			pc := newPartitionConsumer(c.ctx, client, c.processor,
@@ -536,7 +536,7 @@ func (c *consumer) processFetch(fetches kgo.Fetches) {
 			topicName := strings.TrimPrefix(ftp.Topic, c.topicPrefix)
 			logger := c.logger
 			if c.logFieldFn != nil {
-				logger = logger.With(c.logFieldFn(topicName))
+				logger = logger.With(c.logFieldFn(topicName)...)
 			}
 			logger.Warn(
 				"data loss: failed to send records to process after commit",
