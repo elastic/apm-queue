@@ -5,7 +5,7 @@ go 1.23.8
 require (
 	github.com/aws/aws-sdk-go-v2/config v1.31.1
 	github.com/google/go-cmp v0.7.0
-	github.com/stretchr/testify v1.10.0
+	github.com/stretchr/testify v1.11.0
 	github.com/twmb/franz-go v1.19.5
 	github.com/twmb/franz-go/pkg/kadm v1.15.0
 	github.com/twmb/franz-go/pkg/kfake v0.0.0-20250625174842-669b18eeee83
