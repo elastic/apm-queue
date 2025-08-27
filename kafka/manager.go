@@ -148,8 +148,8 @@ func (m *Manager) DeleteTopics(ctx context.Context, topics ...apmqueue.Topic) er
 				if kv := m.cfg.TopicAttributeFunc(topic); kv != (attribute.KeyValue{}) {
 					attrs = append(attrs, kv)
 				}
-				if m.cfg.TopicMultipleAttributeFunc != nil {
-					attrs = append(attrs, m.cfg.TopicMultipleAttributeFunc(topic)...)
+				if m.cfg.TopicAttributesFunc != nil {
+					attrs = append(attrs, m.cfg.TopicAttributesFunc(topic)...)
 				}
 				m.deleted.Add(context.Background(), 1, metric.WithAttributeSet(
 					attribute.NewSet(attrs...),
@@ -165,8 +165,8 @@ func (m *Manager) DeleteTopics(ctx context.Context, topics ...apmqueue.Topic) er
 		if kv := m.cfg.TopicAttributeFunc(topic); kv != (attribute.KeyValue{}) {
 			attrs = append(attrs, kv)
 		}
-		if m.cfg.TopicMultipleAttributeFunc != nil {
-			attrs = append(attrs, m.cfg.TopicMultipleAttributeFunc(topic)...)
+		if m.cfg.TopicAttributesFunc != nil {
+			attrs = append(attrs, m.cfg.TopicAttributesFunc(topic)...)
 		}
 		m.deleted.Add(context.Background(), 1, metric.WithAttributeSet(
 			attribute.NewSet(attrs...),
@@ -313,8 +313,8 @@ func (m *Manager) MonitorConsumerLag(topicConsumers []apmqueue.TopicConsumer) (m
 					if kv := m.cfg.TopicAttributeFunc(topic); kv != (attribute.KeyValue{}) {
 						attrs = append(attrs, kv)
 					}
-					if m.cfg.TopicMultipleAttributeFunc != nil {
-						attrs = append(attrs, m.cfg.TopicMultipleAttributeFunc(topic)...)
+					if m.cfg.TopicAttributesFunc != nil {
+						attrs = append(attrs, m.cfg.TopicAttributesFunc(topic)...)
 					}
 					o.ObserveInt64(
 						consumerGroupLagMetric, lag.Lag,
@@ -331,8 +331,8 @@ func (m *Manager) MonitorConsumerLag(topicConsumers []apmqueue.TopicConsumer) (m
 				if kv := m.cfg.TopicAttributeFunc(key.topic); kv != (attribute.KeyValue{}) {
 					attrs = append(attrs, kv)
 				}
-				if m.cfg.TopicMultipleAttributeFunc != nil {
-					attrs = append(attrs, m.cfg.TopicMultipleAttributeFunc(key.topic)...)
+				if m.cfg.TopicAttributesFunc != nil {
+					attrs = append(attrs, m.cfg.TopicAttributesFunc(key.topic)...)
 				}
 				o.ObserveInt64(assignmentMetric, count, metric.WithAttributeSet(
 					attribute.NewSet(attrs...),

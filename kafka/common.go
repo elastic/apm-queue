@@ -158,14 +158,14 @@ type CommonConfig struct {
 	// topic for these metrics:
 	// - producer.messages.count
 	// - consumer.messages.fetched
-	// Deprecated: Use TopicMultipleAttributeFunc instead.
+	// Deprecated: Use TopicAttributesFunc instead.
 	TopicAttributeFunc TopicAttributeFunc
 
-	// TopicMultipleAttributeFunc can be used to create multiple custom dimensions from a Kafka
+	// TopicAttributesFunc can be used to create multiple custom dimensions from a Kafka
 	// topic for these metrics:
 	// - producer.messages.count
 	// - consumer.messages.fetched
-	TopicMultipleAttributeFunc TopicMultipleAttributeFunc
+	TopicAttributesFunc TopicAttributesFunc
 
 	// TopicAttributeFunc can be used to create one custom dimension from a Kafka
 	// topic for log messages.
@@ -212,17 +212,6 @@ func (cfg *CommonConfig) finalize() error {
 	err = cfg.flatten(envCfg, fileCfg)
 	if err != nil {
 		errs = append(errs, err)
-	}
-
-	// Wrap the cfg.TopicLogFieldFunc to ensure it never returns a field with
-	// an unknown type (like `zap.Field{}`).
-	if cfg.TopicLogFieldFunc != nil {
-		cfg.TopicLogFieldFunc = topicFieldFunc(cfg.TopicLogFieldFunc)
-	}
-	if cfg.TopicAttributeFunc == nil {
-		cfg.TopicAttributeFunc = func(topic string) attribute.KeyValue {
-			return attribute.KeyValue{}
-		}
 	}
 
 	return errors.Join(errs...)
@@ -300,7 +289,7 @@ type Opts func(opts *ClientOpts)
 
 type ClientOpts struct {
 	topicAttributeFunc         TopicAttributeFunc
-	topicMultipleAttributeFunc TopicMultipleAttributeFunc
+	topicMultipleAttributeFunc TopicAttributesFunc
 }
 
 // Deprecated: Use WithTopicMultipleAttributeFunc instead.
@@ -310,7 +299,7 @@ func WithTopicAttributeFunc(topicAttributeFunc TopicAttributeFunc) func(opts *Cl
 	}
 }
 
-func WithTopicMultipleAttributeFunc(topicMultipleAttributeFunc TopicMultipleAttributeFunc) func(opts *ClientOpts) {
+func WithTopicMultipleAttributeFunc(topicMultipleAttributeFunc TopicAttributesFunc) func(opts *ClientOpts) {
 	return func(opts *ClientOpts) {
 		opts.topicMultipleAttributeFunc = topicMultipleAttributeFunc
 	}
@@ -344,8 +333,9 @@ func (cfg *CommonConfig) newClientWithOpts(clientOpts []Opts, additionalOpts ...
 	}
 	opts = append(opts, additionalOpts...)
 	if !cfg.DisableTelemetry {
+		multipleAttributesFn := mergeTopicAttributeFunctions(clOpts.topicAttributeFunc, clOpts.topicMultipleAttributeFunc)
 		metricHooks, err := newKgoHooks(
-			cfg.meterProvider(), cfg.Namespace, cfg.namespacePrefix(), clOpts.topicAttributeFunc, clOpts.topicMultipleAttributeFunc,
+			cfg.meterProvider(), cfg.Namespace, cfg.namespacePrefix(), multipleAttributesFn,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("kafka: failed creating kgo metrics hooks: %w", err)
@@ -396,6 +386,43 @@ func topicFieldFunc(f TopicLogFieldFunc) TopicLogFieldFunc {
 			return field
 		}
 		return zap.Skip()
+	}
+}
+
+// mergeTopicLogFieldsFunctions merges the fields from TopicLogFieldFunc
+// and TopicLogFieldsFunc, and returns a new TopicLogFieldsFunc with all
+// log fields.
+func mergeTopicLogFieldsFunctions(single TopicLogFieldFunc, multiple TopicLogFieldsFunc) TopicLogFieldsFunc {
+	if single == nil {
+		return multiple
+	}
+	if multiple == nil {
+		return func(topic string) []zap.Field {
+			// Wrap the cfg.TopicLogFieldFunc to ensure it never returns a field with
+			// an unknown type (like `zap.Field{}`).
+			fn := topicFieldFunc(single)
+			return []zap.Field{fn(topic)}
+		}
+	}
+	return func(topic string) []zap.Field {
+		return append(multiple(topic), single(topic))
+	}
+}
+
+// mergeTopicAttributeFunctions merges the attributes from TopicAttributeFunc
+// and TopicAttributesFunc, and returns a new TopicAttributesFunc with all
+// attributes.
+func mergeTopicAttributeFunctions(single TopicAttributeFunc, multiple TopicAttributesFunc) TopicAttributesFunc {
+	if single == nil {
+		return multiple
+	}
+	if multiple == nil {
+		return func(topic string) []attribute.KeyValue {
+			return []attribute.KeyValue{single(topic)}
+		}
+	}
+	return func(topic string) []attribute.KeyValue {
+		return append(multiple(topic), single(topic))
 	}
 }
 

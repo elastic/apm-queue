@@ -109,7 +109,7 @@ func NewLogCompactedConsumer(cfg LogCompactedConfig,
 	}
 
 	client, err := cfg.newClientWithOpts(
-		[]Opts{WithTopicAttributeFunc(cfg.TopicAttributeFunc), WithTopicMultipleAttributeFunc(cfg.TopicMultipleAttributeFunc)},
+		[]Opts{WithTopicAttributeFunc(cfg.TopicAttributeFunc), WithTopicMultipleAttributeFunc(cfg.TopicAttributesFunc)},
 		opts...,
 	)
 	if err != nil {

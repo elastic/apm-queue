@@ -907,8 +907,6 @@ func assertNotNilOptions(t testing.TB, cfg *ConsumerConfig) {
 	cfg.Processor = nil
 	assert.NotNil(t, cfg.Logger)
 	cfg.Logger = nil
-	assert.NotNil(t, cfg.TopicAttributeFunc)
-	cfg.TopicAttributeFunc = nil
 }
 
 func newConsumer(t testing.TB, cfg ConsumerConfig) *Consumer {

@@ -189,7 +189,7 @@ func NewProducer(cfg ProducerConfig) (*Producer, error) {
 		opts = append(opts, kgo.AllowAutoTopicCreation())
 	}
 	client, err := cfg.newClientWithOpts(
-		[]Opts{WithTopicAttributeFunc(cfg.TopicAttributeFunc), WithTopicMultipleAttributeFunc(cfg.TopicMultipleAttributeFunc)},
+		[]Opts{WithTopicAttributeFunc(cfg.TopicAttributeFunc), WithTopicMultipleAttributeFunc(cfg.TopicAttributesFunc)},
 		opts...,
 	)
 	if err != nil {

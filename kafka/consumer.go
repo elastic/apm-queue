@@ -212,8 +212,7 @@ func NewConsumer(cfg ConsumerConfig) (*Consumer, error) {
 	namespacePrefix := cfg.namespacePrefix()
 	consumer := &consumer{
 		topicPrefix: namespacePrefix,
-		logFieldFn:  cfg.TopicLogFieldFunc,
-		logFieldsFn: cfg.TopicLogFieldsFunc,
+		logFieldsFn: mergeTopicLogFieldsFunctions(cfg.TopicLogFieldFunc, cfg.TopicLogFieldsFunc),
 		assignments: make(map[topicPartition]*pc),
 		processor:   cfg.Processor,
 		logger:      cfg.Logger.Named("partition"),
@@ -272,7 +271,7 @@ func NewConsumer(cfg ConsumerConfig) (*Consumer, error) {
 	}
 
 	client, err := cfg.newClientWithOpts(
-		[]Opts{WithTopicAttributeFunc(cfg.TopicAttributeFunc), WithTopicMultipleAttributeFunc(cfg.TopicMultipleAttributeFunc)},
+		[]Opts{WithTopicAttributeFunc(cfg.TopicAttributeFunc), WithTopicMultipleAttributeFunc(cfg.TopicAttributesFunc)},
 		opts...,
 	)
 	if err != nil {
@@ -438,9 +437,6 @@ type consumer struct {
 	processor   apmqueue.Processor
 	logger      *zap.Logger
 	delivery    apmqueue.DeliveryType
-
-	// Deprecated: use logFieldsFn instead.
-	logFieldFn  TopicLogFieldFunc
 	logFieldsFn TopicLogFieldsFunc
 
 	// ctx contains the graceful cancellation context that is passed to the
@@ -465,9 +461,6 @@ func (c *consumer) assigned(_ context.Context, client *kgo.Client, assigned map[
 				zap.String("topic", t),
 				zap.Int32("partition", partition),
 			)
-			if c.logFieldFn != nil {
-				logger = logger.With(c.logFieldFn(t))
-			}
 			if c.logFieldsFn != nil {
 				logger = logger.With(c.logFieldsFn(t)...)
 			}
@@ -551,9 +544,6 @@ func (c *consumer) processFetch(fetches kgo.Fetches) {
 		if c.delivery == apmqueue.AtMostOnceDeliveryType {
 			topicName := strings.TrimPrefix(ftp.Topic, c.topicPrefix)
 			logger := c.logger
-			if c.logFieldFn != nil {
-				logger = logger.With(c.logFieldFn(topicName))
-			}
 			if c.logFieldsFn != nil {
 				logger = logger.With(c.logFieldsFn(topicName)...)
 			}

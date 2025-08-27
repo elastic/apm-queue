@@ -573,7 +573,7 @@ func filterMetrics(t testing.TB, sm []metricdata.ScopeMetrics) []metricdata.Metr
 	return []metricdata.Metrics{}
 }
 
-func setupTestProducer(t testing.TB, tafunc TopicAttributeFunc, tmafunc TopicMultipleAttributeFunc) (*Producer, sdkmetric.Reader) {
+func setupTestProducer(t testing.TB, tafunc TopicAttributeFunc, tmafunc TopicAttributesFunc) (*Producer, sdkmetric.Reader) {
 	t.Helper()
 
 	rdr := sdkmetric.NewManualReader()
@@ -584,13 +584,13 @@ func setupTestProducer(t testing.TB, tafunc TopicAttributeFunc, tmafunc TopicMul
 	})
 	producer := newProducer(t, ProducerConfig{
 		CommonConfig: CommonConfig{
-			Brokers:                    brokers,
-			Logger:                     zap.NewNop(),
-			Namespace:                  "name_space",
-			TracerProvider:             noop.NewTracerProvider(),
-			MeterProvider:              mp,
-			TopicAttributeFunc:         tafunc,
-			TopicMultipleAttributeFunc: tmafunc,
+			Brokers:             brokers,
+			Logger:              zap.NewNop(),
+			Namespace:           "name_space",
+			TracerProvider:      noop.NewTracerProvider(),
+			MeterProvider:       mp,
+			TopicAttributeFunc:  tafunc,
+			TopicAttributesFunc: tmafunc,
 		},
 		Sync: true,
 	})
@@ -607,7 +607,7 @@ func setupTestConsumer(
 	t testing.TB,
 	p apmqueue.Processor,
 	tafunc TopicAttributeFunc,
-	tmafunc TopicMultipleAttributeFunc,
+	tmafunc TopicAttributesFunc,
 ) (mc testMetricConsumer) {
 	t.Helper()
 
@@ -623,8 +623,8 @@ func setupTestConsumer(
 			MeterProvider: sdkmetric.NewMeterProvider(
 				sdkmetric.WithReader(mc.reader),
 			),
-			TopicAttributeFunc:         tafunc,
-			TopicMultipleAttributeFunc: tmafunc,
+			TopicAttributeFunc:  tafunc,
+			TopicAttributesFunc: tmafunc,
 		},
 	}
 	mc.client, cfg.Brokers = newClusterWithTopics(t, 1, "name_space-"+t.Name())
