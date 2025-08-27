@@ -212,7 +212,7 @@ func NewConsumer(cfg ConsumerConfig) (*Consumer, error) {
 	namespacePrefix := cfg.namespacePrefix()
 	consumer := &consumer{
 		topicPrefix: namespacePrefix,
-		logFieldsFn: mergeTopicLogFieldsFunctions(cfg.TopicLogFieldFunc, cfg.TopicLogFieldsFunc),
+		logFieldsFn: cfg.TopicLogFieldsFunc,
 		assignments: make(map[topicPartition]*pc),
 		processor:   cfg.Processor,
 		logger:      cfg.Logger.Named("partition"),
@@ -271,7 +271,7 @@ func NewConsumer(cfg ConsumerConfig) (*Consumer, error) {
 	}
 
 	client, err := cfg.newClientWithOpts(
-		[]Opts{WithTopicAttributeFunc(cfg.TopicAttributeFunc), WithTopicMultipleAttributeFunc(cfg.TopicAttributesFunc)},
+		[]Opts{WithTopicMultipleAttributeFunc(cfg.TopicAttributesFunc)},
 		opts...,
 	)
 	if err != nil {

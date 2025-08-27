@@ -214,6 +214,9 @@ func (cfg *CommonConfig) finalize() error {
 		errs = append(errs, err)
 	}
 
+	cfg.TopicLogFieldsFunc = mergeTopicLogFieldsFunctions(cfg.TopicLogFieldFunc, cfg.TopicLogFieldsFunc)
+	cfg.TopicAttributesFunc = mergeTopicAttributeFunctions(cfg.TopicAttributeFunc, cfg.TopicAttributesFunc)
+
 	return errors.Join(errs...)
 }
 
@@ -288,20 +291,12 @@ func (cfg *CommonConfig) meterProvider() metric.MeterProvider {
 type Opts func(opts *ClientOpts)
 
 type ClientOpts struct {
-	topicAttributeFunc         TopicAttributeFunc
-	topicMultipleAttributeFunc TopicAttributesFunc
+	topicAttributesFunc TopicAttributesFunc
 }
 
-// Deprecated: Use WithTopicMultipleAttributeFunc instead.
-func WithTopicAttributeFunc(topicAttributeFunc TopicAttributeFunc) func(opts *ClientOpts) {
+func WithTopicMultipleAttributeFunc(topicAttributesFunc TopicAttributesFunc) func(opts *ClientOpts) {
 	return func(opts *ClientOpts) {
-		opts.topicAttributeFunc = topicAttributeFunc
-	}
-}
-
-func WithTopicMultipleAttributeFunc(topicMultipleAttributeFunc TopicAttributesFunc) func(opts *ClientOpts) {
-	return func(opts *ClientOpts) {
-		opts.topicMultipleAttributeFunc = topicMultipleAttributeFunc
+		opts.topicAttributesFunc = topicAttributesFunc
 	}
 }
 
@@ -333,9 +328,8 @@ func (cfg *CommonConfig) newClientWithOpts(clientOpts []Opts, additionalOpts ...
 	}
 	opts = append(opts, additionalOpts...)
 	if !cfg.DisableTelemetry {
-		multipleAttributesFn := mergeTopicAttributeFunctions(clOpts.topicAttributeFunc, clOpts.topicMultipleAttributeFunc)
 		metricHooks, err := newKgoHooks(
-			cfg.meterProvider(), cfg.Namespace, cfg.namespacePrefix(), multipleAttributesFn,
+			cfg.meterProvider(), cfg.Namespace, cfg.namespacePrefix(), clOpts.topicAttributesFunc,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("kafka: failed creating kgo metrics hooks: %w", err)
@@ -398,14 +392,18 @@ func mergeTopicLogFieldsFunctions(single TopicLogFieldFunc, multiple TopicLogFie
 	}
 	if multiple == nil {
 		return func(topic string) []zap.Field {
-			// Wrap the cfg.TopicLogFieldFunc to ensure it never returns a field with
-			// an unknown type (like `zap.Field{}`).
 			fn := topicFieldFunc(single)
 			return []zap.Field{fn(topic)}
 		}
 	}
 	return func(topic string) []zap.Field {
-		return append(multiple(topic), single(topic))
+		fields := multiple(topic)
+		for i := range fields {
+			if fields[i].Type <= zapcore.UnknownType {
+				fields[i] = zap.Skip()
+			}
+		}
+		return append(fields, single(topic))
 	}
 }
 
@@ -418,7 +416,11 @@ func mergeTopicAttributeFunctions(single TopicAttributeFunc, multiple TopicAttri
 	}
 	if multiple == nil {
 		return func(topic string) []attribute.KeyValue {
-			return []attribute.KeyValue{single(topic)}
+			v := single(topic)
+			if v == (attribute.KeyValue{}) {
+				return nil
+			}
+			return []attribute.KeyValue{v}
 		}
 	}
 	return func(topic string) []attribute.KeyValue {
