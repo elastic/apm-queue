@@ -14,7 +14,7 @@ jobs:
   run-system-tests:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       # This step is skipped if the pull request is from a forked repository
       # In that case the job just creates a green status check on the pull request.
       - if: |
