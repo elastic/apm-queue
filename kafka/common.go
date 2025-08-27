@@ -296,12 +296,6 @@ func (cfg *CommonConfig) meterProvider() metric.MeterProvider {
 	return otel.GetMeterProvider()
 }
 
-// newClient creates a new *kgo.Client.
-// Deprecated: use newClientWithOpts instead.
-func (cfg *CommonConfig) newClient(topicAttributeFunc TopicAttributeFunc, additionalOpts ...kgo.Opt) (*kgo.Client, error) {
-	return cfg.newClientWithOpts([]Opts{WithTopicAttributeFunc(topicAttributeFunc)}, additionalOpts...)
-}
-
 type Opts func(opts *ClientOpts)
 
 type ClientOpts struct {
