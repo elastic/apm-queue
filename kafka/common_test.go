@@ -340,7 +340,7 @@ func TestCommonConfigFileHook(t *testing.T) {
 	require.NoError(t, cfg.finalize())
 	assert.Equal(t, []string{"testing.invalid"}, cfg.Brokers)
 
-	client, err := cfg.newClient(nil)
+	client, err := cfg.newClientWithOpts(nil)
 	require.NoError(t, err)
 	defer client.Close()
 
@@ -388,19 +388,19 @@ func newClusterWithTopics(t testing.TB, partitions int32, topics ...string) (*kg
 func TestTopicFieldFunc(t *testing.T) {
 	t.Run("nil func", func(t *testing.T) {
 		topic := topicFieldFunc(nil)("a")
-		assert.Nil(t, topic)
+		assert.Equal(t, zap.Skip(), topic)
 	})
 	t.Run("empty field", func(t *testing.T) {
-		topic := topicFieldFunc(func(topic string) []zap.Field {
-			return nil
+		topic := topicFieldFunc(func(topic string) zap.Field {
+			return zap.Field{}
 		})("b")
-		assert.Nil(t, topic)
+		assert.Equal(t, zap.Skip(), topic)
 	})
 	t.Run("actual topic field", func(t *testing.T) {
-		topic := topicFieldFunc(func(topic string) []zap.Field {
-			return []zap.Field{zap.String("topic", topic)}
+		topic := topicFieldFunc(func(topic string) zap.Field {
+			return zap.String("topic", topic)
 		})("c")
-		assert.Equal(t, []zap.Field{zap.String("topic", "c")}, topic)
+		assert.Equal(t, zap.String("topic", "c"), topic)
 	})
 }
 

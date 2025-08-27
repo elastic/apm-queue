@@ -66,9 +66,17 @@ var (
 
 // TopicAttributeFunc run on `kgo.HookProduceBatchWritten` and
 // `kgo.HookFetchBatchRead` for each topic/partition. It can be
-// used to include additional dimensions for `consumer.messages.fetched`
+// used to include one additional dimension for `consumer.messages.fetched`
 // and `producer.messages.count` metrics.
-type TopicAttributeFunc func(topic string) []attribute.KeyValue
+//
+// Deprecated: Please use TopicMultipleAttributeFunc instead.
+type TopicAttributeFunc func(topic string) attribute.KeyValue
+
+// TopicMultipleAttributeFunc run on `kgo.HookProduceBatchWritten` and
+// `kgo.HookFetchBatchRead` for each topic/partition. It can be
+// used to include aditional dimensions for `consumer.messages.fetched`
+// and `producer.messages.count` metrics.
+type TopicMultipleAttributeFunc func(topic string) []attribute.KeyValue
 
 type metricHooks struct {
 	namespace   string
@@ -103,11 +111,16 @@ type metricHooks struct {
 	messageDelay                     metric.Float64Histogram
 	throttlingDuration               metric.Float64Histogram
 
-	topicAttributeFunc TopicAttributeFunc
+	// Deprecated: use topicMultipleAttributeFunc instead.
+	topicAttributeFunc         TopicAttributeFunc
+	topicMultipleAttributeFunc TopicMultipleAttributeFunc
 }
 
-func newKgoHooks(mp metric.MeterProvider, namespace, topicPrefix string,
+func newKgoHooks(
+	mp metric.MeterProvider,
+	namespace, topicPrefix string,
 	topicAttributeFunc TopicAttributeFunc,
+	topicMultipleAttributeFunc TopicMultipleAttributeFunc,
 ) (*metricHooks, error) {
 	m := mp.Meter(instrumentName)
 
@@ -333,7 +346,8 @@ func newKgoHooks(mp metric.MeterProvider, namespace, topicPrefix string,
 		messageDelay:                    messageDelayHistogram,
 		throttlingDuration:              throttlingDurationHistogram,
 
-		topicAttributeFunc: topicAttributeFunc,
+		topicAttributeFunc:         topicAttributeFunc,
+		topicMultipleAttributeFunc: topicMultipleAttributeFunc,
 	}, nil
 }
 
@@ -455,8 +469,12 @@ func (h *metricHooks) OnProduceBatchWritten(_ kgo.BrokerMetadata,
 		attribute.String("outcome", "success"),
 		attribute.String("compression.codec", compressionFromCodec(m.CompressionType)),
 	)
-	kvl := h.topicAttributeFunc(topic)
-	attrs = append(attrs, kvl...)
+	if kv := h.topicAttributeFunc(topic); kv != (attribute.KeyValue{}) {
+		attrs = append(attrs, kv)
+	}
+	if h.topicMultipleAttributeFunc != nil {
+		attrs = append(attrs, h.topicMultipleAttributeFunc(topic)...)
+	}
 	if h.namespace != "" {
 		attrs = append(attrs, attribute.String("namespace", h.namespace))
 	}
@@ -495,8 +513,12 @@ func (h *metricHooks) OnFetchBatchRead(_ kgo.BrokerMetadata,
 		semconv.MessagingKafkaSourcePartition(int(partition)),
 		attribute.String("compression.codec", compressionFromCodec(m.CompressionType)),
 	)
-	kvl := h.topicAttributeFunc(topic)
-	attrs = append(attrs, kvl...)
+	if kv := h.topicAttributeFunc(topic); kv != (attribute.KeyValue{}) {
+		attrs = append(attrs, kv)
+	}
+	if h.topicMultipleAttributeFunc != nil {
+		attrs = append(attrs, h.topicMultipleAttributeFunc(topic)...)
+	}
 	if h.namespace != "" {
 		attrs = append(attrs, attribute.String("namespace", h.namespace))
 	}
@@ -536,8 +558,12 @@ func (h *metricHooks) OnProduceRecordUnbuffered(r *kgo.Record, err error) {
 		semconv.MessagingKafkaDestinationPartition(int(r.Partition)),
 		attribute.String("outcome", "failure"),
 	)
-	kvl := h.topicAttributeFunc(r.Topic)
-	attrs = append(attrs, kvl...)
+	if kv := h.topicAttributeFunc(r.Topic); kv != (attribute.KeyValue{}) {
+		attrs = append(attrs, kv)
+	}
+	if h.topicMultipleAttributeFunc != nil {
+		attrs = append(attrs, h.topicMultipleAttributeFunc(r.Topic)...)
+	}
 	if h.namespace != "" {
 		attrs = append(attrs, attribute.String("namespace", h.namespace))
 	}
@@ -570,8 +596,12 @@ func (h *metricHooks) OnFetchRecordUnbuffered(r *kgo.Record, polled bool) {
 		semconv.MessagingSourceName(strings.TrimPrefix(r.Topic, h.topicPrefix)),
 		semconv.MessagingKafkaSourcePartition(int(r.Partition)),
 	)
-	kvl := h.topicAttributeFunc(r.Topic)
-	attrs = append(attrs, kvl...)
+	if kv := h.topicAttributeFunc(r.Topic); kv != (attribute.KeyValue{}) {
+		attrs = append(attrs, kv)
+	}
+	if h.topicMultipleAttributeFunc != nil {
+		attrs = append(attrs, h.topicMultipleAttributeFunc(r.Topic)...)
+	}
 	if h.namespace != "" {
 		attrs = append(attrs, attribute.String("namespace", h.namespace))
 	}

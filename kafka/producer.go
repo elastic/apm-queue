@@ -188,7 +188,10 @@ func NewProducer(cfg ProducerConfig) (*Producer, error) {
 	if cfg.AllowAutoTopicCreation {
 		opts = append(opts, kgo.AllowAutoTopicCreation())
 	}
-	client, err := cfg.newClient(cfg.TopicAttributeFunc, opts...)
+	client, err := cfg.newClientWithOpts(
+		[]Opts{WithTopicAttributeFunc(cfg.TopicAttributeFunc), WithTopicMultipleAttributeFunc(cfg.TopicMultipleAttributeFunc)},
+		opts...,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("kafka: failed creating producer: %w", err)
 	}
@@ -270,7 +273,10 @@ func (p *Producer) Produce(ctx context.Context, rs ...apmqueue.Record) error {
 
 				logger := p.cfg.Logger
 				if p.cfg.TopicLogFieldFunc != nil {
-					logger = logger.With(p.cfg.TopicLogFieldFunc(topicName)...)
+					logger = logger.With(p.cfg.TopicLogFieldFunc(topicName))
+				}
+				if p.cfg.TopicLogFieldsFunc != nil {
+					logger = logger.With(p.cfg.TopicLogFieldsFunc(topicName)...)
 				}
 
 				logger.Error("failed producing message",

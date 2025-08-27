@@ -69,7 +69,7 @@ func NewManager(cfg ManagerConfig) (*Manager, error) {
 	if err := cfg.finalize(); err != nil {
 		return nil, fmt.Errorf("kafka: invalid manager config: %w", err)
 	}
-	client, err := cfg.newClient(nil)
+	client, err := cfg.newClientWithOpts(nil)
 	if err != nil {
 		return nil, fmt.Errorf("kafka: failed creating kafka client: %w", err)
 	}
@@ -125,7 +125,10 @@ func (m *Manager) DeleteTopics(ctx context.Context, topics ...apmqueue.Topic) er
 		topic := strings.TrimPrefix(response.Topic, namespacePrefix)
 		logger := m.cfg.Logger.With(zap.String("topic", topic))
 		if m.cfg.TopicLogFieldFunc != nil {
-			logger = logger.With(m.cfg.TopicLogFieldFunc(topic)...)
+			logger = logger.With(m.cfg.TopicLogFieldFunc(topic))
+		}
+		if m.cfg.TopicLogFieldsFunc != nil {
+			logger = logger.With(m.cfg.TopicLogFieldsFunc(topic)...)
 		}
 
 		if err := response.Err; err != nil {
@@ -142,8 +145,12 @@ func (m *Manager) DeleteTopics(ctx context.Context, topics ...apmqueue.Topic) er
 					attribute.String("outcome", "failure"),
 					attribute.String("topic", topic),
 				}
-				kvl := m.cfg.TopicAttributeFunc(topic)
-				attrs = append(attrs, kvl...)
+				if kv := m.cfg.TopicAttributeFunc(topic); kv != (attribute.KeyValue{}) {
+					attrs = append(attrs, kv)
+				}
+				if m.cfg.TopicMultipleAttributeFunc != nil {
+					attrs = append(attrs, m.cfg.TopicMultipleAttributeFunc(topic)...)
+				}
 				m.deleted.Add(context.Background(), 1, metric.WithAttributeSet(
 					attribute.NewSet(attrs...),
 				))
@@ -155,8 +162,12 @@ func (m *Manager) DeleteTopics(ctx context.Context, topics ...apmqueue.Topic) er
 			attribute.String("outcome", "success"),
 			attribute.String("topic", topic),
 		}
-		kvl := m.cfg.TopicAttributeFunc(topic)
-		attrs = append(attrs, kvl...)
+		if kv := m.cfg.TopicAttributeFunc(topic); kv != (attribute.KeyValue{}) {
+			attrs = append(attrs, kv)
+		}
+		if m.cfg.TopicMultipleAttributeFunc != nil {
+			attrs = append(attrs, m.cfg.TopicMultipleAttributeFunc(topic)...)
+		}
 		m.deleted.Add(context.Background(), 1, metric.WithAttributeSet(
 			attribute.NewSet(attrs...),
 		))
@@ -255,7 +266,10 @@ func (m *Manager) MonitorConsumerLag(topicConsumers []apmqueue.TopicConsumer) (m
 
 				logger := m.cfg.Logger
 				if m.cfg.TopicLogFieldFunc != nil {
-					logger = logger.With(m.cfg.TopicLogFieldFunc(topic)...)
+					logger = logger.With(m.cfg.TopicLogFieldFunc(topic))
+				}
+				if m.cfg.TopicLogFieldsFunc != nil {
+					logger = logger.With(m.cfg.TopicLogFieldsFunc(topic)...)
 				}
 
 				var matchesRegex bool
@@ -296,8 +310,12 @@ func (m *Manager) MonitorConsumerLag(topicConsumers []apmqueue.TopicConsumer) (m
 						attribute.String("topic", topic),
 						attribute.Int("partition", int(partition)),
 					}
-					kvl := m.cfg.TopicAttributeFunc(topic)
-					attrs = append(attrs, kvl...)
+					if kv := m.cfg.TopicAttributeFunc(topic); kv != (attribute.KeyValue{}) {
+						attrs = append(attrs, kv)
+					}
+					if m.cfg.TopicMultipleAttributeFunc != nil {
+						attrs = append(attrs, m.cfg.TopicMultipleAttributeFunc(topic)...)
+					}
 					o.ObserveInt64(
 						consumerGroupLagMetric, lag.Lag,
 						metric.WithAttributeSet(attribute.NewSet(attrs...)),
@@ -310,8 +328,12 @@ func (m *Manager) MonitorConsumerLag(topicConsumers []apmqueue.TopicConsumer) (m
 					attribute.String("topic", key.topic),
 					attribute.String("client_id", key.clientID),
 				}
-				kvl := m.cfg.TopicAttributeFunc(key.topic)
-				attrs = append(attrs, kvl...)
+				if kv := m.cfg.TopicAttributeFunc(key.topic); kv != (attribute.KeyValue{}) {
+					attrs = append(attrs, kv)
+				}
+				if m.cfg.TopicMultipleAttributeFunc != nil {
+					attrs = append(attrs, m.cfg.TopicMultipleAttributeFunc(key.topic)...)
+				}
 				o.ObserveInt64(assignmentMetric, count, metric.WithAttributeSet(
 					attribute.NewSet(attrs...),
 				))

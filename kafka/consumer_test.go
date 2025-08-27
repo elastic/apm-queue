@@ -728,8 +728,8 @@ func TestConsumerTopicLogFieldFunc(t *testing.T) {
 			CommonConfig: CommonConfig{
 				Brokers: addrs,
 				Logger:  zapTest(t),
-				TopicLogFieldFunc: func(topic string) []zapcore.Field {
-					return nil
+				TopicLogFieldFunc: func(topic string) zapcore.Field {
+					return zap.Field{}
 				},
 			},
 			GroupID: t.Name(),
