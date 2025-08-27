@@ -288,21 +288,21 @@ func (cfg *CommonConfig) meterProvider() metric.MeterProvider {
 	return otel.GetMeterProvider()
 }
 
-type Opts func(opts *ClientOpts)
+type clientOptsFn func(opts *clientOpts)
 
-type ClientOpts struct {
+type clientOpts struct {
 	topicAttributesFunc TopicAttributesFunc
 }
 
-func WithTopicMultipleAttributeFunc(topicAttributesFunc TopicAttributesFunc) func(opts *ClientOpts) {
-	return func(opts *ClientOpts) {
-		opts.topicAttributesFunc = topicAttributesFunc
+func WithTopicMultipleAttributeFunc(topicAttributesFunc TopicAttributesFunc) func(clOpts *clientOpts) {
+	return func(clOpts *clientOpts) {
+		clOpts.topicAttributesFunc = topicAttributesFunc
 	}
 }
 
-func (cfg *CommonConfig) newClientWithOpts(clientOpts []Opts, additionalOpts ...kgo.Opt) (*kgo.Client, error) {
-	clOpts := &ClientOpts{}
-	for _, opt := range clientOpts {
+func (cfg *CommonConfig) newClientWithOpts(clientOptsFn []clientOptsFn, additionalOpts ...kgo.Opt) (*kgo.Client, error) {
+	clOpts := &clientOpts{}
+	for _, opt := range clientOptsFn {
 		opt(clOpts)
 	}
 

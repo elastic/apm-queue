@@ -271,7 +271,7 @@ func NewConsumer(cfg ConsumerConfig) (*Consumer, error) {
 	}
 
 	client, err := cfg.newClientWithOpts(
-		[]Opts{WithTopicMultipleAttributeFunc(cfg.TopicAttributesFunc)},
+		[]clientOptsFn{WithTopicMultipleAttributeFunc(cfg.TopicAttributesFunc)},
 		opts...,
 	)
 	if err != nil {
