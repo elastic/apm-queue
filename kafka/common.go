@@ -294,7 +294,7 @@ type clientOpts struct {
 	topicAttributesFunc TopicAttributesFunc
 }
 
-func WithTopicMultipleAttributeFunc(topicAttributesFunc TopicAttributesFunc) func(clOpts *clientOpts) {
+func withTopicMultipleAttributeFunc(topicAttributesFunc TopicAttributesFunc) func(clOpts *clientOpts) {
 	return func(clOpts *clientOpts) {
 		clOpts.topicAttributesFunc = topicAttributesFunc
 	}
