@@ -45,7 +45,11 @@ import (
 type SASLMechanism = sasl.Mechanism
 
 // TopicLogFieldFunc is a function that returns a zap.Field for a given topic.
+// Deprecated: use TopicLogFieldsFunc instead.
 type TopicLogFieldFunc func(topic string) zap.Field
+
+// TopicLogFieldsFunc is a function that returns a list of zap.Field for a given topic.
+type TopicLogFieldsFunc func(topic string) []zap.Field
 
 // CommonConfig defines common configuration for Kafka consumers, producers,
 // and managers.
@@ -150,15 +154,27 @@ type CommonConfig struct {
 	// Defaults to the global one.
 	MeterProvider metric.MeterProvider
 
-	// TopicAttributeFunc can be used to create custom dimensions from a Kafka
+	// TopicAttributeFunc can be used to create one custom dimension from a Kafka
 	// topic for these metrics:
 	// - producer.messages.count
 	// - consumer.messages.fetched
+	// Deprecated: Use TopicAttributesFunc instead.
 	TopicAttributeFunc TopicAttributeFunc
 
-	// TopicAttributeFunc can be used to create custom dimensions from a Kafka
-	// topic for log messages
+	// TopicAttributesFunc can be used to create multiple custom dimensions from a Kafka
+	// topic for these metrics:
+	// - producer.messages.count
+	// - consumer.messages.fetched
+	TopicAttributesFunc TopicAttributesFunc
+
+	// TopicAttributeFunc can be used to create one custom dimension from a Kafka
+	// topic for log messages.
+	// Deprecated: use TopicLogFieldsFunc instead.
 	TopicLogFieldFunc TopicLogFieldFunc
+
+	// TopicLogFieldsFunc can be used to create custom dimensions from a Kafka
+	//	// topic for log messages.
+	TopicLogFieldsFunc TopicLogFieldsFunc
 
 	// MetadataMaxAge is the maximum age of metadata before it is refreshed.
 	// The lower the value the more frequently new topics will be discovered.
@@ -198,23 +214,14 @@ func (cfg *CommonConfig) finalize() error {
 		errs = append(errs, err)
 	}
 
-	// Wrap the cfg.TopicLogFieldFunc to ensure it never returns a field with
-	// an unknown type (like `zap.Field{}`).
-	if cfg.TopicLogFieldFunc != nil {
-		cfg.TopicLogFieldFunc = topicFieldFunc(cfg.TopicLogFieldFunc)
-	}
-	if cfg.TopicAttributeFunc == nil {
-		cfg.TopicAttributeFunc = func(topic string) attribute.KeyValue {
-			return attribute.KeyValue{}
-		}
-	}
+	cfg.TopicLogFieldsFunc = mergeTopicLogFieldsFunctions(cfg.TopicLogFieldFunc, cfg.TopicLogFieldsFunc)
+	cfg.TopicAttributesFunc = mergeTopicAttributeFunctions(cfg.TopicAttributeFunc, cfg.TopicAttributesFunc)
 
 	return errors.Join(errs...)
 }
 
 // Merge the configs generated from env vars and/or files.
 func (cfg *CommonConfig) flatten(envCfg *envConfig, fileCfg *fileConfig) error {
-
 	// Config file was set with env vars.
 	if cfg.ConfigFile == "" {
 		cfg.ConfigFile = envCfg.configFile
@@ -281,7 +288,24 @@ func (cfg *CommonConfig) meterProvider() metric.MeterProvider {
 	return otel.GetMeterProvider()
 }
 
-func (cfg *CommonConfig) newClient(topicAttributeFunc TopicAttributeFunc, additionalOpts ...kgo.Opt) (*kgo.Client, error) {
+type clientOptsFn func(opts *clientOpts)
+
+type clientOpts struct {
+	topicAttributesFunc TopicAttributesFunc
+}
+
+func withTopicMultipleAttributeFunc(topicAttributesFunc TopicAttributesFunc) func(clOpts *clientOpts) {
+	return func(clOpts *clientOpts) {
+		clOpts.topicAttributesFunc = topicAttributesFunc
+	}
+}
+
+func (cfg *CommonConfig) newClientWithOpts(clientOptsFn []clientOptsFn, additionalOpts ...kgo.Opt) (*kgo.Client, error) {
+	clOpts := &clientOpts{}
+	for _, opt := range clientOptsFn {
+		opt(clOpts)
+	}
+
 	opts := []kgo.Opt{
 		kgo.WithLogger(kzap.New(cfg.Logger.Named("kafka"))),
 		kgo.SeedBrokers(cfg.Brokers...),
@@ -304,8 +328,8 @@ func (cfg *CommonConfig) newClient(topicAttributeFunc TopicAttributeFunc, additi
 	}
 	opts = append(opts, additionalOpts...)
 	if !cfg.DisableTelemetry {
-		metricHooks, err := newKgoHooks(cfg.meterProvider(),
-			cfg.Namespace, cfg.namespacePrefix(), topicAttributeFunc,
+		metricHooks, err := newKgoHooks(
+			cfg.meterProvider(), cfg.Namespace, cfg.namespacePrefix(), clOpts.topicAttributesFunc,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("kafka: failed creating kgo metrics hooks: %w", err)
@@ -356,6 +380,51 @@ func topicFieldFunc(f TopicLogFieldFunc) TopicLogFieldFunc {
 			return field
 		}
 		return zap.Skip()
+	}
+}
+
+// mergeTopicLogFieldsFunctions merges the fields from TopicLogFieldFunc
+// and TopicLogFieldsFunc, and returns a new TopicLogFieldsFunc with all
+// log fields.
+func mergeTopicLogFieldsFunctions(single TopicLogFieldFunc, multiple TopicLogFieldsFunc) TopicLogFieldsFunc {
+	if single == nil {
+		return multiple
+	}
+	if multiple == nil {
+		return func(topic string) []zap.Field {
+			fn := topicFieldFunc(single)
+			return []zap.Field{fn(topic)}
+		}
+	}
+	return func(topic string) []zap.Field {
+		fields := multiple(topic)
+		for i := range fields {
+			if fields[i].Type <= zapcore.UnknownType {
+				fields[i] = zap.Skip()
+			}
+		}
+		return append(fields, single(topic))
+	}
+}
+
+// mergeTopicAttributeFunctions merges the attributes from TopicAttributeFunc
+// and TopicAttributesFunc, and returns a new TopicAttributesFunc with all
+// attributes.
+func mergeTopicAttributeFunctions(single TopicAttributeFunc, multiple TopicAttributesFunc) TopicAttributesFunc {
+	if single == nil {
+		return multiple
+	}
+	if multiple == nil {
+		return func(topic string) []attribute.KeyValue {
+			v := single(topic)
+			if v == (attribute.KeyValue{}) {
+				return nil
+			}
+			return []attribute.KeyValue{v}
+		}
+	}
+	return func(topic string) []attribute.KeyValue {
+		return append(multiple(topic), single(topic))
 	}
 }
 

@@ -108,7 +108,10 @@ func NewLogCompactedConsumer(cfg LogCompactedConfig,
 		opts = append(opts, kgo.FetchMinBytes(cfg.MinFetchSize))
 	}
 
-	client, err := cfg.newClient(cfg.TopicAttributeFunc, opts...)
+	client, err := cfg.newClientWithOpts(
+		[]clientOptsFn{withTopicMultipleAttributeFunc(cfg.TopicAttributesFunc)},
+		opts...,
+	)
 	if err != nil {
 		return nil, err
 	}

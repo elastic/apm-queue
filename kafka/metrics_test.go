@@ -82,7 +82,7 @@ func TestProducerMetrics(t *testing.T) {
 		}
 	}
 	t.Run("DeadlineExceeded", func(t *testing.T) {
-		producer, rdr := setupTestProducer(t, nil)
+		producer, rdr := setupTestProducer(t, nil, nil)
 		want := []metricdata.Metrics{
 			{
 				Name:        "producer.messages.count",
@@ -113,7 +113,7 @@ func TestProducerMetrics(t *testing.T) {
 		test(ctx, t, producer, rdr, "default-topic", want)
 	})
 	t.Run("ContextCanceled", func(t *testing.T) {
-		producer, rdr := setupTestProducer(t, nil)
+		producer, rdr := setupTestProducer(t, nil, nil)
 		want := []metricdata.Metrics{
 			{
 				Name:        "producer.messages.count",
@@ -143,7 +143,7 @@ func TestProducerMetrics(t *testing.T) {
 		test(ctx, t, producer, rdr, "default-topic", want)
 	})
 	t.Run("Unknown error reason", func(t *testing.T) {
-		producer, rdr := setupTestProducer(t, nil)
+		producer, rdr := setupTestProducer(t, nil, nil)
 		want := []metricdata.Metrics{{
 			Name:        "producer.messages.count",
 			Description: "The number of messages produced",
@@ -171,7 +171,7 @@ func TestProducerMetrics(t *testing.T) {
 		test(context.Background(), t, producer, rdr, "default-topic", want)
 	})
 	t.Run("unknown topic", func(t *testing.T) {
-		producer, rdr := setupTestProducer(t, nil)
+		producer, rdr := setupTestProducer(t, nil, nil)
 		want := []metricdata.Metrics{{
 			Name:        "producer.messages.count",
 			Description: "The number of messages produced",
@@ -201,7 +201,9 @@ func TestProducerMetrics(t *testing.T) {
 	})
 	t.Run("Produced", func(t *testing.T) {
 		producer, rdr := setupTestProducer(t, func(topic string) attribute.KeyValue {
-			return attribute.String("test", "test")
+			return attribute.String("test-1", "test-1")
+		}, func(topic string) []attribute.KeyValue {
+			return []attribute.KeyValue{attribute.String("test-2", "test-2"), attribute.String("test-3", "test-3")}
 		})
 		want := []metricdata.Metrics{
 			{
@@ -221,7 +223,9 @@ func TestProducerMetrics(t *testing.T) {
 								semconv.MessagingSystem("kafka"),
 								semconv.MessagingDestinationName("default-topic"),
 								semconv.MessagingKafkaDestinationPartition(0),
-								attribute.String("test", "test"),
+								attribute.String("test-1", "test-1"),
+								attribute.String("test-2", "test-2"),
+								attribute.String("test-3", "test-3"),
 								attribute.String("compression.codec", "none"),
 							),
 						},
@@ -245,7 +249,9 @@ func TestProducerMetrics(t *testing.T) {
 								semconv.MessagingSystem("kafka"),
 								semconv.MessagingDestinationName("default-topic"),
 								semconv.MessagingKafkaDestinationPartition(0),
-								attribute.String("test", "test"),
+								attribute.String("test-1", "test-1"),
+								attribute.String("test-2", "test-2"),
+								attribute.String("test-3", "test-3"),
 								attribute.String("compression.codec", "none"),
 							),
 						},
@@ -269,7 +275,9 @@ func TestProducerMetrics(t *testing.T) {
 								semconv.MessagingSystem("kafka"),
 								semconv.MessagingDestinationName("default-topic"),
 								semconv.MessagingKafkaDestinationPartition(0),
-								attribute.String("test", "test"),
+								attribute.String("test-1", "test-1"),
+								attribute.String("test-2", "test-2"),
+								attribute.String("test-3", "test-3"),
 								attribute.String("compression.codec", "none"),
 							),
 						},
@@ -317,6 +325,8 @@ func TestProducerMetrics(t *testing.T) {
 	t.Run("ProducedWithHeaders", func(t *testing.T) {
 		producer, rdr := setupTestProducer(t, func(topic string) attribute.KeyValue {
 			return attribute.String("some key", "some value")
+		}, func(topic string) []attribute.KeyValue {
+			return []attribute.KeyValue{attribute.String("test-2", "test-2"), attribute.String("test-3", "test-3")}
 		})
 		want := []metricdata.Metrics{
 			{
@@ -338,6 +348,8 @@ func TestProducerMetrics(t *testing.T) {
 								semconv.MessagingKafkaDestinationPartition(0),
 								attribute.String("some key", "some value"),
 								attribute.String("compression.codec", "snappy"),
+								attribute.String("test-2", "test-2"),
+								attribute.String("test-3", "test-3"),
 							),
 						},
 					},
@@ -362,6 +374,8 @@ func TestProducerMetrics(t *testing.T) {
 								semconv.MessagingKafkaDestinationPartition(0),
 								attribute.String("some key", "some value"),
 								attribute.String("compression.codec", "snappy"),
+								attribute.String("test-2", "test-2"),
+								attribute.String("test-3", "test-3"),
 							),
 						},
 					},
@@ -386,6 +400,8 @@ func TestProducerMetrics(t *testing.T) {
 								semconv.MessagingKafkaDestinationPartition(0),
 								attribute.String("some key", "some value"),
 								attribute.String("compression.codec", "snappy"),
+								attribute.String("test-2", "test-2"),
+								attribute.String("test-3", "test-3"),
 							),
 						},
 					},
@@ -414,6 +430,8 @@ func TestConsumerMetrics(t *testing.T) {
 	})
 	tc := setupTestConsumer(t, proc, func(topic string) attribute.KeyValue {
 		return attribute.String("header", "included")
+	}, func(topic string) []attribute.KeyValue {
+		return []attribute.KeyValue{attribute.String("test-1", "test-1"), attribute.String("test-2", "test-2")}
 	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
@@ -427,6 +445,8 @@ func TestConsumerMetrics(t *testing.T) {
 			Headers: []kgo.RecordHeader{
 				{Key: "header", Value: []byte("included")},
 				{Key: "traceparent", Value: []byte("excluded")},
+				{Key: "test-1", Value: []byte("test-1")},
+				{Key: "test-2", Value: []byte("test-2")},
 			},
 		})
 	}
@@ -455,6 +475,8 @@ func TestConsumerMetrics(t *testing.T) {
 						Attributes: attribute.NewSet(
 							attribute.String("compression.codec", "none"),
 							attribute.String("header", "included"),
+							attribute.String("test-1", "test-1"),
+							attribute.String("test-2", "test-2"),
 							semconv.MessagingKafkaSourcePartition(0),
 							semconv.MessagingSourceName(t.Name()),
 							semconv.MessagingSystem("kafka"),
@@ -479,6 +501,8 @@ func TestConsumerMetrics(t *testing.T) {
 						semconv.MessagingSystem("kafka"),
 						attribute.String("namespace", "name_space"),
 						attribute.String("topic", "name_space-TestConsumerMetrics"),
+						attribute.String("test-1", "test-1"),
+						attribute.String("test-2", "test-2"),
 					),
 
 					Bounds: []float64{0, 5, 10, 25, 50, 75, 100, 250, 500, 750, 1000, 2500, 5000, 7500, 10000},
@@ -549,7 +573,7 @@ func filterMetrics(t testing.TB, sm []metricdata.ScopeMetrics) []metricdata.Metr
 	return []metricdata.Metrics{}
 }
 
-func setupTestProducer(t testing.TB, tafunc TopicAttributeFunc) (*Producer, sdkmetric.Reader) {
+func setupTestProducer(t testing.TB, tafunc TopicAttributeFunc, tmafunc TopicAttributesFunc) (*Producer, sdkmetric.Reader) {
 	t.Helper()
 
 	rdr := sdkmetric.NewManualReader()
@@ -560,12 +584,13 @@ func setupTestProducer(t testing.TB, tafunc TopicAttributeFunc) (*Producer, sdkm
 	})
 	producer := newProducer(t, ProducerConfig{
 		CommonConfig: CommonConfig{
-			Brokers:            brokers,
-			Logger:             zap.NewNop(),
-			Namespace:          "name_space",
-			TracerProvider:     noop.NewTracerProvider(),
-			MeterProvider:      mp,
-			TopicAttributeFunc: tafunc,
+			Brokers:             brokers,
+			Logger:              zap.NewNop(),
+			Namespace:           "name_space",
+			TracerProvider:      noop.NewTracerProvider(),
+			MeterProvider:       mp,
+			TopicAttributeFunc:  tafunc,
+			TopicAttributesFunc: tmafunc,
 		},
 		Sync: true,
 	})
@@ -578,7 +603,12 @@ type testMetricConsumer struct {
 	reader   sdkmetric.Reader
 }
 
-func setupTestConsumer(t testing.TB, p apmqueue.Processor, tafunc TopicAttributeFunc) (mc testMetricConsumer) {
+func setupTestConsumer(
+	t testing.TB,
+	p apmqueue.Processor,
+	tafunc TopicAttributeFunc,
+	tmafunc TopicAttributesFunc,
+) (mc testMetricConsumer) {
 	t.Helper()
 
 	mc.reader = sdkmetric.NewManualReader()
@@ -593,7 +623,8 @@ func setupTestConsumer(t testing.TB, p apmqueue.Processor, tafunc TopicAttribute
 			MeterProvider: sdkmetric.NewMeterProvider(
 				sdkmetric.WithReader(mc.reader),
 			),
-			TopicAttributeFunc: tafunc,
+			TopicAttributeFunc:  tafunc,
+			TopicAttributesFunc: tmafunc,
 		},
 	}
 	mc.client, cfg.Brokers = newClusterWithTopics(t, 1, "name_space-"+t.Name())

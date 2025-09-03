@@ -212,7 +212,7 @@ func NewConsumer(cfg ConsumerConfig) (*Consumer, error) {
 	namespacePrefix := cfg.namespacePrefix()
 	consumer := &consumer{
 		topicPrefix: namespacePrefix,
-		logFieldFn:  cfg.TopicLogFieldFunc,
+		logFieldsFn: cfg.TopicLogFieldsFunc,
 		assignments: make(map[topicPartition]*pc),
 		processor:   cfg.Processor,
 		logger:      cfg.Logger.Named("partition"),
@@ -230,7 +230,7 @@ func NewConsumer(cfg ConsumerConfig) (*Consumer, error) {
 		kgo.ConsumeTopics(topics...),
 		// If a rebalance happens while the client is polling, the consumed
 		// records may belong to a partition which has been reassigned to a
-		// different consumer int he group. To avoid this scenario, Polls will
+		// different consumer in the group. To avoid this scenario, Polls will
 		// block rebalances of partitions which would be lost, and the consumer
 		// MUST manually call `AllowRebalance`.
 		kgo.BlockRebalanceOnPoll(),
@@ -270,7 +270,10 @@ func NewConsumer(cfg ConsumerConfig) (*Consumer, error) {
 		opts = append(opts, kgo.BrokerMaxReadBytes(cfg.BrokerMaxReadBytes))
 	}
 
-	client, err := cfg.newClient(cfg.TopicAttributeFunc, opts...)
+	client, err := cfg.newClientWithOpts(
+		[]clientOptsFn{withTopicMultipleAttributeFunc(cfg.TopicAttributesFunc)},
+		opts...,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("kafka: failed creating kafka consumer: %w", err)
 	}
@@ -396,8 +399,10 @@ func (c *Consumer) fetch(ctx context.Context) error {
 		// franz-go can inject fake fetches in case of errors.
 		// the fake fetch can have an empty topic so we need to
 		// account for that
-		if c.cfg.TopicLogFieldFunc != nil && topicName != "" {
-			logger = logger.With(c.cfg.TopicLogFieldFunc(topicName))
+		if topicName != "" {
+			if c.cfg.TopicLogFieldsFunc != nil {
+				logger = logger.With(c.cfg.TopicLogFieldsFunc(topicName)...)
+			}
 		}
 
 		logger.Error(
@@ -429,7 +434,8 @@ type consumer struct {
 	processor   apmqueue.Processor
 	logger      *zap.Logger
 	delivery    apmqueue.DeliveryType
-	logFieldFn  TopicLogFieldFunc
+	logFieldsFn TopicLogFieldsFunc
+
 	// ctx contains the graceful cancellation context that is passed to the
 	// partition consumers.
 	ctx context.Context
@@ -452,8 +458,8 @@ func (c *consumer) assigned(_ context.Context, client *kgo.Client, assigned map[
 				zap.String("topic", t),
 				zap.Int32("partition", partition),
 			)
-			if c.logFieldFn != nil {
-				logger = logger.With(c.logFieldFn(t))
+			if c.logFieldsFn != nil {
+				logger = logger.With(c.logFieldsFn(t)...)
 			}
 
 			pc := newPartitionConsumer(c.ctx, client, c.processor,
@@ -535,8 +541,8 @@ func (c *consumer) processFetch(fetches kgo.Fetches) {
 		if c.delivery == apmqueue.AtMostOnceDeliveryType {
 			topicName := strings.TrimPrefix(ftp.Topic, c.topicPrefix)
 			logger := c.logger
-			if c.logFieldFn != nil {
-				logger = logger.With(c.logFieldFn(topicName))
+			if c.logFieldsFn != nil {
+				logger = logger.With(c.logFieldsFn(topicName)...)
 			}
 			logger.Warn(
 				"data loss: failed to send records to process after commit",

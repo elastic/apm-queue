@@ -45,6 +45,7 @@ import (
 	"github.com/twmb/franz-go/pkg/kfake"
 	"github.com/twmb/franz-go/pkg/kgo"
 	"github.com/twmb/franz-go/pkg/sasl"
+	"go.opentelemetry.io/otel/attribute"
 	"go.uber.org/zap"
 )
 
@@ -59,8 +60,6 @@ func TestCommonConfig(t *testing.T) {
 		t.Helper()
 		err := in.finalize()
 		require.NoError(t, err)
-		in.TopicAttributeFunc = nil
-		in.TopicLogFieldFunc = nil
 		in.hooks = nil
 		assert.Equal(t, expected, in)
 	}
@@ -340,7 +339,7 @@ func TestCommonConfigFileHook(t *testing.T) {
 	require.NoError(t, cfg.finalize())
 	assert.Equal(t, []string{"testing.invalid"}, cfg.Brokers)
 
-	client, err := cfg.newClient(nil)
+	client, err := cfg.newClientWithOpts(nil)
 	require.NoError(t, err)
 	defer client.Close()
 
@@ -771,6 +770,106 @@ func TestCertificateHotReloadErrors(t *testing.T) {
 
 		// Restore matching key and certificate
 		require.NoError(t, os.WriteFile(certFile, clientCertPEM, 0644))
+	})
+}
+
+func TestMergeTopicFunctions(t *testing.T) {
+	t.Run("log fields", func(t *testing.T) {
+		tests := []struct {
+			name     string
+			single   TopicLogFieldFunc
+			multiple TopicLogFieldsFunc
+			want     []zap.Field
+		}{
+			{
+				name: "both nil functions",
+			},
+			{
+				name: "nil single log field",
+				multiple: func(_ string) []zap.Field {
+					return []zap.Field{zap.String("test-1", "test-1"), zap.String("test-2", "test-2")}
+				},
+				want: []zap.Field{zap.String("test-1", "test-1"), zap.String("test-2", "test-2")},
+			},
+			{
+				name: "nil multiple log field",
+				single: func(_ string) zap.Field {
+					return zap.String("test-1", "test-1")
+				},
+				want: []zap.Field{zap.String("test-1", "test-1")},
+			},
+			{
+				name: "both functions exist",
+				multiple: func(_ string) []zap.Field {
+					return []zap.Field{zap.String("test-1", "test-1"), zap.String("test-2", "test-2")}
+				},
+				single: func(_ string) zap.Field {
+					return zap.String("test-3", "test-3")
+				},
+				want: []zap.Field{zap.String("test-1", "test-1"), zap.String("test-2", "test-2"), zap.String("test-3", "test-3")},
+			},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				fn := mergeTopicLogFieldsFunctions(tt.single, tt.multiple)
+				if tt.want == nil {
+					require.Nil(t, fn)
+					return
+				}
+				fields := fn("test")
+				require.Equal(t, tt.want, fields)
+			})
+		}
+	})
+	t.Run("attributes", func(t *testing.T) {
+		tests := []struct {
+			name     string
+			single   TopicAttributeFunc
+			multiple TopicAttributesFunc
+			want     []attribute.KeyValue
+		}{
+			{
+				name: "both nil functions",
+			},
+			{
+				name: "nil single attribute",
+				multiple: func(_ string) []attribute.KeyValue {
+					return []attribute.KeyValue{attribute.String("test-1", "test-1"), attribute.String("test-2", "test-2")}
+				},
+				want: []attribute.KeyValue{attribute.String("test-1", "test-1"), attribute.String("test-2", "test-2")},
+			},
+			{
+				name: "nil multiple log field",
+				single: func(_ string) attribute.KeyValue {
+					return attribute.String("test-1", "test-1")
+				},
+				want: []attribute.KeyValue{attribute.String("test-1", "test-1")},
+			},
+			{
+				name: "both functions exist",
+				multiple: func(_ string) []attribute.KeyValue {
+					return []attribute.KeyValue{attribute.String("test-1", "test-1"), attribute.String("test-2", "test-2")}
+				},
+				single: func(_ string) attribute.KeyValue {
+					return attribute.String("test-3", "test-3")
+				},
+				want: []attribute.KeyValue{attribute.String("test-1", "test-1"), attribute.String("test-2", "test-2"), attribute.String("test-3", "test-3")},
+			},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				fn := mergeTopicAttributeFunctions(tt.single, tt.multiple)
+				if tt.want == nil {
+					require.Nil(t, fn)
+					return
+				}
+				fields := fn("test")
+				require.Equal(t, tt.want, fields)
+			})
+		}
+
 	})
 }
 
