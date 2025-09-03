@@ -168,9 +168,6 @@ func (c *TopicCreator) CreateTopics(ctx context.Context, topics ...apmqueue.Topi
 	for _, response := range responses.Sorted() {
 		topicName := strings.TrimPrefix(response.Topic, namespacePrefix)
 		logger := c.m.cfg.Logger.With(loggerFields...)
-		if c.m.cfg.TopicLogFieldFunc != nil {
-			logger = logger.With(c.m.cfg.TopicLogFieldFunc(topicName))
-		}
 		if c.m.cfg.TopicLogFieldsFunc != nil {
 			logger = logger.With(c.m.cfg.TopicLogFieldsFunc(topicName)...)
 		}
@@ -226,9 +223,6 @@ func (c *TopicCreator) CreateTopics(ctx context.Context, topics ...apmqueue.Topi
 		for _, response := range updateResp.Sorted() {
 			topicName := strings.TrimPrefix(response.Topic, namespacePrefix)
 			logger := c.m.cfg.Logger.With(loggerFields...)
-			if c.m.cfg.TopicLogFieldFunc != nil {
-				logger = logger.With(c.m.cfg.TopicLogFieldFunc(topicName))
-			}
 			if c.m.cfg.TopicLogFieldsFunc != nil {
 				logger = logger.With(c.m.cfg.TopicLogFieldsFunc(topicName)...)
 			}
@@ -272,9 +266,6 @@ func (c *TopicCreator) CreateTopics(ctx context.Context, topics ...apmqueue.Topi
 		for _, response := range alterResp {
 			topicName := strings.TrimPrefix(response.Name, namespacePrefix)
 			logger := c.m.cfg.Logger.With(loggerFields...)
-			if c.m.cfg.TopicLogFieldFunc != nil {
-				logger = logger.With(c.m.cfg.TopicLogFieldFunc(topicName))
-			}
 			if c.m.cfg.TopicLogFieldsFunc != nil {
 				logger = logger.With(c.m.cfg.TopicLogFieldsFunc(topicName)...)
 			}

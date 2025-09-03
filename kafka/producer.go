@@ -272,9 +272,6 @@ func (p *Producer) Produce(ctx context.Context, rs ...apmqueue.Record) error {
 				mu.Unlock()
 
 				logger := p.cfg.Logger
-				if p.cfg.TopicLogFieldFunc != nil {
-					logger = logger.With(p.cfg.TopicLogFieldFunc(topicName))
-				}
 				if p.cfg.TopicLogFieldsFunc != nil {
 					logger = logger.With(p.cfg.TopicLogFieldsFunc(topicName)...)
 				}

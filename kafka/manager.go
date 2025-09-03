@@ -124,11 +124,12 @@ func (m *Manager) DeleteTopics(ctx context.Context, topics ...apmqueue.Topic) er
 	for _, response := range responses.Sorted() {
 		topic := strings.TrimPrefix(response.Topic, namespacePrefix)
 		logger := m.cfg.Logger.With(zap.String("topic", topic))
-		if m.cfg.TopicLogFieldFunc != nil {
-			logger = logger.With(m.cfg.TopicLogFieldFunc(topic))
-		}
 		if m.cfg.TopicLogFieldsFunc != nil {
 			logger = logger.With(m.cfg.TopicLogFieldsFunc(topic)...)
+		}
+		var commonAttrs []attribute.KeyValue
+		if m.cfg.TopicAttributesFunc != nil {
+			commonAttrs = m.cfg.TopicAttributesFunc(topic)
 		}
 
 		if err := response.Err; err != nil {
@@ -145,12 +146,8 @@ func (m *Manager) DeleteTopics(ctx context.Context, topics ...apmqueue.Topic) er
 					attribute.String("outcome", "failure"),
 					attribute.String("topic", topic),
 				}
-				if kv := m.cfg.TopicAttributeFunc(topic); kv != (attribute.KeyValue{}) {
-					attrs = append(attrs, kv)
-				}
-				if m.cfg.TopicAttributesFunc != nil {
-					attrs = append(attrs, m.cfg.TopicAttributesFunc(topic)...)
-				}
+				attrs = append(attrs, commonAttrs...)
+
 				m.deleted.Add(context.Background(), 1, metric.WithAttributeSet(
 					attribute.NewSet(attrs...),
 				))
@@ -162,12 +159,7 @@ func (m *Manager) DeleteTopics(ctx context.Context, topics ...apmqueue.Topic) er
 			attribute.String("outcome", "success"),
 			attribute.String("topic", topic),
 		}
-		if kv := m.cfg.TopicAttributeFunc(topic); kv != (attribute.KeyValue{}) {
-			attrs = append(attrs, kv)
-		}
-		if m.cfg.TopicAttributesFunc != nil {
-			attrs = append(attrs, m.cfg.TopicAttributesFunc(topic)...)
-		}
+		attrs = append(attrs, commonAttrs...)
 		m.deleted.Add(context.Background(), 1, metric.WithAttributeSet(
 			attribute.NewSet(attrs...),
 		))
@@ -265,9 +257,6 @@ func (m *Manager) MonitorConsumerLag(topicConsumers []apmqueue.TopicConsumer) (m
 				topic = topic[len(namespacePrefix):]
 
 				logger := m.cfg.Logger
-				if m.cfg.TopicLogFieldFunc != nil {
-					logger = logger.With(m.cfg.TopicLogFieldFunc(topic))
-				}
 				if m.cfg.TopicLogFieldsFunc != nil {
 					logger = logger.With(m.cfg.TopicLogFieldsFunc(topic)...)
 				}
@@ -310,9 +299,6 @@ func (m *Manager) MonitorConsumerLag(topicConsumers []apmqueue.TopicConsumer) (m
 						attribute.String("topic", topic),
 						attribute.Int("partition", int(partition)),
 					}
-					if kv := m.cfg.TopicAttributeFunc(topic); kv != (attribute.KeyValue{}) {
-						attrs = append(attrs, kv)
-					}
 					if m.cfg.TopicAttributesFunc != nil {
 						attrs = append(attrs, m.cfg.TopicAttributesFunc(topic)...)
 					}
@@ -327,9 +313,6 @@ func (m *Manager) MonitorConsumerLag(topicConsumers []apmqueue.TopicConsumer) (m
 					attribute.String("group", l.Group),
 					attribute.String("topic", key.topic),
 					attribute.String("client_id", key.clientID),
-				}
-				if kv := m.cfg.TopicAttributeFunc(key.topic); kv != (attribute.KeyValue{}) {
-					attrs = append(attrs, kv)
 				}
 				if m.cfg.TopicAttributesFunc != nil {
 					attrs = append(attrs, m.cfg.TopicAttributesFunc(key.topic)...)

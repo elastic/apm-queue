@@ -400,9 +400,6 @@ func (c *Consumer) fetch(ctx context.Context) error {
 		// the fake fetch can have an empty topic so we need to
 		// account for that
 		if topicName != "" {
-			if c.cfg.TopicLogFieldFunc != nil {
-				logger = logger.With(c.cfg.TopicLogFieldFunc(topicName))
-			}
 			if c.cfg.TopicLogFieldsFunc != nil {
 				logger = logger.With(c.cfg.TopicLogFieldsFunc(topicName)...)
 			}
