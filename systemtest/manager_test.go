@@ -31,7 +31,7 @@ import (
 	"github.com/elastic/apm-queue/v2/kafka"
 )
 
-func TestManagerCreateTopics(t *testing.T) {
+func TestManagerCreateProjectTopics(t *testing.T) {
 	// This test covers:
 	//  - Creating topics with a number of partitions
 	//  - Updating the partition count
@@ -58,14 +58,14 @@ func TestManagerCreateTopics(t *testing.T) {
 		}
 		topics = SuffixTopics(topics...)
 		// Create topics for the first time.
-		assert.NoError(t, creator.CreateTopics(ctx, topics...))
+		assert.NoError(t, creator.CreateProjectTopics(ctx, topics...))
 
 		// New creator with increased partitions
 		cfg.PartitionCount = 4
 		creator, err = manager.NewTopicCreator(cfg)
 		require.NoError(t, err)
 		// Update Partition count.
-		assert.NoError(t, creator.CreateTopics(ctx, topics...))
+		assert.NoError(t, creator.CreateProjectTopics(ctx, topics...))
 
 		// New creator with increased retention
 		cfg.TopicConfigs = map[string]string{
@@ -74,6 +74,6 @@ func TestManagerCreateTopics(t *testing.T) {
 		creator, err = manager.NewTopicCreator(cfg)
 		require.NoError(t, err)
 		// Update topic configuration.
-		assert.NoError(t, creator.CreateTopics(ctx, topics...))
+		assert.NoError(t, creator.CreateProjectTopics(ctx, topics...))
 	})
 }

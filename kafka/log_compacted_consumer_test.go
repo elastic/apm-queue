@@ -118,7 +118,7 @@ func newLogCompactedFakeCluster(tb testing.TB, topic string, partitions int32) *
 	require.NoError(tb, err)
 
 	kadmClient := kadm.NewClient(c)
-	tresp, err := kadmClient.CreateTopic(context.Background(), partitions, 1, map[string]*string{
+	tresp, err := kadmClient.CreateProjectTopic(context.Background(), partitions, 1, map[string]*string{
 		"cleanup.policy": kadm.StringPtr("compact"),
 	}, topic)
 	require.NoError(tb, err)

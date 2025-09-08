@@ -59,7 +59,7 @@ func TestNewTopicCreator(t *testing.T) {
 	}, "\n"))
 }
 
-func TestTopicCreatorCreateTopics(t *testing.T) {
+func TestTopicCreatorCreateProjectTopics(t *testing.T) {
 	exp := tracetest.NewInMemoryExporter()
 	tp := sdktrace.NewTracerProvider(
 		sdktrace.WithSyncer(exp),
@@ -86,12 +86,12 @@ func TestTopicCreatorCreateTopics(t *testing.T) {
 
 	// Simulate a situation where topic1, topic4 exists, topic2 is invalid and
 	// topic3 is successfully created.
-	var createTopicsRequest *kmsg.CreateTopicsRequest
-	cluster.ControlKey(kmsg.CreateTopics.Int16(), func(req kmsg.Request) (kmsg.Response, error, bool) {
-		createTopicsRequest = req.(*kmsg.CreateTopicsRequest)
-		return &kmsg.CreateTopicsResponse{
+	var createTopicsRequest *kmsg.CreateProjectTopicsRequest
+	cluster.ControlKey(kmsg.CreateProjectTopics.Int16(), func(req kmsg.Request) (kmsg.Response, error, bool) {
+		createTopicsRequest = req.(*kmsg.CreateProjectTopicsRequest)
+		return &kmsg.CreateProjectTopicsResponse{
 			Version: req.GetVersion(),
-			Topics: []kmsg.CreateTopicsResponseTopic{{
+			Topics: []kmsg.CreateProjectTopicsResponseTopic{{
 				Topic:        "name_space-topic1",
 				ErrorCode:    kerr.TopicAlreadyExists.Code,
 				ErrorMessage: &kerr.TopicAlreadyExists.Message,
@@ -154,18 +154,18 @@ func TestTopicCreatorCreateTopics(t *testing.T) {
 		}, nil, true
 	})
 
-	err = c.CreateTopics(context.Background(), "topic0", "topic1", "topic2", "topic3", "topic4")
+	err = c.CreateProjectTopics(context.Background(), "topic0", "topic1", "topic2", "topic3", "topic4")
 	require.Error(t, err)
 	assert.EqualError(t, err, `failed to create topic "topic2": `+
 		`INVALID_TOPIC_EXCEPTION: The request attempted to perform an operation on an invalid topic.`,
 	)
 
 	require.Len(t, createTopicsRequest.Topics, 4)
-	assert.Equal(t, []kmsg.CreateTopicsRequestTopic{{
+	assert.Equal(t, []kmsg.CreateProjectTopicsRequestTopic{{
 		Topic:             "name_space-topic1",
 		NumPartitions:     123,
 		ReplicationFactor: -1,
-		Configs: []kmsg.CreateTopicsRequestTopicConfig{{
+		Configs: []kmsg.CreateProjectTopicsRequestTopicConfig{{
 			Name:  "retention.ms",
 			Value: kmsg.StringPtr("123"),
 		}},
@@ -173,7 +173,7 @@ func TestTopicCreatorCreateTopics(t *testing.T) {
 		Topic:             "name_space-topic2",
 		NumPartitions:     123,
 		ReplicationFactor: -1,
-		Configs: []kmsg.CreateTopicsRequestTopicConfig{{
+		Configs: []kmsg.CreateProjectTopicsRequestTopicConfig{{
 			Name:  "retention.ms",
 			Value: kmsg.StringPtr("123"),
 		}},
@@ -181,7 +181,7 @@ func TestTopicCreatorCreateTopics(t *testing.T) {
 		Topic:             "name_space-topic3",
 		NumPartitions:     123,
 		ReplicationFactor: -1,
-		Configs: []kmsg.CreateTopicsRequestTopicConfig{{
+		Configs: []kmsg.CreateProjectTopicsRequestTopicConfig{{
 			Name:  "retention.ms",
 			Value: kmsg.StringPtr("123"),
 		}},
@@ -189,7 +189,7 @@ func TestTopicCreatorCreateTopics(t *testing.T) {
 		Topic:             "name_space-topic4",
 		NumPartitions:     123,
 		ReplicationFactor: -1,
-		Configs: []kmsg.CreateTopicsRequestTopicConfig{{
+		Configs: []kmsg.CreateProjectTopicsRequestTopicConfig{{
 			Name:  "retention.ms",
 			Value: kmsg.StringPtr("123"),
 		}},
@@ -290,7 +290,7 @@ func TestTopicCreatorCreateTopics(t *testing.T) {
 
 	spans := exp.GetSpans()
 	require.Len(t, spans, 1)
-	assert.Equal(t, "CreateTopics", spans[0].Name)
+	assert.Equal(t, "CreateProjectTopics", spans[0].Name)
 	assert.Equal(t, codes.Error, spans[0].Status.Code)
 	require.Len(t, spans[0].Events, 3)
 
