@@ -104,10 +104,90 @@ func (m *Manager) NewTopicCreator(cfg TopicCreatorConfig) (*TopicCreator, error)
 	}, nil
 }
 
+func (c *TopicCreator) CreateAdminTopic(ctx context.Context, topic apmqueue.Topic) error {
+	fmt.Println("-> CreateAdminTopic")
+
+	ctx, span := c.m.tracer.Start(
+		ctx,
+		"CreateAdminTopic",
+		trace.WithAttributes(
+			semconv.MessagingSystemKey.String("kafka"),
+		),
+	)
+	defer span.End()
+
+	response, err := c.m.adminClient.CreateTopic(
+		ctx,
+		int32(c.partitionCount),
+		-1, // default.replication.factor
+		c.topicConfigs,
+		string(topic),
+	)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return fmt.Errorf("failed to create kafka admin topic: %w", err)
+	}
+	loggerFields := []zap.Field{
+		zap.Int("partition_count", c.partitionCount),
+	}
+	if len(c.origTopicConfigs) > 0 {
+		loggerFields = append(loggerFields,
+			zap.Reflect("topic_configs", c.origTopicConfigs),
+		)
+	}
+	fmt.Println("-> responses:", response)
+
+	var updateErrors []error
+	topicName := response.Topic
+	logger := c.m.cfg.Logger.With(loggerFields...)
+	if c.m.cfg.TopicLogFieldsFunc != nil {
+		logger = logger.With(c.m.cfg.TopicLogFieldsFunc(topicName)...)
+	}
+
+	if err := response.Err; err != nil {
+		if errors.Is(err, kerr.TopicAlreadyExists) {
+			logger.Debug("kafka admin topic already exists",
+				zap.String("topic", topicName),
+			)
+			span.AddEvent("kafka admin topic already exists", trace.WithAttributes(
+				semconv.MessagingDestinationKey.String(topicName),
+			))
+		} else {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
+			updateErrors = append(updateErrors, fmt.Errorf(
+				"failed to create admin topic %q: %w", topicName, err,
+			))
+			c.created.Add(context.Background(), 1, metric.WithAttributeSet(
+				attribute.NewSet(
+					semconv.MessagingSystemKey.String("kafka"),
+					attribute.String("outcome", "failure"),
+					attribute.String("topic", topicName),
+				),
+			))
+		}
+	}
+
+	c.created.Add(context.Background(), 1, metric.WithAttributeSet(
+		attribute.NewSet(
+			semconv.MessagingSystemKey.String("kafka"),
+			attribute.String("outcome", "success"),
+			attribute.String("topic", topicName),
+		),
+	))
+
+	logger.Info("created kafka admin topic", zap.String("topic", topicName))
+
+	return errors.Join(updateErrors...)
+}
+
 // CreateTopics creates one or more topics.
 //
 // Topics that already exist will be updated.
 func (c *TopicCreator) CreateTopics(ctx context.Context, topics ...apmqueue.Topic) error {
+	fmt.Println("-> apmqueue: CreateTopics")
+
 	// TODO(axw) how should we record topics?
 	ctx, span := c.m.tracer.Start(ctx, "CreateTopics", trace.WithAttributes(
 		semconv.MessagingSystemKey.String("kafka"),
@@ -247,6 +327,7 @@ func (c *TopicCreator) CreateTopics(ctx context.Context, topics ...apmqueue.Topi
 			)
 		}
 	}
+
 	if len(existingTopics) > 0 && len(c.topicConfigs) > 0 {
 		alterCfg := make([]kadm.AlterConfig, 0, len(c.topicConfigs))
 		for k, v := range c.topicConfigs {
@@ -284,5 +365,6 @@ func (c *TopicCreator) CreateTopics(ctx context.Context, topics ...apmqueue.Topi
 			)
 		}
 	}
+
 	return errors.Join(updateErrors...)
 }
