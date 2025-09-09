@@ -378,6 +378,7 @@ func newClusterWithTopics(t testing.TB, partitions int32, topics ...string) (*kg
 		kgo.SeedBrokers(addrs...),
 		// Reduce the max wait time to speed up tests.
 		kgo.FetchMaxWait(100*time.Millisecond),
+		kgo.ProducerBatchCompression(kgo.NoCompression()), // ensures compression.codec = "none"
 	)
 	require.NoError(t, err)
 
