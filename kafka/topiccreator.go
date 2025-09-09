@@ -161,19 +161,20 @@ func (c *TopicCreator) CreateProjectTopics(ctx context.Context, topics ...apmque
 
 	missingTopics, updatePartitions, existingTopics := c.categorizeTopics(existing, topicNames)
 
+	var updateErrors []error
 	if err := c.createMissingTopics(ctx, span, missingTopics); err != nil {
-		return err
+		updateErrors = append(updateErrors, err)
 	}
 
 	if err := c.updateTopicPartitions(ctx, span, updatePartitions); err != nil {
-		return err
+		updateErrors = append(updateErrors, err)
 	}
 
 	if err := c.alterTopicConfigs(ctx, span, existingTopics); err != nil {
-		return err
+		updateErrors = append(updateErrors, err)
 	}
 
-	return nil
+	return errors.Join(updateErrors...)
 }
 
 func (c *TopicCreator) categorizeTopics(
