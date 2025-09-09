@@ -19,6 +19,7 @@ package kafka
 
 import (
 	"context"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -59,7 +60,7 @@ func TestNewTopicCreator(t *testing.T) {
 	}, "\n"))
 }
 
-func TestTopicCreatorTopics(t *testing.T) {
+func TestCreateProjectTopics(t *testing.T) {
 	exp := tracetest.NewInMemoryExporter()
 	tp := sdktrace.NewTracerProvider(
 		sdktrace.WithSyncer(exp),
@@ -335,4 +336,266 @@ func TestTopicCreatorTopics(t *testing.T) {
 			{K: "outcome", V: "success"}:        1,
 		},
 	}, metrictest.GatherInt64Metric(metrics))
+}
+
+func TestCreateAdminTopics(t *testing.T) {
+	exp := tracetest.NewInMemoryExporter()
+	tp := sdktrace.NewTracerProvider(
+		sdktrace.WithSyncer(exp),
+	)
+	defer tp.Shutdown(context.Background())
+
+	mt := metrictest.New()
+	cluster, commonConfig := newFakeCluster(t)
+	core, observedLogs := observer.New(zapcore.DebugLevel)
+	commonConfig.Logger = zap.New(core)
+	commonConfig.TracerProvider = tp
+
+	m, err := NewManager(ManagerConfig{CommonConfig: commonConfig})
+	require.NoError(t, err)
+	t.Cleanup(func() { m.Close() })
+	c, err := m.NewTopicCreator(TopicCreatorConfig{
+		PartitionCount: 123,
+		TopicConfigs: map[string]string{
+			"retention.ms":   "123",
+			"cleanup.policy": "compact,delete",
+		},
+		MeterProvider: mt.MeterProvider,
+	})
+	require.NoError(t, err)
+
+	// Simulate a situation where topic1 exists, topic2 is invalid, and topic3 is successfully created.
+	var createTopicsRequest *kmsg.CreateTopicsRequest
+	cluster.ControlKey(kmsg.CreateTopics.Int16(), func(req kmsg.Request) (kmsg.Response, error, bool) {
+		createTopicsRequest = req.(*kmsg.CreateTopicsRequest)
+		return &kmsg.CreateTopicsResponse{
+			Version: req.GetVersion(),
+			Topics: []kmsg.CreateTopicsResponseTopic{{
+				Topic:        "topic1",
+				ErrorCode:    kerr.TopicAlreadyExists.Code,
+				ErrorMessage: &kerr.TopicAlreadyExists.Message,
+			}, {
+				Topic:        "topic2",
+				ErrorCode:    kerr.InvalidTopicException.Code,
+				ErrorMessage: &kerr.InvalidTopicException.Message,
+			}, {
+				Topic:   "topic3",
+				TopicID: [16]byte{123},
+			}},
+		}, nil, true
+	})
+
+	// Topics 1 and 4 are already created, and their partition count is set to the appropriate value.
+	var createPartitionsRequest *kmsg.CreatePartitionsRequest
+	cluster.ControlKey(kmsg.CreatePartitions.Int16(), func(req kmsg.Request) (kmsg.Response, error, bool) {
+		createPartitionsRequest = req.(*kmsg.CreatePartitionsRequest)
+		res := kmsg.CreatePartitionsResponse{Version: req.GetVersion()}
+		for _, t := range createPartitionsRequest.Topics {
+			res.Topics = append(res.Topics, kmsg.CreatePartitionsResponseTopic{
+				Topic: t.Topic,
+			})
+		}
+		return &res, nil, true
+	})
+
+	// Allow some time for the ForceMetadataRefresh to run.
+	<-time.After(10 * time.Millisecond)
+
+	// Simulate topic0 already exists in Kafka.
+	cluster.ControlKey(kmsg.Metadata.Int16(), func(r kmsg.Request) (kmsg.Response, error, bool) {
+		return &kmsg.MetadataResponse{
+			Version: r.GetVersion(),
+			Topics: []kmsg.MetadataResponseTopic{{
+				Topic:   kmsg.StringPtr("topic0"),
+				TopicID: [16]byte{111},
+				Partitions: []kmsg.MetadataResponseTopicPartition{{
+					Partition: 0,
+				}},
+			}},
+		}, nil, true
+	})
+
+	err = c.CreateAdminTopics(context.Background(), "topic0", "topic1", "topic2", "topic3")
+	require.Error(t, err)
+	assert.EqualError(t, err, `failed to create topic "topic2": `+
+		`INVALID_TOPIC_EXCEPTION: The request attempted to perform an operation on an invalid topic.`,
+	)
+
+	require.Len(t, createTopicsRequest.Topics, 3)
+
+	expected := []kmsg.CreateTopicsRequestTopic{
+		{
+			Topic:             "topic1",
+			NumPartitions:     123,
+			ReplicationFactor: -1,
+			Configs: []kmsg.CreateTopicsRequestTopicConfig{
+				{
+					Name:  "cleanup.policy",
+					Value: kmsg.StringPtr("compact,delete"),
+				},
+				{
+					Name:  "retention.ms",
+					Value: kmsg.StringPtr("123"),
+				},
+			},
+		}, {
+			Topic:             "topic2",
+			NumPartitions:     123,
+			ReplicationFactor: -1,
+			Configs: []kmsg.CreateTopicsRequestTopicConfig{
+				{
+					Name:  "cleanup.policy",
+					Value: kmsg.StringPtr("compact,delete"),
+				},
+				{
+					Name:  "retention.ms",
+					Value: kmsg.StringPtr("123"),
+				},
+			},
+		}, {
+			Topic:             "topic3",
+			NumPartitions:     123,
+			ReplicationFactor: -1,
+			Configs: []kmsg.CreateTopicsRequestTopicConfig{
+				{
+					Name:  "cleanup.policy",
+					Value: kmsg.StringPtr("compact,delete"),
+				},
+				{
+					Name:  "retention.ms",
+					Value: kmsg.StringPtr("123"),
+				},
+			},
+		},
+	}
+
+	sortConfigs(t, expected)
+	sortConfigs(t, createTopicsRequest.Topics)
+	assert.Equal(t, expected, createTopicsRequest.Topics)
+
+	// Ensure only `topic0` partitions are updated since it already exists.
+	assert.Equal(t, []kmsg.CreatePartitionsRequestTopic{
+		{Topic: "topic0", Count: 123},
+	}, createPartitionsRequest.Topics)
+
+	// Log assertions.
+	matchingLogs := observedLogs.FilterFieldKey("topic")
+	for _, ml := range matchingLogs.AllUntimed() {
+		t.Log(ml.Message)
+	}
+
+	diff := cmp.Diff([]observer.LoggedEntry{{
+		Entry: zapcore.Entry{
+			Level:      zapcore.DebugLevel,
+			LoggerName: "kafka",
+			Message:    "kafka topic already exists",
+		},
+		Context: []zapcore.Field{
+			zap.String("namespace", "name_space"),
+			zap.Int("partition_count", 123),
+			zap.Any("topic_configs", map[string]string{
+				"cleanup.policy": "compact,delete",
+				"retention.ms":   "123",
+			}),
+			zap.String("topic", "topic1"),
+		},
+	}, {
+		Entry: zapcore.Entry{
+			Level:      zapcore.InfoLevel,
+			LoggerName: "kafka",
+			Message:    "created kafka topic",
+		},
+		Context: []zapcore.Field{
+			zap.String("namespace", "name_space"),
+			zap.Int("partition_count", 123),
+			zap.Any("topic_configs", map[string]string{
+				"cleanup.policy": "compact,delete",
+				"retention.ms":   "123",
+			}),
+			zap.String("topic", "topic3"),
+		},
+	}, {
+		Entry: zapcore.Entry{LoggerName: "kafka", Message: "updated partitions for kafka topic"},
+		Context: []zapcore.Field{
+			zap.String("namespace", "name_space"),
+			zap.Int("partition_count", 123),
+			zap.Any("topic_configs", map[string]string{
+				"cleanup.policy": "compact,delete",
+				"retention.ms":   "123",
+			}),
+			zap.String("topic", "topic0"),
+		},
+	}}, matchingLogs.AllUntimed(), cmpopts.SortSlices(func(a, b observer.LoggedEntry) bool {
+		var ai, bi int
+		for i, v := range a.Context {
+			if v.Key == "topic" {
+				ai = i
+				break
+			}
+		}
+		for i, v := range b.Context {
+			if v.Key == "topic" {
+				bi = i
+				break
+			}
+		}
+		return a.Context[ai].String < b.Context[bi].String
+	}))
+
+	if diff != "" {
+		t.Error(diff)
+	}
+
+	spans := exp.GetSpans()
+	require.Len(t, spans, 1)
+	assert.Equal(t, "CreateAdminTopics", spans[0].Name)
+	assert.Equal(t, codes.Error, spans[0].Status.Code)
+	require.Len(t, spans[0].Events, 2)
+
+	// Topic 1 already exists error
+	assert.Equal(t, "kafka topic already exists", spans[0].Events[0].Name)
+	assert.Equal(t, []attribute.KeyValue{
+		semconv.MessagingDestinationKey.String("topic1"),
+	}, spans[0].Events[0].Attributes)
+
+	// Topic 2 exception
+	assert.Equal(t, "exception", spans[0].Events[1].Name)
+	assert.Equal(t, []attribute.KeyValue{
+		semconv.ExceptionTypeKey.String("*kerr.Error"),
+		semconv.ExceptionMessageKey.String(
+			"INVALID_TOPIC_EXCEPTION: The request attempted to perform an operation on an invalid topic.",
+		),
+	}, spans[0].Events[1].Attributes)
+
+	rm, err := mt.Collect(context.Background())
+	require.NoError(t, err)
+
+	// Filter all other kafka metrics.
+	var metrics []metricdata.Metrics
+	for _, sm := range rm.ScopeMetrics {
+		if sm.Scope.Name == "github.com/elastic/apm-queue/kafka" {
+			metrics = sm.Metrics
+			break
+		}
+	}
+
+	// Ensure only 1 topic was created, which also matches the number of spans.
+	assert.Equal(t, metrictest.Int64Metrics{
+		{Name: "topics.created.count"}: {
+			{K: "topic", V: "topic2"}:           1,
+			{K: "topic", V: "topic3"}:           1,
+			{K: "messaging.system", V: "kafka"}: 2,
+			{K: "outcome", V: "failure"}:        1,
+			{K: "outcome", V: "success"}:        1,
+		},
+	}, metrictest.GatherInt64Metric(metrics))
+}
+
+func sortConfigs(t *testing.T, topics []kmsg.CreateTopicsRequestTopic) {
+	t.Helper()
+	for i := range topics {
+		sort.Slice(topics[i].Configs, func(a, b int) bool {
+			return topics[i].Configs[a].Name < topics[i].Configs[b].Name
+		})
+	}
 }

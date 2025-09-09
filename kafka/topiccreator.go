@@ -104,18 +104,23 @@ func (m *Manager) NewTopicCreator(cfg TopicCreatorConfig) (*TopicCreator, error)
 	}, nil
 }
 
-// CreateAdminTopic creates a single log compacted topic
+// CreateAdminTopics creates a single log compacted topic
 //
 // Topics that already exist will be ignored.
-func (c *TopicCreator) CreateAdminTopic(ctx context.Context, topic apmqueue.Topic) error {
+func (c *TopicCreator) CreateAdminTopics(ctx context.Context, topics ...apmqueue.Topic) error {
 	ctx, span := c.m.tracer.Start(
 		ctx,
-		"CreateAdminTopic",
+		"CreateAdminTopics",
 		trace.WithAttributes(
 			semconv.MessagingSystemKey.String("kafka"),
 		),
 	)
 	defer span.End()
+
+	topicNames := make([]string, len(topics))
+	for i, topic := range topics {
+		topicNames[i] = fmt.Sprintf("%s", topic)
+	}
 
 	existing, err := c.m.adminClient.ListTopics(ctx)
 	if err != nil {
@@ -124,13 +129,18 @@ func (c *TopicCreator) CreateAdminTopic(ctx context.Context, topic apmqueue.Topi
 		return fmt.Errorf("failed to list kafka topics: %w", err)
 	}
 
-	missingTopics, _, _ := c.categorizeTopics(existing, []string{string(topic)})
+	missingTopics, updatePartitions, _ := c.categorizeTopics(existing, topicNames)
 
+	var updateErrors []error
 	if err := c.createMissingTopics(ctx, span, missingTopics); err != nil {
-		return err
+		updateErrors = append(updateErrors, err)
 	}
 
-	return nil
+	if err := c.updateTopicPartitions(ctx, span, updatePartitions); err != nil {
+		updateErrors = append(updateErrors, err)
+	}
+
+	return errors.Join(updateErrors...)
 }
 
 // CreateProjectTopics creates one or more topics.
@@ -234,6 +244,7 @@ func (c *TopicCreator) createMissingTopics(
 	var updateErrors []error
 	for _, response := range responses.Sorted() {
 		topicName := strings.TrimPrefix(response.Topic, namespacePrefix)
+		fmt.Println(":: topicName:", topicName)
 
 		logger := c.m.cfg.Logger.With(loggerFields...)
 		if c.m.cfg.TopicLogFieldsFunc != nil {
