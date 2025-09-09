@@ -59,7 +59,7 @@ func TestNewTopicCreator(t *testing.T) {
 	}, "\n"))
 }
 
-func TestTopicCreatorCreateProjectTopics(t *testing.T) {
+func TestTopicCreatorTopics(t *testing.T) {
 	exp := tracetest.NewInMemoryExporter()
 	tp := sdktrace.NewTracerProvider(
 		sdktrace.WithSyncer(exp),
@@ -86,12 +86,12 @@ func TestTopicCreatorCreateProjectTopics(t *testing.T) {
 
 	// Simulate a situation where topic1, topic4 exists, topic2 is invalid and
 	// topic3 is successfully created.
-	var createTopicsRequest *kmsg.CreateProjectTopicsRequest
-	cluster.ControlKey(kmsg.CreateProjectTopics.Int16(), func(req kmsg.Request) (kmsg.Response, error, bool) {
-		createTopicsRequest = req.(*kmsg.CreateProjectTopicsRequest)
-		return &kmsg.CreateProjectTopicsResponse{
+	var createTopicsRequest *kmsg.CreateTopicsRequest
+	cluster.ControlKey(kmsg.CreateTopics.Int16(), func(req kmsg.Request) (kmsg.Response, error, bool) {
+		createTopicsRequest = req.(*kmsg.CreateTopicsRequest)
+		return &kmsg.CreateTopicsResponse{
 			Version: req.GetVersion(),
-			Topics: []kmsg.CreateProjectTopicsResponseTopic{{
+			Topics: []kmsg.CreateTopicsResponseTopic{{
 				Topic:        "name_space-topic1",
 				ErrorCode:    kerr.TopicAlreadyExists.Code,
 				ErrorMessage: &kerr.TopicAlreadyExists.Message,
@@ -161,11 +161,11 @@ func TestTopicCreatorCreateProjectTopics(t *testing.T) {
 	)
 
 	require.Len(t, createTopicsRequest.Topics, 4)
-	assert.Equal(t, []kmsg.CreateProjectTopicsRequestTopic{{
+	assert.Equal(t, []kmsg.CreateTopicsRequestTopic{{
 		Topic:             "name_space-topic1",
 		NumPartitions:     123,
 		ReplicationFactor: -1,
-		Configs: []kmsg.CreateProjectTopicsRequestTopicConfig{{
+		Configs: []kmsg.CreateTopicsRequestTopicConfig{{
 			Name:  "retention.ms",
 			Value: kmsg.StringPtr("123"),
 		}},
@@ -173,7 +173,7 @@ func TestTopicCreatorCreateProjectTopics(t *testing.T) {
 		Topic:             "name_space-topic2",
 		NumPartitions:     123,
 		ReplicationFactor: -1,
-		Configs: []kmsg.CreateProjectTopicsRequestTopicConfig{{
+		Configs: []kmsg.CreateTopicsRequestTopicConfig{{
 			Name:  "retention.ms",
 			Value: kmsg.StringPtr("123"),
 		}},
@@ -181,7 +181,7 @@ func TestTopicCreatorCreateProjectTopics(t *testing.T) {
 		Topic:             "name_space-topic3",
 		NumPartitions:     123,
 		ReplicationFactor: -1,
-		Configs: []kmsg.CreateProjectTopicsRequestTopicConfig{{
+		Configs: []kmsg.CreateTopicsRequestTopicConfig{{
 			Name:  "retention.ms",
 			Value: kmsg.StringPtr("123"),
 		}},
@@ -189,7 +189,7 @@ func TestTopicCreatorCreateProjectTopics(t *testing.T) {
 		Topic:             "name_space-topic4",
 		NumPartitions:     123,
 		ReplicationFactor: -1,
-		Configs: []kmsg.CreateProjectTopicsRequestTopicConfig{{
+		Configs: []kmsg.CreateTopicsRequestTopicConfig{{
 			Name:  "retention.ms",
 			Value: kmsg.StringPtr("123"),
 		}},
