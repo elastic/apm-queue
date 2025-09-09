@@ -119,7 +119,7 @@ func (c *TopicCreator) CreateAdminTopics(ctx context.Context, topics ...apmqueue
 
 	topicNames := make([]string, len(topics))
 	for i, topic := range topics {
-		topicNames[i] = fmt.Sprintf("%s", topic)
+		topicNames[i] = string(topic)
 	}
 
 	existing, err := c.m.adminClient.ListTopics(ctx)
