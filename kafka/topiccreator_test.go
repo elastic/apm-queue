@@ -79,16 +79,6 @@ func TestCreateTopics(t *testing.T) {
 
 	t.Cleanup(func() { m.Close() })
 
-	c, err := m.NewTopicCreator(TopicCreatorConfig{
-		PartitionCount: 123,
-		TopicConfigs: map[string]string{
-			"retention.ms":   "123",
-			"cleanup.policy": "compact,delete",
-		},
-		MeterProvider: mt.MeterProvider,
-	})
-	require.NoError(t, err)
-
 	// Simulate a situation where topic1, topic4 exists, topic2 is invalid and topic3 is successfully created.
 	var createTopicsRequest *kmsg.CreateTopicsRequest
 	cluster.ControlKey(kmsg.CreateTopics.Int16(), func(req kmsg.Request) (kmsg.Response, error, bool) {
@@ -158,6 +148,16 @@ func TestCreateTopics(t *testing.T) {
 			}},
 		}, nil, true
 	})
+
+	c, err := m.NewTopicCreator(TopicCreatorConfig{
+		PartitionCount: 123,
+		TopicConfigs: map[string]string{
+			"retention.ms":   "123",
+			"cleanup.policy": "compact,delete",
+		},
+		MeterProvider: mt.MeterProvider,
+	})
+	require.NoError(t, err)
 
 	err = c.CreateTopics(context.Background(), "topic0", "topic1", "topic2", "topic3", "topic4")
 	require.Error(t, err)
@@ -377,6 +377,7 @@ func TestCreateTopics(t *testing.T) {
 
 	rm, err := mt.Collect(context.Background())
 	require.NoError(t, err)
+
 	// Filter all other kafka metrics.
 	var metrics []metricdata.Metrics
 	for _, sm := range rm.ScopeMetrics {
@@ -385,6 +386,7 @@ func TestCreateTopics(t *testing.T) {
 			break
 		}
 	}
+
 	// Ensure only 1 topic was created, which also matches the number of spans.
 	assert.Equal(t, metrictest.Int64Metrics{
 		{Name: "topics.created.count"}: {
