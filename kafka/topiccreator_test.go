@@ -19,7 +19,6 @@ package kafka
 
 import (
 	"context"
-	"fmt"
 	"sort"
 	"strings"
 	"testing"
@@ -117,13 +116,12 @@ func TestCreateTopics(t *testing.T) {
 		return &res, nil, true
 	})
 
-	// Since topic 1 and 4 already exist, their configuration is altered.
+	// Since topic 1 already exist, their configuration is altered.
 	var alterConfigsRequest *kmsg.IncrementalAlterConfigsRequest
 	cluster.ControlKey(kmsg.IncrementalAlterConfigs.Int16(), func(req kmsg.Request) (kmsg.Response, error, bool) {
 		alterConfigsRequest = req.(*kmsg.IncrementalAlterConfigsRequest)
 		res := kmsg.IncrementalAlterConfigsResponse{Version: req.GetVersion()}
 		for _, r := range alterConfigsRequest.Resources {
-			fmt.Println(r)
 			res.Resources = append(res.Resources, kmsg.IncrementalAlterConfigsResponseResource{
 				ResourceType: r.ResourceType,
 				ResourceName: r.ResourceName,
