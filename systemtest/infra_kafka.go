@@ -167,7 +167,7 @@ func CreateKafkaTopics(ctx context.Context, t testing.TB, partitions int, topics
 	})
 	require.NoError(t, err)
 
-	err = topicCreator.CreateProjectTopics(ctx, topics...)
+	err = topicCreator.CreateTopics(ctx, topics...)
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		require.NoError(t, manager.DeleteTopics(

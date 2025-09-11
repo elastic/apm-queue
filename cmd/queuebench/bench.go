@@ -115,7 +115,7 @@ func createTopics(ctx context.Context, mngr *kafka.Manager, cfg kafka.TopicCreat
 	}
 
 	for _, topic := range topics {
-		err = creator.CreateProjectTopics(ctx, topic)
+		err = creator.CreateTopics(ctx, topic)
 		if err != nil {
 			return fmt.Errorf("cannot create topics: %w", err)
 		}

@@ -104,52 +104,13 @@ func (m *Manager) NewTopicCreator(cfg TopicCreatorConfig) (*TopicCreator, error)
 	}, nil
 }
 
-// CreateAdminTopics creates a single log compacted topic
-//
-// Topics that already exist will be ignored.
-func (c *TopicCreator) CreateAdminTopics(ctx context.Context, topics ...apmqueue.Topic) error {
-	ctx, span := c.m.tracer.Start(
-		ctx,
-		"CreateAdminTopics",
-		trace.WithAttributes(
-			semconv.MessagingSystemKey.String("kafka"),
-		),
-	)
-	defer span.End()
-
-	topicNames := make([]string, len(topics))
-	for i, topic := range topics {
-		topicNames[i] = string(topic)
-	}
-
-	existing, err := c.m.adminClient.ListTopics(ctx)
-	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
-		return fmt.Errorf("failed to list kafka topics: %w", err)
-	}
-
-	missingTopics, updatePartitions, _ := c.categorizeTopics(existing, topicNames)
-
-	var updateErrors []error
-	if err := c.createMissingTopics(ctx, span, missingTopics); err != nil {
-		updateErrors = append(updateErrors, err)
-	}
-
-	if err := c.updateTopicPartitions(ctx, span, updatePartitions); err != nil {
-		updateErrors = append(updateErrors, err)
-	}
-
-	return errors.Join(updateErrors...)
-}
-
-// CreateProjectTopics creates one or more topics.
+// CreateTopics creates one or more topics.
 //
 // Topics that already exist will be updated.
-func (c *TopicCreator) CreateProjectTopics(ctx context.Context, topics ...apmqueue.Topic) error {
+func (c *TopicCreator) CreateTopics(ctx context.Context, topics ...apmqueue.Topic) error {
 	ctx, span := c.m.tracer.Start(
 		ctx,
-		"CreateProjectTopics",
+		"CreateTopics",
 		trace.WithAttributes(
 			semconv.MessagingSystemKey.String("kafka"),
 		),
@@ -244,7 +205,6 @@ func (c *TopicCreator) createMissingTopics(
 	var updateErrors []error
 	for _, response := range responses.Sorted() {
 		topicName := strings.TrimPrefix(response.Topic, namespacePrefix)
-		fmt.Println(":: topicName:", topicName)
 
 		logger := c.m.cfg.Logger.With(loggerFields...)
 		if c.m.cfg.TopicLogFieldsFunc != nil {
@@ -375,6 +335,10 @@ func (c *TopicCreator) alterTopicConfigs(
 	if len(existingTopics) == 0 || len(c.topicConfigs) == 0 {
 		return nil
 	}
+
+	// Remove cleanup.policy if it exists,
+	// since this field cannot be altered.
+	delete(c.topicConfigs, "cleanup.policy")
 
 	alterCfg := make([]kadm.AlterConfig, 0, len(c.topicConfigs))
 	for k, v := range c.topicConfigs {
