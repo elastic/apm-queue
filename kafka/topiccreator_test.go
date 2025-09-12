@@ -19,6 +19,7 @@ package kafka
 
 import (
 	"context"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -59,7 +60,7 @@ func TestNewTopicCreator(t *testing.T) {
 	}, "\n"))
 }
 
-func TestTopicCreatorCreateTopics(t *testing.T) {
+func TestCreateTopics(t *testing.T) {
 	exp := tracetest.NewInMemoryExporter()
 	tp := sdktrace.NewTracerProvider(
 		sdktrace.WithSyncer(exp),
@@ -74,18 +75,10 @@ func TestTopicCreatorCreateTopics(t *testing.T) {
 
 	m, err := NewManager(ManagerConfig{CommonConfig: commonConfig})
 	require.NoError(t, err)
-	t.Cleanup(func() { m.Close() })
-	c, err := m.NewTopicCreator(TopicCreatorConfig{
-		PartitionCount: 123,
-		TopicConfigs: map[string]string{
-			"retention.ms": "123",
-		},
-		MeterProvider: mt.MeterProvider,
-	})
-	require.NoError(t, err)
 
-	// Simulate a situation where topic1, topic4 exists, topic2 is invalid and
-	// topic3 is successfully created.
+	t.Cleanup(func() { m.Close() })
+
+	// Simulate a situation where topic1, topic4 exists, topic2 is invalid and topic3 is successfully created.
 	var createTopicsRequest *kmsg.CreateTopicsRequest
 	cluster.ControlKey(kmsg.CreateTopics.Int16(), func(req kmsg.Request) (kmsg.Response, error, bool) {
 		createTopicsRequest = req.(*kmsg.CreateTopicsRequest)
@@ -109,8 +102,8 @@ func TestTopicCreatorCreateTopics(t *testing.T) {
 			}},
 		}, nil, true
 	})
-	// Topics 1 and 4 are already created, and their partition count is set to
-	// the appropriate value.
+
+	// Topics 1 and 4 are already created, and their partition count is set to the appropriate value.
 	var createPartitionsRequest *kmsg.CreatePartitionsRequest
 	cluster.ControlKey(kmsg.CreatePartitions.Int16(), func(req kmsg.Request) (kmsg.Response, error, bool) {
 		createPartitionsRequest = req.(*kmsg.CreatePartitionsRequest)
@@ -123,7 +116,7 @@ func TestTopicCreatorCreateTopics(t *testing.T) {
 		return &res, nil, true
 	})
 
-	// Since topic 1 and 4 already exist, their configuration is altered.
+	// Since topic 1 already exist, their configuration is altered.
 	var alterConfigsRequest *kmsg.IncrementalAlterConfigsRequest
 	cluster.ControlKey(kmsg.IncrementalAlterConfigs.Int16(), func(req kmsg.Request) (kmsg.Response, error, bool) {
 		alterConfigsRequest = req.(*kmsg.IncrementalAlterConfigsRequest)
@@ -154,6 +147,16 @@ func TestTopicCreatorCreateTopics(t *testing.T) {
 		}, nil, true
 	})
 
+	c, err := m.NewTopicCreator(TopicCreatorConfig{
+		PartitionCount: 123,
+		TopicConfigs: map[string]string{
+			"retention.ms":   "123",
+			"cleanup.policy": "compact,delete",
+		},
+		MeterProvider: mt.MeterProvider,
+	})
+	require.NoError(t, err)
+
 	err = c.CreateTopics(context.Background(), "topic0", "topic1", "topic2", "topic3", "topic4")
 	require.Error(t, err)
 	assert.EqualError(t, err, `failed to create topic "topic2": `+
@@ -161,55 +164,95 @@ func TestTopicCreatorCreateTopics(t *testing.T) {
 	)
 
 	require.Len(t, createTopicsRequest.Topics, 4)
-	assert.Equal(t, []kmsg.CreateTopicsRequestTopic{{
-		Topic:             "name_space-topic1",
-		NumPartitions:     123,
-		ReplicationFactor: -1,
-		Configs: []kmsg.CreateTopicsRequestTopicConfig{{
-			Name:  "retention.ms",
-			Value: kmsg.StringPtr("123"),
-		}},
-	}, {
-		Topic:             "name_space-topic2",
-		NumPartitions:     123,
-		ReplicationFactor: -1,
-		Configs: []kmsg.CreateTopicsRequestTopicConfig{{
-			Name:  "retention.ms",
-			Value: kmsg.StringPtr("123"),
-		}},
-	}, {
-		Topic:             "name_space-topic3",
-		NumPartitions:     123,
-		ReplicationFactor: -1,
-		Configs: []kmsg.CreateTopicsRequestTopicConfig{{
-			Name:  "retention.ms",
-			Value: kmsg.StringPtr("123"),
-		}},
-	}, {
-		Topic:             "name_space-topic4",
-		NumPartitions:     123,
-		ReplicationFactor: -1,
-		Configs: []kmsg.CreateTopicsRequestTopicConfig{{
-			Name:  "retention.ms",
-			Value: kmsg.StringPtr("123"),
-		}},
-	}}, createTopicsRequest.Topics)
+
+	expected := []kmsg.CreateTopicsRequestTopic{
+		{
+			Topic:             "name_space-topic1",
+			NumPartitions:     123,
+			ReplicationFactor: -1,
+			Configs: []kmsg.CreateTopicsRequestTopicConfig{
+				{
+					Name:  "cleanup.policy",
+					Value: kmsg.StringPtr("compact,delete"),
+				},
+				{
+					Name:  "retention.ms",
+					Value: kmsg.StringPtr("123"),
+				},
+			},
+		}, {
+			Topic:             "name_space-topic2",
+			NumPartitions:     123,
+			ReplicationFactor: -1,
+			Configs: []kmsg.CreateTopicsRequestTopicConfig{
+				{
+					Name:  "cleanup.policy",
+					Value: kmsg.StringPtr("compact,delete"),
+				},
+				{
+					Name:  "retention.ms",
+					Value: kmsg.StringPtr("123"),
+				},
+			},
+		}, {
+			Topic:             "name_space-topic3",
+			NumPartitions:     123,
+			ReplicationFactor: -1,
+			Configs: []kmsg.CreateTopicsRequestTopicConfig{
+				{
+					Name:  "cleanup.policy",
+					Value: kmsg.StringPtr("compact,delete"),
+				},
+				{
+					Name:  "retention.ms",
+					Value: kmsg.StringPtr("123"),
+				},
+			},
+		}, {
+			Topic:             "name_space-topic4",
+			NumPartitions:     123,
+			ReplicationFactor: -1,
+			Configs: []kmsg.CreateTopicsRequestTopicConfig{
+				{
+					Name:  "cleanup.policy",
+					Value: kmsg.StringPtr("compact,delete"),
+				},
+				{
+					Name:  "retention.ms",
+					Value: kmsg.StringPtr("123"),
+				},
+			},
+		},
+	}
+
+	sortTopicConfigs(t, expected)
+	sortTopicConfigs(t, createTopicsRequest.Topics)
+	assert.Equal(t, expected, createTopicsRequest.Topics)
 
 	// Ensure only `topic0` partitions are updated since it already exists.
 	assert.Equal(t, []kmsg.CreatePartitionsRequestTopic{
 		{Topic: "name_space-topic0", Count: 123},
 	}, createPartitionsRequest.Topics)
 
+	// Ensure the `cleanup.policy` field for `topic0` is deleted.
+	expectedAlter := []kmsg.IncrementalAlterConfigsRequestResource{
+		{
+			ResourceType: kmsg.ConfigResourceTypeTopic,
+			ResourceName: "name_space-topic0",
+			Configs: []kmsg.IncrementalAlterConfigsRequestResourceConfig{
+				{
+					Name:  "retention.ms",
+					Value: kmsg.StringPtr("123"),
+				},
+			},
+		},
+	}
+
 	// Ensure only the existing topic config is updated since it already exists.
 	assert.Len(t, alterConfigsRequest.Resources, 1)
-	assert.Equal(t, []kmsg.IncrementalAlterConfigsRequestResource{{
-		ResourceType: kmsg.ConfigResourceTypeTopic,
-		ResourceName: "name_space-topic0",
-		Configs: []kmsg.IncrementalAlterConfigsRequestResourceConfig{{
-			Name:  "retention.ms",
-			Value: kmsg.StringPtr("123"),
-		}},
-	}}, alterConfigsRequest.Resources)
+	sortAlteredConfigs(t, expectedAlter)
+	sortAlteredConfigs(t, alterConfigsRequest.Resources)
+	assert.Equal(t, expectedAlter, alterConfigsRequest.Resources)
 
 	// Log assertions.
 	matchingLogs := observedLogs.FilterFieldKey("topic")
@@ -225,7 +268,10 @@ func TestTopicCreatorCreateTopics(t *testing.T) {
 		Context: []zapcore.Field{
 			zap.String("namespace", "name_space"),
 			zap.Int("partition_count", 123),
-			zap.Any("topic_configs", map[string]string{"retention.ms": "123"}),
+			zap.Any("topic_configs", map[string]string{
+				"cleanup.policy": "compact,delete",
+				"retention.ms":   "123",
+			}),
 			zap.String("topic", "topic1"),
 		},
 	}, {
@@ -237,7 +283,10 @@ func TestTopicCreatorCreateTopics(t *testing.T) {
 		Context: []zapcore.Field{
 			zap.String("namespace", "name_space"),
 			zap.Int("partition_count", 123),
-			zap.Any("topic_configs", map[string]string{"retention.ms": "123"}),
+			zap.Any("topic_configs", map[string]string{
+				"cleanup.policy": "compact,delete",
+				"retention.ms":   "123",
+			}),
 			zap.String("topic", "topic4"),
 		},
 	}, {
@@ -249,7 +298,10 @@ func TestTopicCreatorCreateTopics(t *testing.T) {
 		Context: []zapcore.Field{
 			zap.String("namespace", "name_space"),
 			zap.Int("partition_count", 123),
-			zap.Any("topic_configs", map[string]string{"retention.ms": "123"}),
+			zap.Any("topic_configs", map[string]string{
+				"cleanup.policy": "compact,delete",
+				"retention.ms":   "123",
+			}),
 			zap.String("topic", "topic3"),
 		},
 	}, {
@@ -257,7 +309,10 @@ func TestTopicCreatorCreateTopics(t *testing.T) {
 		Context: []zapcore.Field{
 			zap.String("namespace", "name_space"),
 			zap.Int("partition_count", 123),
-			zap.Any("topic_configs", map[string]string{"retention.ms": "123"}),
+			zap.Any("topic_configs", map[string]string{
+				"cleanup.policy": "compact,delete",
+				"retention.ms":   "123",
+			}),
 			zap.String("topic", "topic0"),
 		},
 	}, {
@@ -265,7 +320,10 @@ func TestTopicCreatorCreateTopics(t *testing.T) {
 		Context: []zapcore.Field{
 			zap.String("namespace", "name_space"),
 			zap.Int("partition_count", 123),
-			zap.Any("topic_configs", map[string]string{"retention.ms": "123"}),
+			zap.Any("topic_configs", map[string]string{
+				"cleanup.policy": "compact,delete",
+				"retention.ms":   "123",
+			}),
 			zap.String("topic", "topic0"),
 		},
 	}}, matchingLogs.AllUntimed(), cmpopts.SortSlices(func(a, b observer.LoggedEntry) bool {
@@ -317,6 +375,7 @@ func TestTopicCreatorCreateTopics(t *testing.T) {
 
 	rm, err := mt.Collect(context.Background())
 	require.NoError(t, err)
+
 	// Filter all other kafka metrics.
 	var metrics []metricdata.Metrics
 	for _, sm := range rm.ScopeMetrics {
@@ -325,6 +384,7 @@ func TestTopicCreatorCreateTopics(t *testing.T) {
 			break
 		}
 	}
+
 	// Ensure only 1 topic was created, which also matches the number of spans.
 	assert.Equal(t, metrictest.Int64Metrics{
 		{Name: "topics.created.count"}: {
@@ -335,4 +395,22 @@ func TestTopicCreatorCreateTopics(t *testing.T) {
 			{K: "outcome", V: "success"}:        1,
 		},
 	}, metrictest.GatherInt64Metric(metrics))
+}
+
+func sortTopicConfigs(t *testing.T, topics []kmsg.CreateTopicsRequestTopic) {
+	t.Helper()
+	for i := range topics {
+		sort.Slice(topics[i].Configs, func(a, b int) bool {
+			return topics[i].Configs[a].Name < topics[i].Configs[b].Name
+		})
+	}
+}
+
+func sortAlteredConfigs(t *testing.T, topics []kmsg.IncrementalAlterConfigsRequestResource) {
+	t.Helper()
+	for i := range topics {
+		sort.Slice(topics[i].Configs, func(a, b int) bool {
+			return topics[i].Configs[a].Name < topics[i].Configs[b].Name
+		})
+	}
 }
