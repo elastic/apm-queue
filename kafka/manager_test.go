@@ -773,16 +773,16 @@ func TestListTopics(t *testing.T) {
 
 func TestUnknownTopicOrPartition(t *testing.T) {
 	testCases := []struct {
-		desc          string
-		ignoreWarning bool
+		desc       string
+		logWarning bool
 	}{
 		{
-			desc:          "log UNKNOWN_TOPIC_OR_PARTITION warning for consumer lag",
-			ignoreWarning: false,
+			desc:       "log UNKNOWN_TOPIC_OR_PARTITION warning for consumer lag",
+			logWarning: true,
 		},
 		{
-			desc:          "ignore UNKNOWN_TOPIC_OR_PARTITION warning for consumer lag",
-			ignoreWarning: true,
+			desc:       "ignore UNKNOWN_TOPIC_OR_PARTITION warning for consumer lag",
+			logWarning: true,
 		},
 	}
 	for _, tc := range testCases {
@@ -793,7 +793,7 @@ func TestUnknownTopicOrPartition(t *testing.T) {
 		cluster, commonConfig := newFakeCluster(t)
 		core, observedLogs := observer.New(zapcore.DebugLevel)
 
-		commonConfig.DisableUnknownTopicWarning = tc.ignoreWarning
+		commonConfig.LogUnknownTopicWarning = tc.logWarning
 		commonConfig.Logger = zap.New(core)
 		commonConfig.MeterProvider = mp
 
@@ -875,9 +875,7 @@ func TestUnknownTopicOrPartition(t *testing.T) {
 		matchingLogs := observedLogs.FilterFieldKey("group")
 		actual := matchingLogs.AllUntimed()
 
-		if tc.ignoreWarning {
-			assert.Empty(t, actual)
-		} else {
+		if tc.logWarning {
 			expected := []observer.LoggedEntry{
 				{
 					Entry: zapcore.Entry{
@@ -896,6 +894,8 @@ func TestUnknownTopicOrPartition(t *testing.T) {
 			}
 			assert.Len(t, actual, 1)
 			assert.Equal(t, expected, actual)
+		} else {
+			assert.Empty(t, actual)
 		}
 	}
 }
