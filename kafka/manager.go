@@ -277,6 +277,9 @@ func (m *Manager) MonitorConsumerLag(topicConsumers []apmqueue.TopicConsumer) (m
 				}
 				for partition, lag := range partitions {
 					if lag.Err != nil {
+						if lag.Err == kerr.UnknownTopicOrPartition && m.cfg.DisableUnknownTopicWarning {
+							continue
+						}
 						logger.Warn("error getting consumer group lag",
 							zap.String("group", l.Group),
 							zap.String("topic", topic),

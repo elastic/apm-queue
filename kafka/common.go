@@ -146,6 +146,10 @@ type CommonConfig struct {
 	// DisableTelemetry disables the OpenTelemetry hook.
 	DisableTelemetry bool
 
+	// IgnoreUnknownTopicWarning ignores UNKNOWN_TOPIC_OR_PARTITION warnings
+	// when monitoring consumer lag for a deleted topic.
+	DisableUnknownTopicWarning bool
+
 	// TracerProvider allows specifying a custom otel tracer provider.
 	// Defaults to the global one.
 	TracerProvider trace.TracerProvider
