@@ -782,7 +782,7 @@ func TestUnknownTopicOrPartition(t *testing.T) {
 		},
 		{
 			desc:       "ignore UNKNOWN_TOPIC_OR_PARTITION warning for consumer lag",
-			logWarning: true,
+			logWarning: false,
 		},
 	}
 	for _, tc := range testCases {
