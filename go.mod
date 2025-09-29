@@ -1,6 +1,6 @@
 module github.com/elastic/apm-queue/v2
 
-go 1.23.8
+go 1.24.0
 
 require (
 	github.com/aws/aws-sdk-go-v2/config v1.31.11
@@ -17,7 +17,7 @@ require (
 	go.opentelemetry.io/otel/sdk/metric v1.38.0
 	go.opentelemetry.io/otel/trace v1.38.0
 	go.uber.org/zap v1.27.0
-	golang.org/x/sync v0.16.0
+	golang.org/x/sync v0.17.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
