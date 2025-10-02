@@ -773,16 +773,16 @@ func TestListTopics(t *testing.T) {
 
 func TestUnknownTopicOrPartition(t *testing.T) {
 	testCases := []struct {
-		desc       string
-		logWarning bool
+		desc     string
+		logLevel zapcore.Level
 	}{
 		{
-			desc:       "log UNKNOWN_TOPIC_OR_PARTITION warning for consumer lag",
-			logWarning: true,
+			desc:     "log UNKNOWN_TOPIC_OR_PARTITION error for consumer lag",
+			logLevel: zapcore.DebugLevel,
 		},
 		{
-			desc:       "ignore UNKNOWN_TOPIC_OR_PARTITION warning for consumer lag",
-			logWarning: false,
+			desc:     "ignore UNKNOWN_TOPIC_OR_PARTITION error for consumer lag",
+			logLevel: zapcore.WarnLevel,
 		},
 	}
 	for _, tc := range testCases {
@@ -791,9 +791,8 @@ func TestUnknownTopicOrPartition(t *testing.T) {
 		defer mp.Shutdown(context.Background())
 
 		cluster, commonConfig := newFakeCluster(t)
-		core, observedLogs := observer.New(zapcore.DebugLevel)
+		core, observedLogs := observer.New(tc.logLevel)
 
-		commonConfig.LogUnknownTopicWarning = tc.logWarning
 		commonConfig.Logger = zap.New(core)
 		commonConfig.MeterProvider = mp
 
@@ -875,11 +874,11 @@ func TestUnknownTopicOrPartition(t *testing.T) {
 		matchingLogs := observedLogs.FilterFieldKey("group")
 		actual := matchingLogs.AllUntimed()
 
-		if tc.logWarning {
+		if tc.logLevel == zapcore.DebugLevel {
 			expected := []observer.LoggedEntry{
 				{
 					Entry: zapcore.Entry{
-						Level:      zapcore.WarnLevel,
+						Level:      zapcore.DebugLevel,
 						LoggerName: "kafka",
 						Message:    "error getting consumer group lag",
 					},

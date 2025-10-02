@@ -181,10 +181,6 @@ type CommonConfig struct {
 	// If zero, the default value of 5 minutes is used.
 	MetadataMaxAge time.Duration
 
-	// LogUnknownTopicWarning will log UNKNOWN_TOPIC_OR_PARTITION warnings
-	// when monitoring consumer lag for a deleted topic.
-	LogUnknownTopicWarning bool
-
 	hooks []kgo.Hook
 }
 
