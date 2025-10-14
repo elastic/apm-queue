@@ -1,11 +1,11 @@
 module github.com/elastic/apm-queue/tools
 
-go 1.23.6
+go 1.24.0
 
 require (
 	github.com/elastic/go-licenser v0.4.2
 	go.elastic.co/go-licence-detector v0.9.1
-	golang.org/x/tools v0.36.0
+	golang.org/x/tools v0.38.0
 	honnef.co/go/tools v0.6.1
 )
 
@@ -15,8 +15,9 @@ require (
 	github.com/google/licenseclassifier v0.0.0-20250213175939-b5d1a3369749 // indirect
 	github.com/sergi/go-diff v1.4.0 // indirect
 	golang.org/x/exp/typeparams v0.0.0-20231108232855-2478ac86f678 // indirect
-	golang.org/x/mod v0.27.0 // indirect
-	golang.org/x/sync v0.16.0 // indirect
-	golang.org/x/sys v0.35.0 // indirect
+	golang.org/x/mod v0.29.0 // indirect
+	golang.org/x/sync v0.17.0 // indirect
+	golang.org/x/sys v0.37.0 // indirect
+	golang.org/x/telemetry v0.0.0-20251008203120-078029d740a8 // indirect
 	golang.org/x/tools/go/expect v0.1.1-deprecated // indirect
 )
