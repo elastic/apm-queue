@@ -45,6 +45,7 @@ import (
 type SASLMechanism = sasl.Mechanism
 
 // TopicLogFieldFunc is a function that returns a zap.Field for a given topic.
+//
 // Deprecated: use TopicLogFieldsFunc instead.
 type TopicLogFieldFunc func(topic string) zap.Field
 
@@ -158,6 +159,7 @@ type CommonConfig struct {
 	// topic for these metrics:
 	// - producer.messages.count
 	// - consumer.messages.fetched
+	//
 	// Deprecated: Use TopicAttributesFunc instead.
 	TopicAttributeFunc TopicAttributeFunc
 
@@ -169,6 +171,7 @@ type CommonConfig struct {
 
 	// TopicAttributeFunc can be used to create one custom dimension from a Kafka
 	// topic for log messages.
+	//
 	// Deprecated: use TopicLogFieldsFunc instead.
 	TopicLogFieldFunc TopicLogFieldFunc
 
