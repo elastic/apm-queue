@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"math/rand/v2"
 	"strings"
 	"sync"
 	"time"
@@ -353,12 +354,21 @@ func (c *Consumer) Run(ctx context.Context) error {
 	clientCtx, c.stopPoll = context.WithCancel(ctx)
 	c.mu.Unlock()
 	for {
+		exponentialBackoff := ExponentialBackoff{
+			base: 1 * time.Second,
+			max:  1 * time.Minute,
+		}
+		var attempt int
 		if err := c.fetch(clientCtx); err != nil {
 			if errors.Is(err, context.Canceled) {
 				return nil // Return no error if err == context.Canceled.
 			}
-			return fmt.Errorf("cannot fetch records: %w", err)
+			backoff := exponentialBackoff.Backoff(attempt)
+			c.cfg.Logger.Error("kafka: failed to fetch kafka message: %w", zap.Int64("backoff", int64(backoff)))
+			attempt++
+			continue
 		}
+		attempt = 0
 	}
 }
 
@@ -652,3 +662,12 @@ func (c *pc) consumeRecords(ftp kgo.FetchTopicPartition) {
 
 // wait blocks until all the records have been processed.
 func (c *pc) wait() error { return c.g.Wait() }
+
+type ExponentialBackoff struct {
+	base, max time.Duration
+}
+
+func (e ExponentialBackoff) Backoff(attempt int) time.Duration {
+	temp := int64(min(e.max, e.base*(1<<attempt)))
+	return time.Duration(temp/2 + rand.Int64N(temp/2))
+}
