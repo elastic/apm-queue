@@ -354,11 +354,11 @@ func (c *Consumer) Run(ctx context.Context) error {
 	clientCtx, c.stopPoll = context.WithCancel(ctx)
 	c.mu.Unlock()
 	var attempt int
+	exp := exponentialBackoff{
+		base: 1 * time.Second,
+		max:  1 * time.Minute,
+	}
 	for {
-		exp := exponentialBackoff{
-			base: 1 * time.Second,
-			max:  1 * time.Minute,
-		}
 		if err := c.fetch(clientCtx); err != nil {
 			if errors.Is(clientCtx.Err(), context.Canceled) {
 				return nil // Return no error if client context is canceled.
@@ -366,7 +366,10 @@ func (c *Consumer) Run(ctx context.Context) error {
 			backoff := exp.Backoff(attempt)
 			c.cfg.Logger.Error("consumer: fetch error; retrying after backoff", zap.Int64("backoff", int64(backoff)), zap.Error(err))
 			attempt++
-			time.Sleep(backoff)
+			select {
+			case <-clientCtx.Done():
+			case <-time.After(backoff):
+			}
 			continue
 		}
 		attempt = 0
