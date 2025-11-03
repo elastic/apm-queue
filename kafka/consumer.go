@@ -354,7 +354,7 @@ func (c *Consumer) Run(ctx context.Context) error {
 	clientCtx, c.stopPoll = context.WithCancel(ctx)
 	c.mu.Unlock()
 	for {
-		exponentialBackoff := ExponentialBackoff{
+		exp := exponentialBackoff{
 			base: 1 * time.Second,
 			max:  1 * time.Minute,
 		}
@@ -363,7 +363,7 @@ func (c *Consumer) Run(ctx context.Context) error {
 			if errors.Is(clientCtx.Err(), context.Canceled) {
 				return nil // Return no error if client context is canceled.
 			}
-			backoff := exponentialBackoff.Backoff(attempt)
+			backoff := exp.Backoff(attempt)
 			c.cfg.Logger.Error("kafka: failed to fetch kafka message", zap.Int64("backoff", int64(backoff)), zap.Error(err))
 			attempt++
 			time.Sleep(backoff)
@@ -664,11 +664,11 @@ func (c *pc) consumeRecords(ftp kgo.FetchTopicPartition) {
 // wait blocks until all the records have been processed.
 func (c *pc) wait() error { return c.g.Wait() }
 
-type ExponentialBackoff struct {
+type exponentialBackoff struct {
 	base, max time.Duration
 }
 
-func (e ExponentialBackoff) Backoff(attempt int) time.Duration {
+func (e exponentialBackoff) Backoff(attempt int) time.Duration {
 	temp := int64(min(e.max, e.base*(1<<attempt)))
 	return time.Duration(temp/2 + rand.Int64N(temp/2))
 }
