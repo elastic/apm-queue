@@ -22,7 +22,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"math/rand/v2"
 	"strings"
 	"sync"
 	"time"
@@ -359,7 +358,11 @@ func (c *Consumer) Run(ctx context.Context) error {
 			if errors.Is(clientCtx.Err(), context.Canceled) {
 				return nil // Return no error if client context is canceled.
 			}
-			c.cfg.Logger.Error("consumer: fetch error; retrying", zap.Error(err))
+			if errors.Is(err, context.DeadlineExceeded) {
+				c.cfg.Logger.Error("consumer: fetch error; retrying", zap.Error(err))
+			} else {
+				return err
+			}
 		}
 	}
 }
