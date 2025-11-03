@@ -360,8 +360,8 @@ func (c *Consumer) Run(ctx context.Context) error {
 		}
 		var attempt int
 		if err := c.fetch(clientCtx); err != nil {
-			if errors.Is(err, context.Canceled) {
-				return nil // Return no error if err == context.Canceled.
+			if errors.Is(clientCtx.Err(), context.Canceled) {
+				return nil // Return no error if client context is canceled.
 			}
 			backoff := exponentialBackoff.Backoff(attempt)
 			c.cfg.Logger.Error("kafka: failed to fetch kafka message: %w", zap.Int64("backoff", int64(backoff)))
