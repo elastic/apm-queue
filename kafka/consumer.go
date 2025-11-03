@@ -381,7 +381,7 @@ func (c *Consumer) fetch(ctx context.Context) error {
 	if fetches.IsClientClosed() ||
 		errors.Is(fetches.Err0(), context.Canceled) ||
 		errors.Is(fetches.Err0(), context.DeadlineExceeded) {
-		return context.Canceled
+		return fetches.Err0()
 	}
 	c.mu.RLock()
 	defer c.mu.RUnlock()
