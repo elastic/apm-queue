@@ -353,26 +353,14 @@ func (c *Consumer) Run(ctx context.Context) error {
 	var clientCtx context.Context
 	clientCtx, c.stopPoll = context.WithCancel(ctx)
 	c.mu.Unlock()
-	var attempt int
-	exp := exponentialBackoff{
-		base: 1 * time.Second,
-		max:  1 * time.Minute,
-	}
+
 	for {
 		if err := c.fetch(clientCtx); err != nil {
 			if errors.Is(clientCtx.Err(), context.Canceled) {
 				return nil // Return no error if client context is canceled.
 			}
-			backoff := exp.Backoff(attempt)
-			c.cfg.Logger.Error("consumer: fetch error; retrying after backoff", zap.Int64("backoff", int64(backoff)), zap.Error(err))
-			attempt++
-			select {
-			case <-clientCtx.Done():
-			case <-time.After(backoff):
-			}
-			continue
+			c.cfg.Logger.Error("consumer: fetch error; retrying", zap.Error(err))
 		}
-		attempt = 0
 	}
 }
 
@@ -666,12 +654,3 @@ func (c *pc) consumeRecords(ftp kgo.FetchTopicPartition) {
 
 // wait blocks until all the records have been processed.
 func (c *pc) wait() error { return c.g.Wait() }
-
-type exponentialBackoff struct {
-	base, max time.Duration
-}
-
-func (e exponentialBackoff) Backoff(attempt int) time.Duration {
-	temp := int64(min(e.max, e.base*(1<<attempt)))
-	return time.Duration(temp/2 + rand.Int64N(temp/2))
-}
