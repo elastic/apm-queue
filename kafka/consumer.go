@@ -382,10 +382,10 @@ func (c *Consumer) fetch(ctx context.Context) error {
 	fetches := c.client.PollRecords(ctx, c.cfg.MaxPollRecords)
 	defer c.client.AllowRebalance()
 
-	if fetches.IsClientClosed() ||
-		errors.Is(fetches.Err0(), context.Canceled) ||
-		errors.Is(fetches.Err0(), context.DeadlineExceeded) {
-		return fetches.Err0()
+	if fetchErr := fetches.Err0(); errors.Is(fetchErr, kgo.ErrClientClosed) ||
+		errors.Is(fetchErr, context.Canceled) ||
+		errors.Is(fetchErr, context.DeadlineExceeded) {
+		return fetchErr
 	}
 	c.mu.RLock()
 	defer c.mu.RUnlock()
