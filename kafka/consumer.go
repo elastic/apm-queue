@@ -353,12 +353,12 @@ func (c *Consumer) Run(ctx context.Context) error {
 	var clientCtx context.Context
 	clientCtx, c.stopPoll = context.WithCancel(ctx)
 	c.mu.Unlock()
+	var attempt int
 	for {
 		exp := exponentialBackoff{
 			base: 1 * time.Second,
 			max:  1 * time.Minute,
 		}
-		var attempt int
 		if err := c.fetch(clientCtx); err != nil {
 			if errors.Is(clientCtx.Err(), context.Canceled) {
 				return nil // Return no error if client context is canceled.
