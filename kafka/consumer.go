@@ -358,11 +358,13 @@ func (c *Consumer) Run(ctx context.Context) error {
 			if errors.Is(clientCtx.Err(), context.Canceled) {
 				return nil // Return no error if client context is canceled.
 			}
+
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				c.cfg.Logger.Error("consumer: fetch error; retrying", zap.Error(err))
-			} else {
-				return err
+				continue
 			}
+
+			return err
 		}
 	}
 }
