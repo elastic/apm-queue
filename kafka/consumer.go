@@ -356,6 +356,9 @@ func (c *Consumer) Run(ctx context.Context) error {
 	for {
 		if err := c.fetch(clientCtx); err != nil {
 			if errors.Is(clientCtx.Err(), context.Canceled) {
+				if !errors.Is(err, context.Canceled) {
+					c.cfg.Logger.Error("consumer: fetch error on context canceled", zap.Error(err))
+				}
 				return nil // Return no error if client context is canceled.
 			}
 
