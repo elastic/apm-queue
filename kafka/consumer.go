@@ -367,7 +367,7 @@ func (c *Consumer) Run(ctx context.Context) error {
 				continue
 			}
 
-			return err
+			return fmt.Errorf("consumer fetch error: %w", err)
 		}
 	}
 }
