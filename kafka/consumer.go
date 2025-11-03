@@ -366,6 +366,7 @@ func (c *Consumer) Run(ctx context.Context) error {
 			backoff := exponentialBackoff.Backoff(attempt)
 			c.cfg.Logger.Error("kafka: failed to fetch kafka message", zap.Int64("backoff", int64(backoff)), zap.Error(err))
 			attempt++
+			time.Sleep(backoff)
 			continue
 		}
 		attempt = 0
