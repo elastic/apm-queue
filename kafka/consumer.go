@@ -364,7 +364,8 @@ func (c *Consumer) Run(ctx context.Context) error {
 				return nil // Return no error if client context is canceled.
 			}
 
-			// Retry on known retryable errors.
+			// Retry immediately on known retryable errors.
+			// It is expected for c.fetch to wait.
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				c.cfg.Logger.Error("consumer: fetch error; retrying", zap.Error(err))
 				continue
