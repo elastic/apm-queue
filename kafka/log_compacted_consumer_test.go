@@ -268,7 +268,7 @@ func TestLogCompactedConsumerSyncBehavior(t *testing.T) {
 			ClientID: "sync-test-consumer",
 		},
 		Topic:        topicName,
-		FetchMaxWait: 10 * time.Millisecond,
+		FetchMaxWait: time.Second,
 		Processor: func(_ context.Context, iter *kgo.FetchesRecordIter) error {
 			for !iter.Done() {
 				_ = iter.Next() // We just count records, don't need content
@@ -413,4 +413,44 @@ func TestLogCompactedConsumerStartStop(t *testing.T) {
 	assert.NoError(t, consumer.Close(), "Second Close should not error")
 
 	assert.Error(t, consumer.Run(ctx), "Run should error after Close")
+}
+
+func TestLogCompactedConsumerHealthyOnEmptyFirstFetch(t *testing.T) {
+	topicName := "empty-first-fetch-topic"
+	cluster := newLogCompactedFakeCluster(t, topicName, 1)
+	var processedRecords int32
+	cfg := LogCompactedConfig{
+		CommonConfig: CommonConfig{
+			Brokers:  cluster.ListenAddrs(),
+			Logger:   zapTest(t),
+			ClientID: "empty-first-fetch-consumer",
+		},
+		Topic:        topicName,
+		FetchMaxWait: 100 * time.Millisecond,
+		MinFetchSize: 0,
+		Processor: func(_ context.Context, iter *kgo.FetchesRecordIter) error {
+			for !iter.Done() {
+				_ = iter.Next()
+				atomic.AddInt32(&processedRecords, 1)
+			}
+			return nil
+		},
+	}
+
+	consumer, err := NewLogCompactedConsumer(cfg)
+	require.NoError(t, err)
+	t.Cleanup(func() { consumer.Close() })
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	require.NoError(t, consumer.Run(ctx))
+
+	// With an empty topic, the first fetch should return no records and the
+	// consumer should be considered synced (healthy) without producing anything.
+	require.Eventually(t, func() bool {
+		return consumer.Healthy(ctx) == nil
+	}, time.Second, 50*time.Millisecond)
+
+	// Sanity check: no records were processed.
+	assert.Equal(t, int32(0), atomic.LoadInt32(&processedRecords))
 }
