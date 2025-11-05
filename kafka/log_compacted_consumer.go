@@ -185,6 +185,15 @@ func (lcc *LogCompactedConsumer) consume(ctx context.Context) {
 		)
 	})
 	if fetches.Empty() {
+		// No records were returned across all partitions; consider the consumer
+		// synced because there is nothing to process to reach the current HWM.
+		select {
+		case <-lcc.synced:
+			// already synced
+		default:
+			lcc.syncDelta.Store(0)
+			close(lcc.synced)
+		}
 		return
 	}
 	lcc.mu.RLock()
@@ -260,6 +269,8 @@ func (lcc *LogCompactedConsumer) Close() error {
 
 // Healthy checks if the consumer is healthy by ensuring that it has had a full
 // sync and that the underlying Kafka client can ping a broker in the cluster.
+// If the first fetch returns no records, the consumer is considered synced
+// immediately. This may only happen when the topic has no records.
 //
 // This function can be used as a readiness probe.
 func (lcc *LogCompactedConsumer) Healthy(ctx context.Context) error {
