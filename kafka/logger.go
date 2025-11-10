@@ -39,9 +39,11 @@ func (l *loggerHook) OnBrokerConnect(meta kgo.BrokerMetadata, dialDur time.Durat
 	if err != nil {
 		fields := []zap.Field{
 			zap.Error(err),
-			zap.Duration("event.duration", dialDur),
-			zap.String("host", meta.Host),
-			zap.Int32("port", meta.Port),
+			zap.Int64("event.duration", dialDur.Nanoseconds()),
+			zap.String("destination.domain", meta.Host),
+			zap.Int32("destination.port", meta.Port),
+			zap.Int32("node_id", meta.NodeID),
+			zap.Stringp("rack", meta.Rack),
 			zap.Stack("stack"),
 		}
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
