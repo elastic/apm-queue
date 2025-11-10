@@ -908,7 +908,7 @@ func TestStartOffsetError(t *testing.T) {
 	// 3. No commit exists (topic not consumed)
 	// The lag should NOT be reported (since we can't calculate it accurately),
 	// instead of reporting the end offset as lag.
-	
+
 	reader := metric.NewManualReader()
 	mp := metric.NewMeterProvider(metric.WithReader(reader))
 	defer mp.Shutdown(context.Background())
@@ -997,13 +997,13 @@ func TestStartOffsetError(t *testing.T) {
 		cluster.KeepControl()
 		callCount++
 		listReq := req.(*kmsg.ListOffsetsRequest)
-		
+
 		// Check if this is start offset request (timestamp = -2) or end offset request (timestamp = -1)
 		isStartOffsetRequest := false
 		if len(listReq.Topics) > 0 && len(listReq.Topics[0].Partitions) > 0 {
 			isStartOffsetRequest = listReq.Topics[0].Partitions[0].Timestamp == -2
 		}
-		
+
 		if isStartOffsetRequest {
 			// Start offset request fails (e.g., due to segment deletion)
 			return &kmsg.ListOffsetsResponse{
@@ -1018,7 +1018,7 @@ func TestStartOffsetError(t *testing.T) {
 				}},
 			}, nil, true
 		}
-		
+
 		// End offset request succeeds with a large offset
 		return &kmsg.ListOffsetsResponse{
 			Version: listReq.Version,
@@ -1047,7 +1047,7 @@ func TestStartOffsetError(t *testing.T) {
 			}
 		}
 	}
-	
+
 	// Verify that lag metrics are handled correctly
 	foundIncorrectLag := false
 	metricsCount := 0
@@ -1064,11 +1064,11 @@ func TestStartOffsetError(t *testing.T) {
 			}
 		}
 	}
-	
+
 	// We should see warning logs about offset errors after the fix
 	matchingLogs := observedLogs.FilterFieldKey("group")
 	actual := matchingLogs.AllUntimed()
-	
+
 	// After the fix is applied, we expect:
 	// 1. Warning log about the start offset error
 	// 2. No lag metric reported (since we can't calculate it accurately)
@@ -1078,7 +1078,7 @@ func TestStartOffsetError(t *testing.T) {
 		"No lag metrics should be reported when start offset has error")
 	assert.Len(t, actual, 1,
 		"Should have exactly one warning log about the offset error")
-	
+
 	if len(actual) > 0 {
 		assert.Contains(t, actual[0].Message, "error getting consumer group lag",
 			"Log message should indicate lag calculation error")
