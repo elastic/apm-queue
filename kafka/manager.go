@@ -276,13 +276,28 @@ func (m *Manager) MonitorConsumerLag(topicConsumers []apmqueue.TopicConsumer) (m
 					continue
 				}
 				for partition, lag := range partitions {
+					// Check for errors in lag calculation, start offset, or end offset.
+					// The franz-go library can set lag to the end offset value when:
+					// - End offset is valid (lag.End.Err == nil)
+					// - Start offset has an error (lag.Start.Err != nil)
+					// - No commit exists (lag.Commit.At == -1)
+					// This results in incorrect lag reporting, so we must check all error fields.
+					var lagErr error
 					if lag.Err != nil {
-						if lag.Err == kerr.UnknownTopicOrPartition {
+						lagErr = lag.Err
+					} else if lag.Start.Err != nil {
+						lagErr = lag.Start.Err
+					} else if lag.End.Err != nil {
+						lagErr = lag.End.Err
+					}
+
+					if lagErr != nil {
+						if lagErr == kerr.UnknownTopicOrPartition {
 							logger.Debug("error getting consumer group lag",
 								zap.String("group", l.Group),
 								zap.String("topic", topic),
 								zap.Int32("partition", partition),
-								zap.Error(lag.Err),
+								zap.Error(lagErr),
 							)
 							continue
 						}
@@ -290,7 +305,7 @@ func (m *Manager) MonitorConsumerLag(topicConsumers []apmqueue.TopicConsumer) (m
 							zap.String("group", l.Group),
 							zap.String("topic", topic),
 							zap.Int32("partition", partition),
-							zap.Error(lag.Err),
+							zap.Error(lagErr),
 						)
 						continue
 					}
