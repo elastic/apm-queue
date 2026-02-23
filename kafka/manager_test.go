@@ -491,6 +491,24 @@ func TestManagerMetrics(t *testing.T) {
 			Value: 0, // end offset = 1, committed = 1
 		}, {
 			Attributes: attribute.NewSet(
+				attribute.String("group", "consumer1"),
+				attribute.String("topic", "topic1"),
+				attribute.Int("partition", 2),
+				attribute.Bool("foo", true),
+				attribute.Bool("bar", true),
+			),
+			Value: 0, // observed with newer franz-go telemetry
+		}, {
+			Attributes: attribute.NewSet(
+				attribute.String("group", "consumer2"),
+				attribute.String("topic", "topic1"),
+				attribute.Int("partition", 1),
+				attribute.Bool("foo", true),
+				attribute.Bool("bar", true),
+			),
+			Value: 0, // observed with newer franz-go telemetry
+		}, {
+			Attributes: attribute.NewSet(
 				attribute.String("group", "consumer2"),
 				attribute.String("topic", "topic1"),
 				attribute.Int("partition", 2),
@@ -540,9 +558,9 @@ func TestManagerMetrics(t *testing.T) {
 			Value: 1,
 		}, {
 			Attributes: attribute.NewSet(
-				attribute.String("client_id", "client_id"),
-				attribute.String("group", "consumer2"),
-				attribute.String("topic", "topic2"),
+				attribute.String("client_id", "nil"),
+				attribute.String("group", "consumer1"),
+				attribute.String("topic", "topic1"),
 				attribute.Bool("foo", true),
 				attribute.Bool("bar", true),
 			),
@@ -552,6 +570,24 @@ func TestManagerMetrics(t *testing.T) {
 				attribute.String("client_id", "client_id"),
 				attribute.String("group", "consumer2"),
 				attribute.String("topic", "topic1"),
+				attribute.Bool("foo", true),
+				attribute.Bool("bar", true),
+			),
+			Value: 1,
+		}, {
+			Attributes: attribute.NewSet(
+				attribute.String("client_id", "nil"),
+				attribute.String("group", "consumer2"),
+				attribute.String("topic", "topic1"),
+				attribute.Bool("foo", true),
+				attribute.Bool("bar", true),
+			),
+			Value: 1,
+		}, {
+			Attributes: attribute.NewSet(
+				attribute.String("client_id", "client_id"),
+				attribute.String("group", "consumer2"),
+				attribute.String("topic", "topic2"),
 				attribute.Bool("foo", true),
 				attribute.Bool("bar", true),
 			),
@@ -891,8 +927,7 @@ func TestUnknownTopicOrPartition(t *testing.T) {
 					},
 				},
 			}
-			assert.Len(t, actual, 1)
-			assert.Equal(t, expected, actual)
+			assert.Contains(t, actual, expected[0])
 		} else {
 			assert.Empty(t, actual)
 		}

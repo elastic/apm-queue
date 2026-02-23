@@ -184,6 +184,11 @@ type CommonConfig struct {
 	// If zero, the default value of 5 minutes is used.
 	MetadataMaxAge time.Duration
 
+	// ConnIdleTimeout sets how long an idle connection may sit before it is not
+	// reused and may be closed by franz-go.
+	// If zero, apm-queue defaults to 9m instead of franz-go's default.
+	ConnIdleTimeout time.Duration
+
 	hooks []kgo.Hook
 }
 
@@ -343,6 +348,11 @@ func (cfg *CommonConfig) newClientWithOpts(clientOptsFn []clientOptsFn, addition
 	}
 	if cfg.MetadataMaxAge > 0 {
 		opts = append(opts, kgo.MetadataMaxAge(cfg.MetadataMaxAge))
+	}
+	if cfg.ConnIdleTimeout > 0 {
+		opts = append(opts, kgo.ConnIdleTimeout(cfg.ConnIdleTimeout))
+	} else {
+		opts = append(opts, kgo.ConnIdleTimeout(9*time.Minute))
 	}
 	if len(cfg.hooks) != 0 {
 		opts = append(opts, kgo.WithHooks(cfg.hooks...))
