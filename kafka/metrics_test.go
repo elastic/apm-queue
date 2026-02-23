@@ -74,6 +74,7 @@ func TestProducerMetrics(t *testing.T) {
 				}
 			}
 			assert.NotEmpty(t, actual)
+			actual = removeInternalTelemetryDataPoints(actual)
 			metricdatatest.AssertEqual(t, m, actual,
 				metricdatatest.IgnoreTimestamp(),
 				metricdatatest.IgnoreExemplars(),
@@ -571,6 +572,36 @@ func filterMetrics(t testing.TB, sm []metricdata.ScopeMetrics) []metricdata.Metr
 	}
 	t.Fatal("unable to find metrics for", instrumentName)
 	return []metricdata.Metrics{}
+}
+
+func removeInternalTelemetryDataPoints(metric metricdata.Metrics) metricdata.Metrics {
+	isInternal := func(attrs attribute.Set) bool {
+		val, ok := attrs.Value(attribute.Key("operation"))
+		return ok && val.AsString() == "GetTelemetrySubscriptions"
+	}
+
+	switch data := metric.Data.(type) {
+	case metricdata.Histogram[float64]:
+		filtered := data
+		filtered.DataPoints = filtered.DataPoints[:0]
+		for _, dp := range data.DataPoints {
+			if !isInternal(dp.Attributes) {
+				filtered.DataPoints = append(filtered.DataPoints, dp)
+			}
+		}
+		metric.Data = filtered
+	case metricdata.Sum[int64]:
+		filtered := data
+		filtered.DataPoints = filtered.DataPoints[:0]
+		for _, dp := range data.DataPoints {
+			if !isInternal(dp.Attributes) {
+				filtered.DataPoints = append(filtered.DataPoints, dp)
+			}
+		}
+		metric.Data = filtered
+	}
+
+	return metric
 }
 
 func setupTestProducer(t testing.TB, tafunc TopicAttributeFunc, tmafunc TopicAttributesFunc) (*Producer, sdkmetric.Reader) {
