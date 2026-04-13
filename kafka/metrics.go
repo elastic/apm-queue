@@ -352,7 +352,7 @@ func formatMetricError(name string, err error) error {
 }
 
 func (h *metricHooks) OnBrokerConnect(meta kgo.BrokerMetadata, _ time.Duration, _ net.Conn, err error) {
-	attrs := make([]attribute.KeyValue, 0, 3)
+	attrs := make([]attribute.KeyValue, 0, 4)
 	attrs = append(attrs, semconv.MessagingSystem("kafka"))
 	if h.namespace != "" {
 		attrs = append(attrs, attribute.String("namespace", h.namespace))
