@@ -352,12 +352,19 @@ func formatMetricError(name string, err error) error {
 }
 
 func (h *metricHooks) OnBrokerConnect(meta kgo.BrokerMetadata, _ time.Duration, _ net.Conn, err error) {
-	attrs := make([]attribute.KeyValue, 0, 3)
+	attrs := make([]attribute.KeyValue, 0, 4)
 	attrs = append(attrs, semconv.MessagingSystem("kafka"))
 	if h.namespace != "" {
 		attrs = append(attrs, attribute.String("namespace", h.namespace))
 	}
 	if err != nil {
+		errorReason := "unknown"
+		if errors.Is(err, context.Canceled) {
+			errorReason = "canceled"
+		} else if errors.Is(err, context.DeadlineExceeded) {
+			errorReason = "timeout"
+		}
+		attrs = append(attrs, attribute.String(errorReasonKey, errorReason))
 		h.connectErrs.Add(
 			context.Background(),
 			1,
