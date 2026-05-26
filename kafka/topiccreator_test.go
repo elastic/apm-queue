@@ -234,7 +234,10 @@ func TestCreateTopics(t *testing.T) {
 		{Topic: "name_space-topic0", Count: 123},
 	}, createPartitionsRequest.Topics)
 
-	// Ensure the `cleanup.policy` field for `topic0` is deleted.
+	// Ensure the `cleanup.policy` field is deleted for all topics, and that
+	// AlterTopicConfigs is called for both pre-existing topics (topic0) AND
+	// newly created / already-existing topics (topic1, topic3, topic4).
+	// topic2 failed creation, so it must not appear here.
 	expectedAlter := []kmsg.IncrementalAlterConfigsRequestResource{
 		{
 			ResourceType: kmsg.ConfigResourceTypeTopic,
@@ -246,10 +249,39 @@ func TestCreateTopics(t *testing.T) {
 				},
 			},
 		},
+		{
+			ResourceType: kmsg.ConfigResourceTypeTopic,
+			ResourceName: "name_space-topic1",
+			Configs: []kmsg.IncrementalAlterConfigsRequestResourceConfig{
+				{
+					Name:  "retention.ms",
+					Value: kmsg.StringPtr("123"),
+				},
+			},
+		},
+		{
+			ResourceType: kmsg.ConfigResourceTypeTopic,
+			ResourceName: "name_space-topic3",
+			Configs: []kmsg.IncrementalAlterConfigsRequestResourceConfig{
+				{
+					Name:  "retention.ms",
+					Value: kmsg.StringPtr("123"),
+				},
+			},
+		},
+		{
+			ResourceType: kmsg.ConfigResourceTypeTopic,
+			ResourceName: "name_space-topic4",
+			Configs: []kmsg.IncrementalAlterConfigsRequestResourceConfig{
+				{
+					Name:  "retention.ms",
+					Value: kmsg.StringPtr("123"),
+				},
+			},
+		},
 	}
 
-	// Ensure only the existing topic config is updated since it already exists.
-	assert.Len(t, alterConfigsRequest.Resources, 1)
+	assert.Len(t, alterConfigsRequest.Resources, 4)
 	sortAlteredConfigs(t, expectedAlter)
 	sortAlteredConfigs(t, alterConfigsRequest.Resources)
 	assert.Equal(t, expectedAlter, alterConfigsRequest.Resources)
@@ -325,6 +357,39 @@ func TestCreateTopics(t *testing.T) {
 				"retention.ms":   "123",
 			}),
 			zap.String("topic", "topic0"),
+		},
+	}, {
+		Entry: zapcore.Entry{LoggerName: "kafka", Message: "altered configuration for kafka topic"},
+		Context: []zapcore.Field{
+			zap.String("namespace", "name_space"),
+			zap.Int("partition_count", 123),
+			zap.Any("topic_configs", map[string]string{
+				"cleanup.policy": "compact,delete",
+				"retention.ms":   "123",
+			}),
+			zap.String("topic", "topic1"),
+		},
+	}, {
+		Entry: zapcore.Entry{LoggerName: "kafka", Message: "altered configuration for kafka topic"},
+		Context: []zapcore.Field{
+			zap.String("namespace", "name_space"),
+			zap.Int("partition_count", 123),
+			zap.Any("topic_configs", map[string]string{
+				"cleanup.policy": "compact,delete",
+				"retention.ms":   "123",
+			}),
+			zap.String("topic", "topic3"),
+		},
+	}, {
+		Entry: zapcore.Entry{LoggerName: "kafka", Message: "altered configuration for kafka topic"},
+		Context: []zapcore.Field{
+			zap.String("namespace", "name_space"),
+			zap.Int("partition_count", 123),
+			zap.Any("topic_configs", map[string]string{
+				"cleanup.policy": "compact,delete",
+				"retention.ms":   "123",
+			}),
+			zap.String("topic", "topic4"),
 		},
 	}}, matchingLogs.AllUntimed(), cmpopts.SortSlices(func(a, b observer.LoggedEntry) bool {
 		var ai, bi int
@@ -408,6 +473,11 @@ func sortTopicConfigs(t *testing.T, topics []kmsg.CreateTopicsRequestTopic) {
 
 func sortAlteredConfigs(t *testing.T, topics []kmsg.IncrementalAlterConfigsRequestResource) {
 	t.Helper()
+	// Sort resources by name so the order is deterministic across calls.
+	sort.Slice(topics, func(a, b int) bool {
+		return topics[a].ResourceName < topics[b].ResourceName
+	})
+	// Sort configs within each resource by name.
 	for i := range topics {
 		sort.Slice(topics[i].Configs, func(a, b int) bool {
 			return topics[i].Configs[a].Name < topics[i].Configs[b].Name

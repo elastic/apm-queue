@@ -133,7 +133,8 @@ func (c *TopicCreator) CreateTopics(ctx context.Context, topics ...apmqueue.Topi
 	missingTopics, updatePartitions, existingTopics := c.categorizeTopics(existing, topicNames)
 
 	var updateErrors []error
-	if err := c.createMissingTopics(ctx, span, missingTopics); err != nil {
+	createdTopics, err := c.createMissingTopics(ctx, span, missingTopics)
+	if err != nil {
 		updateErrors = append(updateErrors, err)
 	}
 
@@ -141,7 +142,13 @@ func (c *TopicCreator) CreateTopics(ctx context.Context, topics ...apmqueue.Topi
 		updateErrors = append(updateErrors, err)
 	}
 
-	if err := c.alterTopicConfigs(ctx, span, existingTopics); err != nil {
+	// Apply topic configs to both pre-existing and newly created topics.
+	// Some Kafka-compatible systems (e.g. WarpStream) silently ignore
+	// vendor-specific configs passed in CreateTopics requests, so we
+	// always follow up with an explicit AlterTopicConfigs call to ensure
+	// configs are applied.
+	topicsToAlter := append(existingTopics, createdTopics...)
+	if err := c.alterTopicConfigs(ctx, span, topicsToAlter); err != nil {
 		updateErrors = append(updateErrors, err)
 	}
 
@@ -170,13 +177,18 @@ func (c *TopicCreator) categorizeTopics(
 	return missingTopics, updatePartitions, existingTopics
 }
 
+// createMissingTopics creates topics that do not yet exist and returns the
+// names of topics that are now live — either freshly created or already
+// present (TopicAlreadyExists). Topics that fail with any other error are
+// excluded from the returned slice so callers do not attempt to configure
+// a topic that was never created.
 func (c *TopicCreator) createMissingTopics(
 	ctx context.Context,
 	span trace.Span,
 	missingTopics []string,
-) error {
+) ([]string, error) {
 	if len(missingTopics) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	responses, err := c.m.adminClient.CreateTopics(ctx,
@@ -188,7 +200,7 @@ func (c *TopicCreator) createMissingTopics(
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
-		return fmt.Errorf("failed to create kafka topics: %w", err)
+		return nil, fmt.Errorf("failed to create kafka topics: %w", err)
 	}
 
 	namespacePrefix := c.m.cfg.namespacePrefix()
@@ -202,7 +214,10 @@ func (c *TopicCreator) createMissingTopics(
 		)
 	}
 
-	var updateErrors []error
+	var (
+		liveTopic    = make([]string, 0, len(missingTopics))
+		updateErrors []error
+	)
 	for _, response := range responses.Sorted() {
 		topicName := strings.TrimPrefix(response.Topic, namespacePrefix)
 
@@ -219,6 +234,8 @@ func (c *TopicCreator) createMissingTopics(
 				span.AddEvent("kafka topic already exists", trace.WithAttributes(
 					semconv.MessagingDestinationKey.String(topicName),
 				))
+				// Topic is live — include it so its configs get applied.
+				liveTopic = append(liveTopic, response.Topic)
 			} else {
 				span.RecordError(err)
 				span.SetStatus(codes.Error, err.Error())
@@ -245,13 +262,10 @@ func (c *TopicCreator) createMissingTopics(
 		))
 
 		logger.Info("created kafka topic", zap.String("topic", topicName))
+		liveTopic = append(liveTopic, response.Topic)
 	}
 
-	if len(updateErrors) > 0 {
-		return errors.Join(updateErrors...)
-	}
-
-	return nil
+	return liveTopic, errors.Join(updateErrors...)
 }
 
 func (c *TopicCreator) updateTopicPartitions(
