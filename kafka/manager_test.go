@@ -771,6 +771,78 @@ func TestManagerCreateACLs(t *testing.T) {
 	})
 }
 
+func TestManagerDeleteACLs(t *testing.T) {
+	t.Run("Success", func(t *testing.T) {
+		cluster, commonConfig := newFakeCluster(t)
+		cluster.ControlKey(kmsg.DeleteACLs.Int16(), func(req kmsg.Request) (kmsg.Response, error, bool) {
+			return &kmsg.DeleteACLsResponse{
+				Version: req.GetVersion(),
+				Results: []kmsg.DeleteACLsResponseResult{
+					{}, // Empty result means success
+				},
+			}, nil, true
+		})
+		m, err := NewManager(ManagerConfig{CommonConfig: commonConfig})
+		require.NoError(t, err)
+		t.Cleanup(func() { m.Close() })
+
+		// For delete filters, Allow() must be paired with AllowHosts().
+		// Explicit "*" matches only ACLs stored with host "*".
+		acls := kadm.NewACLs().
+			Allow("User:*").
+			AllowHosts("*").
+			Topics("topic").
+			Operations(kadm.OpRead).
+			ResourcePatternType(kadm.ACLPatternPrefixed)
+
+		cluster.ControlKey(kmsg.ApiVersions.Int16(), func(req kmsg.Request) (kmsg.Response, error, bool) {
+			return &kmsg.ApiVersionsResponse{
+				Version: req.GetVersion(),
+				ApiKeys: []kmsg.ApiVersionsResponseApiKey{
+					{ApiKey: kmsg.DeleteACLs.Int16(), MaxVersion: 3},
+				},
+			}, nil, true
+		})
+
+		err = m.DeleteACLs(context.Background(), acls)
+		assert.NoError(t, err)
+	})
+	t.Run("Partial Failure", func(t *testing.T) {
+		cluster, commonConfig := newFakeCluster(t)
+		respErr := kerr.InvalidPrincipalType
+		cluster.ControlKey(kmsg.DeleteACLs.Int16(), func(req kmsg.Request) (kmsg.Response, error, bool) {
+			return &kmsg.DeleteACLsResponse{
+				Version: req.GetVersion(),
+				Results: []kmsg.DeleteACLsResponseResult{
+					{ErrorCode: respErr.Code, ErrorMessage: &respErr.Message},
+				},
+			}, nil, true
+		})
+		m, err := NewManager(ManagerConfig{CommonConfig: commonConfig})
+		require.NoError(t, err)
+		t.Cleanup(func() { m.Close() })
+
+		acls := kadm.NewACLs().
+			Allow("User:*").
+			AllowHosts().
+			Topics("topic").
+			Operations(kadm.OpRead).
+			ResourcePatternType(kadm.ACLPatternPrefixed)
+
+		cluster.ControlKey(kmsg.ApiVersions.Int16(), func(req kmsg.Request) (kmsg.Response, error, bool) {
+			return &kmsg.ApiVersionsResponse{
+				Version: req.GetVersion(),
+				ApiKeys: []kmsg.ApiVersionsResponseApiKey{
+					{ApiKey: kmsg.DeleteACLs.Int16(), MaxVersion: 3},
+				},
+			}, nil, true
+		})
+
+		err = m.DeleteACLs(context.Background(), acls)
+		assert.EqualError(t, err, respErr.Error())
+	})
+}
+
 func TestListTopics(t *testing.T) {
 	cluster, commonConfig := newFakeCluster(t)
 	m, err := NewManager(ManagerConfig{CommonConfig: commonConfig})

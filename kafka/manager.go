@@ -368,6 +368,21 @@ func (m *Manager) CreateACLs(ctx context.Context, acls *kadm.ACLBuilder) error {
 	return errors.Join(errs...)
 }
 
+// DeleteACLs deletes the specified ACLs from the Kafka cluster.
+func (m *Manager) DeleteACLs(ctx context.Context, acls *kadm.ACLBuilder) error {
+	res, err := m.adminClient.DeleteACLs(ctx, acls)
+	if err != nil {
+		return fmt.Errorf("failed to delete ACLs: %w", err)
+	}
+	var errs []error
+	for _, r := range res {
+		if r.Err != nil {
+			errs = append(errs, r.Err)
+		}
+	}
+	return errors.Join(errs...)
+}
+
 // ListTopics returns all topics that begin with prefix in lexicographical order from the Kafka broker.
 func (m *Manager) ListTopics(ctx context.Context, prefix string) ([]string, error) {
 	details, err := m.adminClient.ListTopics(ctx)
